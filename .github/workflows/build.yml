@@ -21,8 +21,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # El runner ubuntu-latest ya trae el SDK de Android preinstalado
+      # (ANDROID_HOME configurado y licencias aceptadas); no hace falta
+      # setup-android, cuyo paquete 'tools' ya no existe en el SDK.
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
