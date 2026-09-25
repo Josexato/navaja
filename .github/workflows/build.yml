@@ -28,6 +28,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Unit tests (escáner 3D con escena sintética)
+        run: ./gradlew :app:testDebugUnitTest
+
       - name: Build release APK
         run: ./gradlew assembleRelease
 
