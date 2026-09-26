@@ -185,6 +185,7 @@
   <h1>Navaja <span>◆</span></h1>
   <span id="fileLabel">pieza de ejemplo — abre GAG · SVG · STL · OBJ · PDF</span>
   <span class="spacer"></span>
+  <button class="btn" id="scanBtn" hidden>Escanear 3D</button>
   <button class="btn primary" id="openBtn">Abrir archivo</button>
   <input type="file" id="fileInput" accept=".gag,.sdjf,.svg,.stl,.obj,.pdf,application/pdf,image/svg+xml">
 </header>
@@ -205,6 +206,7 @@
         <select id="matSelect">
           <option value="solid" selected>Sólido</option>
           <option value="normals">Normales</option>
+          <option value="vcolor" id="vcolorOpt" hidden>Color del escaneo</option>
         </select>
       </label>
       <label>Color <input type="color" id="colorPick" value="#9fb0c3"></label>
@@ -311,6 +313,9 @@
     color: new THREE.Color($('colorPick').value), metalness: 0.1, roughness: 0.65, side: THREE.DoubleSide
   });
   const normalsMaterial = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
+  const vertexColorMaterial = new THREE.MeshStandardMaterial({
+    vertexColors: true, metalness: 0.0, roughness: 0.8, side: THREE.DoubleSide
+  });
 
   function applyTheme3d() { scene.background = new THREE.Color(cssVar('--canvas-bg')); rebuildGrid(); }
   function rebuildGrid() {
@@ -362,7 +367,10 @@
     return { tris, verts, volume: Math.abs(volume), area };
   }
 
-  function currentMaterial() { return $('matSelect').value === 'normals' ? normalsMaterial : solidMaterial; }
+  function currentMaterial() {
+    const v = $('matSelect').value;
+    return v === 'normals' ? normalsMaterial : v === 'vcolor' ? vertexColorMaterial : solidMaterial;
+  }
 
   function setModel(object3d, label) {
     if (modelGroup) { scene.remove(modelGroup); modelGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
@@ -799,6 +807,8 @@
   /* ================= Router de archivos ================= */
   function loadFile(file) {
     const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if ($('matSelect').value === 'vcolor') $('matSelect').value = 'solid';
+    $('vcolorOpt').hidden = true;
     const reader = new FileReader();
     reader.onerror = () => showError('No se pudo leer el archivo.');
     if (ext === 'stl') {
@@ -836,6 +846,30 @@
   fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); });
   ['dragover', 'dragenter'].forEach((ev) => stage.addEventListener(ev, (e) => e.preventDefault()));
   stage.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+
+  /* ================= Escáner 3D (nativo, sólo en la app Android) ================= */
+  // El modelo llega como OBJ con color por vértice, en mm y con Z hacia arriba.
+  window.navajaLoadScan = function (url, label) {
+    busy(true);
+    fetch(url)
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then((text) => {
+        const group = new THREE.OBJLoader().parse(text);
+        let hasColor = false, has = false;
+        group.traverse((o) => { if (o.isMesh) { has = true; if (o.geometry.attributes.color) hasColor = true; } });
+        if (!has) throw new Error('sin geometría');
+        group.rotation.x = -Math.PI / 2; // Z-arriba (escáner) -> Y-arriba (visor)
+        $('vcolorOpt').hidden = !hasColor;
+        if (hasColor) $('matSelect').value = 'vcolor';
+        setModel(group, label);
+      })
+      .catch((e) => showError('No se pudo abrir el escaneo: ' + e.message))
+      .finally(() => busy(false));
+  };
+  if (window.NavajaNative) {
+    $('scanBtn').hidden = false;
+    $('scanBtn').addEventListener('click', () => window.NavajaNative.openScanner());
+  }
 
   /* ================= Arranque ================= */
   applyTheme3d();
