@@ -132,6 +132,9 @@ final class CameraProbe {
         if (dist != null) o.put("distortion", floats(dist));
         float[] pose = c.get(CameraCharacteristics.LENS_POSE_TRANSLATION);
         if (pose != null) o.put("poseTranslationM", floats(pose));
+        float[] rot = c.get(CameraCharacteristics.LENS_POSE_ROTATION);
+        if (rot != null) o.put("poseRotationQuat", floats(rot));
+        o.put("distortionCorrectionModes", ints(c.get(CameraCharacteristics.DISTORTION_CORRECTION_AVAILABLE_MODES)));
         Integer poseRef = c.get(CameraCharacteristics.LENS_POSE_REFERENCE);
         if (poseRef != null) o.put("poseReference", poseRef);
         JSONArray fps = new JSONArray();

@@ -52,6 +52,8 @@ import java.util.Locale;
 public class ScanActivity extends Activity implements CameraRig.Listener {
 
     private static final int REQ_CAM = 1;
+    /** Límite de flujos físicos simultáneos (el S26 Ultra rechaza 4; ver diagnóstico). */
+    private static final int MAX_PHYSICAL = 3;
 
     private PreviewView preview;
     private TextView status, logView;
@@ -266,14 +268,20 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         boolean[] checked = new boolean[allCams.size()];
         for (int i = 0; i < names.length; i++) {
             names[i] = allCams.get(i).label;
-            for (CameraRig.CamInfo s : selected) if (s == allCams.get(i)) checked[i] = true;
+            for (CameraRig.CamInfo s : selected) if (s.key().equals(allCams.get(i).key())) checked[i] = true;
         }
         new AlertDialog.Builder(this)
-                .setTitle("Lógica sola, o una o varias físicas a la vez")
+                .setTitle("Lógica sola, o hasta " + MAX_PHYSICAL + " físicas a la vez")
                 .setMultiChoiceItems(names, checked, (d, which, isChecked) -> checked[which] = isChecked)
                 .setPositiveButton("Aplicar", (d, w) -> {
                     List<CameraRig.CamInfo> sel = new ArrayList<>();
                     for (int i = 1; i < names.length; i++) if (checked[i]) sel.add(allCams.get(i));
+                    if (sel.size() > MAX_PHYSICAL) {
+                        // Galaxy S26 Ultra: acepta cualquier trío de físicas, pero no las 4.
+                        Toast.makeText(this, "Máximo " + MAX_PHYSICAL + " cámaras físicas a la vez; uso las "
+                                + MAX_PHYSICAL + " más abiertas", Toast.LENGTH_LONG).show();
+                        sel = new ArrayList<>(sel.subList(0, MAX_PHYSICAL));
+                    }
                     if (sel.isEmpty()) sel.add(allCams.get(0)); // la lógica no se mezcla con físicas
                     selected.clear();
                     selected.addAll(sel);
