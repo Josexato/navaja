@@ -10,6 +10,8 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.CaptureResult;
+import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
@@ -20,6 +22,8 @@ import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.util.Size;
 import android.util.SizeF;
+
+import com.josexato.navaja.scan3d.core.Undistorter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -69,6 +73,17 @@ final class CameraRig {
         Size size;           // tamaño del flujo de análisis
         double fMetaPx;      // focal en píxeles del flujo según metadatos (NaN si no hay)
         int sensorOrientation;
+        double equiv35 = Double.NaN;  // focal equivalente 35 mm
+        double hfovDeg = Double.NaN;
+        /** Intrínsecos en píxeles del flujo y LENS_DISTORTION (null si no hay datos). */
+        double[] intr;
+        float[] distK;
+        /** Corrección por software; se construye sólo para las cámaras abiertas (mapas grandes). */
+        Undistorter undistorter;
+
+        boolean hasDistortion() { return distK != null; }
+
+        String key() { return physicalId == null ? "L" + logicalId : physicalId; }
 
         @Override
         public String toString() { return label; }
@@ -89,6 +104,8 @@ final class CameraRig {
     private long lastPreviewMs = 0;
     private boolean locked = false;
     private boolean hqDistortion = false;
+    /** null = aún no se sabe; true = el HAL entrega la imagen ya rectificada. */
+    private volatile Boolean halCorrected = null;
 
     CameraRig(Context ctx, Listener listener) {
         this.ctx = ctx;
@@ -110,19 +127,38 @@ final class CameraRig {
         List<CamInfo> out = new ArrayList<>();
         if (best == null) return out;
         CameraCharacteristics lc = manager.getCameraCharacteristics(best);
-        out.add(info(best, null, lc, "Lógica " + best + " (automática)"));
-        Set<String> phys = lc.getPhysicalCameraIds();
-        for (String pid : phys) {
-            CameraCharacteristics pc = manager.getCameraCharacteristics(pid);
-            float[] fl = pc.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
-            String f = fl != null && fl.length > 0 ? String.format(Locale.US, "%.1f mm", fl[0]) : "?";
-            CamInfo ci = info(best, pid, pc, "Física " + pid + " (" + f + ")");
-            if (ci.size != null) out.add(ci);
+        CamInfo logical = info(best, null, lc);
+        logical.label = "Lógica " + best + " (automática, " + describe(logical, logical) + ")";
+        out.add(logical);
+        List<CamInfo> phys = new ArrayList<>();
+        for (String pid : lc.getPhysicalCameraIds()) {
+            CamInfo ci = info(best, pid, manager.getCameraCharacteristics(pid));
+            if (ci.size != null) phys.add(ci);
         }
+        // Ordenadas de gran angular a teleobjetivo, con el zoom relativo a la lógica (1x).
+        phys.sort((a, b) -> Double.compare(a.equiv35, b.equiv35));
+        for (CamInfo ci : phys) ci.label = "Física " + ci.physicalId + " · " + describe(ci, logical);
+        out.addAll(phys);
         return out;
     }
 
-    private CamInfo info(String logical, String physical, CameraCharacteristics c, String label) {
+    /**
+     * Distancia mínima (cm) para que el tapete (279 mm + margen) quepa en el
+     * ancho de la imagen. Los teleobjetivos necesitan alejarse mucho.
+     */
+    static double minMatDistanceCm(CamInfo ci) {
+        if (Double.isNaN(ci.hfovDeg)) return Double.NaN;
+        return 32.0 / (2 * Math.tan(Math.toRadians(ci.hfovDeg) / 2));
+    }
+
+    private static String describe(CamInfo ci, CamInfo ref) {
+        if (Double.isNaN(ci.equiv35)) return "?";
+        String zoom = Double.isNaN(ref.equiv35) ? "" : String.format(Locale.US, "%.1f× · ", ci.equiv35 / ref.equiv35);
+        return String.format(Locale.US, "%s%.0f mm eq · %.0f° · tapete desde %.0f cm%s",
+                zoom, ci.equiv35, ci.hfovDeg, minMatDistanceCm(ci), ci.hasDistortion() ? " · corrige distorsión" : "");
+    }
+
+    private CamInfo info(String logical, String physical, CameraCharacteristics c) {
         CamInfo ci = new CamInfo();
         ci.logicalId = logical;
         ci.physicalId = physical;
@@ -142,9 +178,39 @@ final class CameraRig {
             // El flujo es la zona activa recortada al aspecto de salida y escalada.
             double scale = (ow / oh >= aw / ah) ? ow / aw : oh / ah;
             ci.fMetaPx = fActive * scale;
+            double diag = Math.hypot(phys.getWidth(), phys.getHeight());
+            ci.equiv35 = fl[0] * 43.27 / diag;
+            ci.hfovDeg = Math.toDegrees(2 * Math.atan(phys.getWidth() / (2 * fl[0])));
+            // Intrínsecos + distorsión publicados (relativos a la zona activa):
+            // se llevan al tamaño del flujo (recorte centrado + escala).
+            float[] in = c.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION);
+            float[] dist = c.get(CameraCharacteristics.LENS_DISTORTION);
+            if (in != null && in.length >= 4 && in[0] > 0) {
+                double offX = (aw - ow / scale) / 2, offY = (ah - oh / scale) / 2;
+                double fx = in[0] * scale, fy = in[1] * scale;
+                double cx = (in[2] - offX) * scale, cy = (in[3] - offY) * scale;
+                ci.fMetaPx = (fx + fy) / 2;
+                ci.intr = new double[]{fx, fy, cx, cy};
+                if (dist != null && dist.length >= 5 && cornerShift(ci.intr, dist, ow, oh) > 0.75) ci.distK = dist;
+            }
         }
-        ci.label = label + (ci.size != null ? " " + ci.size.getWidth() + "x" + ci.size.getHeight() : "");
         return ci;
+    }
+
+    private static void buildUndistorter(CamInfo ci) {
+        if (ci.hasDistortion() && ci.undistorter == null)
+            ci.undistorter = new Undistorter(ci.size.getWidth(), ci.size.getHeight(),
+                    ci.intr[0], ci.intr[1], ci.intr[2], ci.intr[3], ci.distK);
+    }
+
+    /** Desplazamiento (px) que produce la distorsión en la esquina de la imagen. */
+    private static double cornerShift(double[] in, float[] k, double w, double h) {
+        double x = (0 - in[2]) / in[0], y = (0 - in[3]) / in[1];
+        double r2 = x * x + y * y;
+        double rad = 1 + r2 * (k[0] + r2 * (k[1] + r2 * k[2]));
+        double xc = x * rad + 2 * k[3] * x * y + k[4] * (r2 + 2 * x * x);
+        double yc = y * rad + k[3] * (r2 + 2 * y * y) + 2 * k[4] * x * y;
+        return Math.hypot((xc - x) * in[0], (yc - y) * in[1]);
     }
 
     /** 4:3 más cercano a 1280x960 (suficiente detalle y rápido de procesar). */
@@ -170,6 +236,7 @@ final class CameraRig {
         thread.start();
         handler = new Handler(thread.getLooper());
         active = new ArrayList<>(selection);
+        for (CamInfo ci : active) buildUndistorter(ci);
         wantFrame = new boolean[active.size()];
         final String logicalId = active.get(0).logicalId;
         int[] dm = manager.getCameraCharacteristics(logicalId)
@@ -259,6 +326,7 @@ final class CameraRig {
             List<CamInfo> all = enumerate();
             active = new ArrayList<>();
             active.add(all.get(0));
+            buildUndistorter(all.get(0));
             wantFrame = new boolean[1];
             startSession(false);
         } catch (Exception e) {
@@ -281,7 +349,23 @@ final class CameraRig {
         } else {
             b.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
         }
-        session.setRepeatingRequest(b.build(), null, handler);
+        // En trípode el OIS sobra y mueve el centro óptico entre fotos.
+        b.set(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF);
+        session.setRepeatingRequest(b.build(), new CameraCaptureSession.CaptureCallback() {
+            @Override
+            public void onCaptureCompleted(CameraCaptureSession s, CaptureRequest r, TotalCaptureResult res) {
+                if (halCorrected != null) return;
+                Integer dm = res.get(CaptureResult.DISTORTION_CORRECTION_MODE);
+                halCorrected = dm != null && dm != CaptureResult.DISTORTION_CORRECTION_MODE_OFF;
+                StringBuilder sb = new StringBuilder("Distorsión: ");
+                sb.append(halCorrected ? "la corrige el sistema (modo " + dm + ")" : "el sistema no la corrige");
+                for (CamInfo ci : active)
+                    if (!halCorrected) sb.append(ci.undistorter != null
+                            ? "; cámara " + (ci.physicalId == null ? "lógica" : ci.physicalId) + " corregida por software"
+                            : "; cámara " + (ci.physicalId == null ? "lógica" : ci.physicalId) + " sin datos de distorsión");
+                listener.onInfo(sb.toString());
+            }
+        }, handler);
     }
 
     /**
@@ -330,7 +414,11 @@ final class CameraRig {
             boolean[] want = wantFrame;
             if (cam < want.length && want[cam]) {
                 want[cam] = false;
-                listener.onFrame(new Frame(cam, img.getWidth(), img.getHeight(), YuvUtil.toArgb(img, 1)));
+                int[] argb = YuvUtil.toArgb(img, 1);
+                Undistorter u = active.get(cam).undistorter;
+                if (!Boolean.TRUE.equals(halCorrected) && u != null && u.w == img.getWidth() && u.h == img.getHeight())
+                    argb = u.apply(argb);
+                listener.onFrame(new Frame(cam, img.getWidth(), img.getHeight(), argb));
             } else if (cam == 0) {
                 long now = SystemClock.elapsedRealtime();
                 if (now - lastPreviewMs >= 120) {
@@ -344,6 +432,7 @@ final class CameraRig {
     }
 
     void close() {
+        halCorrected = null;
         try {
             if (session != null) session.close();
         } catch (Exception ignored) {
