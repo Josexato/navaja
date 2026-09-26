@@ -126,9 +126,13 @@ final class ScanSession {
             int[] lum = MatDetector.luminance(f.argb);
             MatDetector.Result mr = MatDetector.detect(lum, f.w, f.h);
             String name = cams.get(f.cam).label;
+            // La foto de fondo se guarda siempre: si falla, sirve para ver qué vio la cámara.
+            saveJpeg(f.argb, f.w, f.h, new File(dir, String.format(Locale.US, "p%d_c%d_fondo%s.jpg",
+                    passes.size() + 1, f.cam, mr == null ? "_sin_tapete" : "")));
             if (mr == null) {
-                sb.append("· ").append(name).append(": no veo los 4 marcadores\n");
-                log("cal cam" + f.cam + " FALLO tapete");
+                sb.append("· ").append(name).append(": no veo los 4 marcadores (encuadra la hoja completa, "
+                        + "sin taparlos con el disco, con luz pareja)\n");
+                log("cal cam" + f.cam + " FALLO tapete: no se encontraron los 4 marcadores");
                 continue;
             }
             Cal c = new Cal();
@@ -144,9 +148,13 @@ final class ScanSession {
                 c.discCy = dc[1];
                 c.bgAngle = dc[2];
                 if (dc[3] < 0.3) {
-                    sb.append("· ").append(name).append(": tapete OK pero el anillo del disco no se lee bien (conf ")
-                            .append(String.format(Locale.US, "%.2f", dc[3])).append(")\n");
-                    log("cal cam" + f.cam + " anillo débil conf=" + dc[3]);
+                    // Diagnóstico en el centro nominal: ¿fuera de imagen, sin contraste o ilegible?
+                    RingAngle.Measurement me = RingAngle.measure(lum, f.w, f.h, mr.H, 0, 0, 720);
+                    String why = me.problem() != null ? me.problem()
+                            : "veo el anillo pero no se lee (sombra, reflejo, disco torcido o mal centrado)";
+                    sb.append("· ").append(name).append(": tapete OK, pero ").append(why).append('\n');
+                    log(String.format(Locale.US, "cal cam%d anillo débil conf=%.2f contraste=%.0f muestras=%d/%d tapete %s -> %s",
+                            f.cam, dc[3], me.contrast, me.valid, me.samples, mr, why));
                     continue;
                 }
             }
@@ -158,11 +166,10 @@ final class ScanSession {
                     name, c.model.describe(), mr, c.discCx, c.discCy, cams.get(f.cam).fMetaPx);
             sb.append(info).append('\n');
             log("cal cam" + f.cam + " " + info);
-            saveJpeg(f.argb, f.w, f.h, new File(dir, String.format(Locale.US, "p%d_c%d_fondo.jpg", p.index, f.cam)));
         }
         if (p.cals.length == 0 || p.cals[0] == null) {
-            throw new IllegalStateException(sb.append("La cámara principal no quedó calibrada. Encuadra todo el tapete, "
-                    + "con buena luz y sin objeto, y vuelve a intentarlo.").toString());
+            saveLog();
+            throw new IllegalStateException(sb.append("La cámara principal no quedó calibrada (detalle arriba).").toString());
         }
         Pass prev = currentPass();
         if (prev != null) for (Cal c : prev.cals) if (c != null) c.seg = null; // liberar memoria
