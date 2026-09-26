@@ -118,7 +118,7 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         bCapture = add(panel, "", v -> toggleCapture());
         bBuild = add(panel, "Generar 3D", v -> build());
         bView = add(panel, "Ver 3D en Navaja", v -> showInNavaja());
-        bShare = add(panel, "Compartir modelo + log", v -> share());
+        bShare = add(panel, "Compartir log (+ modelo si existe)", v -> share());
         add(panel, "Nueva sesión", v -> { newSession(); refresh(); });
         bThr = add(panel, "", v -> { threshold = next(threshold, new int[]{20, 28, 35, 45, 60}); applySettings(); });
         bRes = add(panel, "", v -> { resolution = next(resolution, new int[]{96, 128, 160, 200, 256}); applySettings(); });
@@ -170,7 +170,7 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         bCapture.setEnabled(p != null && !calibrating);
         bBuild.setEnabled(!capturing && session != null && !session.shots.isEmpty());
         bView.setEnabled(lastMesh != null);
-        bShare.setEnabled(lastMesh != null);
+        bShare.setEnabled(session != null); // el log sirve aunque aún no haya modelo
         bThr.setText("Umbral silueta: " + threshold);
         bRes.setText("Resolución 3D: " + resolution + " vóxeles");
         bGate.setText("Esperar escena quieta: " + (gate ? "Sí" : "No"));
@@ -503,6 +503,7 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
     }
 
     private void share() {
+        session.saveLog(); // volcar lo último (calibración, rechazos…) antes de compartir
         ArrayList<Uri> uris = new ArrayList<>();
         for (File f : session.outputs())
             if (f.exists()) uris.add(FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f));
