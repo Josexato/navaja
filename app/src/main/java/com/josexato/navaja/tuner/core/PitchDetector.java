@@ -46,8 +46,13 @@ public final class PitchDetector {
     /** Muestras necesarias por llamada: ventana + retardo máximo. */
     public int bufferSize() { return window + tauMax + 1; }
 
-    /** Mínimos de d' por encima de esto no se consideran periódicos. */
-    private static final float MAX_CANDIDATE = 0.4f;
+    /**
+     * Mínimos de d' por encima de esto no se consideran periódicos. Es alto a
+     * propósito: con varias cuerdas sonando a la vez (la 6ª con la 5ª y 4ª aún
+     * vibrando) la nota real da d' ~0.45-0.55. El filtrado fino lo hace la
+     * coherencia entre cuadros en PitchTracker.
+     */
+    private static final float MAX_CANDIDATE = 0.6f;
     /** Penalización máxima por estar lejos de cualquier cuerda. */
     private static final double PRIOR_WEIGHT = 0.25;
     /** Leve preferencia por períodos cortos: evita caer en subarmónicos (2P, 3P). */
@@ -105,7 +110,8 @@ public final class PitchDetector {
         for (int tau = tauMin; tau <= tauMax; tau++) {
             float v = diff[tau];
             if (v >= MAX_CANDIDATE || v > diff[tau - 1] || (tau < tauMax && v > diff[tau + 1])) continue;
-            double score = v + prior(sampleRate / refine(tau)) + TAU_BIAS * Math.log(tau / (double) tauMin);
+            double fc = sampleRate / refine(tau);
+            double score = v + prior(fc) + TAU_BIAS * Math.log(tau / (double) tauMin);
             if (score < bestScore) { bestScore = score; best = tau; }
         }
         if (best < 0) return r;

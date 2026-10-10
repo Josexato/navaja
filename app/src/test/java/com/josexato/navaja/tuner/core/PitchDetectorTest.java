@@ -134,15 +134,18 @@ public class PitchDetectorTest {
             assertTrue(gain(BandFilter.forInstrument(SR, Tunings.GUITAR, 440), Tunings.freq(m, 440)) > 0.7);
     }
 
-    /** Cuerda pulsada "vista" por un micrófono de teléfono: fundamental débil que decae antes. */
+    /**
+     * Cuerda pulsada "vista" por un micrófono de teléfono: fundamental débil que
+     * decae antes. Empieza con 0,5 s de ruido de fondo, como al abrir el afinador.
+     */
     private static float[] phoneMicPluck(double f, int n, long seed) {
         Random rnd = new Random(seed);
         double[] harm = {0.1, 1.0, 0.9, 0.6, 0.4, 0.25, 0.15, 0.1};
         float[] x = new float[n];
         double a = Math.exp(-2 * Math.PI * 150 / SR), y1 = 0, x1 = 0, y2 = 0, x2 = 0;
         for (int i = 0; i < n; i++) {
-            double t = i / (double) SR, s = 0;
-            for (int k = 0; k < harm.length; k++)
+            double t = (i - SR / 2) / (double) SR, s = 0;
+            for (int k = 0; k < harm.length && t >= 0; k++)
                 s += harm[k] * Math.exp(-t * (k == 0 ? 4 : 1 + k * 0.8))
                         * Math.sin(2 * Math.PI * f * (k + 1) * t * (1 + 0.0004 * (k + 1) * (k + 1)) + k);
             double in = 0.3 * s + 0.01 * rnd.nextGaussian();
@@ -164,12 +167,12 @@ public class PitchDetectorTest {
                 d.setTargets(targets);
                 BandFilter bf = BandFilter.forInstrument(SR, ins, 440);
                 PitchTracker tr = new PitchTracker(PitchTracker.Response.NORMAL, 600);
-                float[] all = phoneMicPluck(Tunings.freq(midi, 440), SR * 2, midi);
+                float[] all = phoneMicPluck(Tunings.freq(midi, 440), SR * 5 / 2, midi);
                 for (int i = 0; i < all.length; i++) all[i] = bf.process(all[i]);
                 int wrong = 0, shown = 0;
                 for (int off = 0; off + d.bufferSize() < all.length; off += 1024) {
                     PitchDetector.Result r = d.detect(java.util.Arrays.copyOfRange(all, off, off + d.bufferSize()));
-                    double f = tr.push(r.pitched() && r.clarity > 0.7 ? r.freq : Double.NaN, off * 1000L / SR);
+                    double f = tr.push(r.pitched() && r.clarity > 0.4 ? r.freq : Double.NaN, r.rms, off * 1000L / SR);
                     if (Double.isNaN(f)) continue;
                     shown++;
                     if (Math.abs(Tunings.cents(f, midi, 440)) > 50) wrong++;
@@ -178,6 +181,39 @@ public class PitchDetectorTest {
                 assertTrue(ins.name + " " + Tunings.name(midi) + " casi siempre con lectura", shown > 70);
             }
         }
+    }
+
+    @Test
+    public void lowEWhileFifthAndFourthStillRing() {
+        // Caso visto en una grabación real: se pulsa la 6ª (Mi2) mientras La2 y Re3
+        // siguen vibrando. Antes la 6ª no se reconocía (d' ~0.5 por la mezcla).
+        Tunings.Instrument ins = Tunings.GUITAR;
+        double[] targets = new double[6];
+        for (int i = 0; i < 6; i++) targets[i] = Tunings.freq(ins.strings[i], 440);
+        float[] e2 = phoneMicPluck(Tunings.freq(40, 440) * Math.pow(2, -22 / 1200.0), SR * 3, 1);
+        float[] a2 = phoneMicPluck(Tunings.freq(45, 440), SR * 3, 2);
+        float[] d3 = phoneMicPluck(Tunings.freq(50, 440), SR * 3, 3);
+        // La2 y Re3 empezaron 1 s antes (ya decayendo, pero todavía fuertes).
+        float[] mix = new float[SR * 2];
+        for (int i = 0; i < mix.length; i++) mix[i] = 0.6f * a2[i + SR] + 0.5f * d3[i + SR] + e2[i];
+        PitchDetector d = detectorFor(ins);
+        d.setTargets(targets);
+        BandFilter bf = BandFilter.forInstrument(SR, ins, 440);
+        PitchTracker tr = new PitchTracker(PitchTracker.Response.NORMAL, 600);
+        for (int i = 0; i < mix.length; i++) mix[i] = bf.process(mix[i]);
+        int e2frames = 0, after = 0;
+        for (int off = 0; off + d.bufferSize() < mix.length; off += 1024) {
+            PitchDetector.Result r = d.detect(java.util.Arrays.copyOfRange(mix, off, off + d.bufferSize()));
+            double f = tr.push(r.pitched() && r.clarity > 0.4 ? r.freq : Double.NaN, r.rms, off * 1000L / SR);
+            if (off < SR * 0.8) continue; // tras el ataque (0,5 s) y su confirmación
+            after++;
+            if (!Double.isNaN(f) && Tunings.nearestString(ins, f, 440) == 0) {
+                e2frames++;
+                // La inarmonicidad simulada sube algo la lectura (fundamental débil): ±15 cents.
+                assertEquals(-22, Tunings.cents(f, 40, 440), 15);
+            }
+        }
+        assertTrue("la 6ª debe mostrarse casi todo el tiempo: " + e2frames + "/" + after, e2frames > after * 0.8);
     }
 
     private static double gain(BandFilter bf, double f) {

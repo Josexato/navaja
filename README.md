@@ -18,9 +18,9 @@ Afina **guitarra** (estándar E2 A2 D3 G3 B3 E4 y Drop D) y **violín** (G3 D4 A
 - Reconoce sola la cuerda que suena; tocando una cuerda en pantalla queda fija (útil si está muy desafinada).
 - Aguja de −50 a +50 cents: verde = afinada (±5 cents), con la indicación «tensa» o «afloja».
 - La4 ajustable de 415 a 466 Hz (p. ej. 442 Hz de orquesta) y **tono de referencia** por cuerda para afinar de oído.
-- Detección con YIN más tres defensas contra los armónicos: **filtro pasabanda** del rango del instrumento (más estrecho con una cuerda fija: −12 dB en el 2º armónico, −26 dB en el 3º), elección del mínimo más periódico **cercano a las cuerdas** (no el primero) y **seguimiento estable** (ignora el ataque, confirma varios cuadros y pide el doble para saltos de octava).
+- Detección con YIN más tres defensas contra los armónicos: **filtro pasabanda** del rango del instrumento (más estrecho con una cuerda fija: −12 dB en el 2º armónico, −26 dB en el 3º), elección del mínimo más periódico **cercano a las cuerdas** (no el primero) y **seguimiento estable**: ignora el golpe inicial, confirma por votación entre cuadros (el doble para saltos de octava) y sólo cambia de cuerda tras un **ataque** nuevo o cuando la anterior deja de oírse, así una cuerda que vibra por simpatía no tapa a la recién pulsada.
 - Botón **Respuesta: Rápida / Normal / Estable** para elegir entre velocidad y estabilidad de la aguja.
-- Probado con señales sintéticas que imitan el micrófono del teléfono (fundamental grave atenuada): 0 lecturas en el armónico en guitarra, Drop D y violín.
+- Probado con señales sintéticas que imitan el micrófono del teléfono (fundamental grave atenuada, cuerdas sonando a la vez): 0 lecturas en el armónico en guitarra, Drop D y violín. Validado además con una grabación real de guitarra: los cambios de cuerda mostrada bajaron de 76 a 17 en 15 s.
 - El audio se procesa en el teléfono y no se guarda ni se envía.
 
 ## 📷 Escáner 3D (botón «Escanear 3D», Android 11+)

@@ -38,6 +38,8 @@ import java.util.Locale;
 public class TunerActivity extends Activity {
 
     private static final int REQ_MIC = 1;
+    /** Claridad mínima por cuadro (1 - d'); la coherencia entre cuadros hace el resto. */
+    static final double MIN_CLARITY = 0.4;
 
     private Tunings.Instrument instrument = Tunings.GUITAR;
     private double a4 = 440;
@@ -284,7 +286,7 @@ public class TunerActivity extends Activity {
                 if (filled < need) continue;
                 PitchDetector.Result r = det.detect(win);
                 long now = SystemClock.elapsedRealtime();
-                double f = tracker.push(r.pitched() && r.clarity > 0.7 ? r.freq : Double.NaN, now);
+                double f = tracker.push(r.pitched() && r.clarity > MIN_CLARITY ? r.freq : Double.NaN, r.rms, now);
                 if (now - lastUi >= 50) {
                     lastUi = now;
                     final double ff = f;
