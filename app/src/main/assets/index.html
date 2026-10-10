@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Navaja</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%2218%2018%2072%2072%22%3E%3Cdefs%3E%3CradialGradient%20id%3D%22lg%22%20cx%3D%2254%22%20cy%3D%2246%22%20r%3D%2276%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%2334496A%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23161F2C%22/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect%20x%3D%2218%22%20y%3D%2218%22%20width%3D%2272%22%20height%3D%2272%22%20rx%3D%2216%22%20fill%3D%22url%28%23lg%29%22/%3E%3Cg%20transform%3D%22translate%2855%2058%29%20scale%280.8%29%20rotate%28-28%29%20translate%28-56%20-63%29%22%3E%3Cpath%20transform%3D%22rotate%28-70%2036%2064%29%22%20fill%3D%22%233DD6C6%22%20d%3D%22M34%2C66%20L34%2C62%20L52%2C62%20L52%2C59%20L66%2C59%20Q68%2C59%2068%2C61%20L54%2C61%20L54%2C63%20L68%2C63%20Q68%2C65%2066%2C65%20L52%2C65%20L52%2C66%20Z%22/%3E%3Cpath%20transform%3D%22rotate%28-52%2074%2064%29%22%20fill%3D%22%23F2B544%22%20d%3D%22M73%2C66.5%20L73%2C61.5%20L94%2C61.5%20L97%2C64%20L94%2C66.5%20Z%22/%3E%3Cg%20transform%3D%22rotate%28-24%2032%2064%29%22%3E%3Cpath%20fill%3D%22%23EEF2F6%22%20d%3D%22M28%2C66%20L28%2C56%20L70%2C56%20C79%2C56%2087%2C59.5%2093%2C66%20Z%22/%3E%3Cpath%20fill%3D%22%23B7C3CF%22%20d%3D%22M28%2C66%20L28%2C62.5%20L86%2C62.5%20C88.6%2C63.4%2091%2C64.6%2093%2C66%20Z%22/%3E%3C/g%3E%3Crect%20x%3D%2220%22%20y%3D%2259%22%20width%3D%2268%22%20height%3D%2218%22%20rx%3D%229%22%20fill%3D%22%23E2413B%22/%3E%3Crect%20x%3D%2226%22%20y%3D%2260.6%22%20width%3D%2256%22%20height%3D%224.2%22%20rx%3D%222.1%22%20fill%3D%22%23FF8A7E%22%20opacity%3D%220.55%22/%3E%3Ccircle%20cx%3D%2229%22%20cy%3D%2268%22%20r%3D%222.4%22%20fill%3D%22%23F8D7D3%22/%3E%3Ccircle%20cx%3D%2279%22%20cy%3D%2268%22%20r%3D%222.4%22%20fill%3D%22%23F8D7D3%22/%3E%3Cpath%20fill%3D%22%23FFF%22%20d%3D%22M54%2C62%20L60%2C68%20L54%2C74%20L48%2C68%20Z%22/%3E%3C/g%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #eef0f3;
@@ -70,7 +71,8 @@
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
-  header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+  header h1 { font-size: 1rem; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 8px; }
+  header h1 .logo { width: 28px; height: 28px; flex: none; }
   header h1 span { color: var(--accent); }
   #fileLabel {
     font-family: ui-monospace, monospace;
@@ -182,7 +184,7 @@
 </head>
 <body>
 <header>
-  <h1>Navaja <span>◆</span></h1>
+  <h1><svg class="logo" viewBox="18 18 72 72" aria-hidden="true"><defs><radialGradient id="lg" cx="54" cy="46" r="76" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#34496A"/><stop offset="1" stop-color="#161F2C"/></radialGradient></defs><rect x="18" y="18" width="72" height="72" rx="16" fill="url(#lg)"/><g transform="translate(55 58) scale(0.8) rotate(-28) translate(-56 -63)"><path transform="rotate(-70 36 64)" fill="#3DD6C6" d="M34,66 L34,62 L52,62 L52,59 L66,59 Q68,59 68,61 L54,61 L54,63 L68,63 Q68,65 66,65 L52,65 L52,66 Z"/><path transform="rotate(-52 74 64)" fill="#F2B544" d="M73,66.5 L73,61.5 L94,61.5 L97,64 L94,66.5 Z"/><g transform="rotate(-24 32 64)"><path fill="#EEF2F6" d="M28,66 L28,56 L70,56 C79,56 87,59.5 93,66 Z"/><path fill="#B7C3CF" d="M28,66 L28,62.5 L86,62.5 C88.6,63.4 91,64.6 93,66 Z"/></g><rect x="20" y="59" width="68" height="18" rx="9" fill="#E2413B"/><rect x="26" y="60.6" width="56" height="4.2" rx="2.1" fill="#FF8A7E" opacity="0.55"/><circle cx="29" cy="68" r="2.4" fill="#F8D7D3"/><circle cx="79" cy="68" r="2.4" fill="#F8D7D3"/><path fill="#FFF" d="M54,62 L60,68 L54,74 L48,68 Z"/></g></svg>Navaja <span>◆</span></h1>
   <span id="fileLabel">pieza de ejemplo — abre GAG · SVG · STL · OBJ · PDF</span>
   <span class="spacer"></span>
   <button class="btn" id="scanBtn" hidden>Escanear 3D</button>
