@@ -186,6 +186,7 @@
   <span id="fileLabel">pieza de ejemplo — abre GAG · SVG · STL · OBJ · PDF</span>
   <span class="spacer"></span>
   <button class="btn" id="scanBtn" hidden>Escanear 3D</button>
+  <button class="btn" id="tunerBtn" hidden>Afinador</button>
   <button class="btn primary" id="openBtn">Abrir archivo</button>
   <input type="file" id="fileInput" accept=".gag,.sdjf,.svg,.stl,.obj,.pdf,application/pdf,image/svg+xml">
 </header>
@@ -869,6 +870,10 @@
   if (window.NavajaNative) {
     $('scanBtn').hidden = false;
     $('scanBtn').addEventListener('click', () => window.NavajaNative.openScanner());
+    if (window.NavajaNative.openTuner) {
+      $('tunerBtn').hidden = false;
+      $('tunerBtn').addEventListener('click', () => window.NavajaNative.openTuner());
+    }
   }
 
   /* ================= Arranque ================= */

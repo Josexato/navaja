@@ -16,6 +16,7 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import com.josexato.navaja.scan3d.ScanActivity;
+import com.josexato.navaja.tuner.TunerActivity;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -37,7 +38,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> pendingFileCallback;
     private File scanModel;
 
-    /** Puente JS: el botón "Escanear 3D" de index.html llama a NavajaNative.openScanner(). */
+    /** Puente JS: los botones nativos de index.html (Escanear 3D, Afinador) llaman aquí. */
     private final class NativeBridge {
         @JavascriptInterface
         public void openScanner() {
@@ -49,6 +50,11 @@ public class MainActivity extends Activity {
                 }
                 startActivityForResult(new Intent(MainActivity.this, ScanActivity.class), REQ_SCAN);
             });
+        }
+
+        @JavascriptInterface
+        public void openTuner() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, TunerActivity.class)));
         }
     }
 

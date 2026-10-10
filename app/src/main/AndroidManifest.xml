@@ -4,6 +4,9 @@
     <!-- El visor no necesita permisos. La cámara sólo se pide (en tiempo de
          ejecución) al entrar en el escáner 3D; todo se procesa en el dispositivo. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Afinador: el micrófono sólo se pide al abrirlo; el audio no sale del teléfono. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
@@ -28,6 +31,14 @@
             android:exported="false"
             android:label="Navaja · Escáner 3D"
             android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Afinador de guitarra y violín (micrófono + detección de tono YIN). -->
+        <activity
+            android:name=".tuner.TunerActivity"
+            android:exported="false"
+            android:label="Navaja · Afinador"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 

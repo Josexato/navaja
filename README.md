@@ -1,6 +1,6 @@
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. El visor no pide permisos; la cámara sólo se pide al entrar en el escáner.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner o en el afinador.
 
 ## ✨ Qué abre
 
@@ -10,6 +10,16 @@ App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL
 | `.svg` | Render fiel con pan y zoom (ideal para los SVG generados por AlmaGag). |
 | `.stl` / `.obj` | Vista 3D con órbita táctil y panel de pieza para impresión 3D: triángulos, dimensiones en mm, volumen, área y peso estimado en PLA. |
 | `.pdf` | Visor paginado con zoom y carga perezosa de páginas. |
+
+## 🎻 Afinador (botón «Afinador»)
+
+Afina **guitarra** (estándar E2 A2 D3 G3 B3 E4 y Drop D) y **violín** (G3 D4 A4 E5) con el micrófono del teléfono.
+
+- Reconoce sola la cuerda que suena; tocando una cuerda en pantalla queda fija (útil si está muy desafinada).
+- Aguja de −50 a +50 cents: verde = afinada (±5 cents), con la indicación «tensa» o «afloja».
+- La4 ajustable de 415 a 466 Hz (p. ej. 442 Hz de orquesta) y **tono de referencia** por cuerda para afinar de oído.
+- Detección con el algoritmo YIN (sin errores de octava en las cuerdas graves); probado con señales sintéticas: error < 1 cent en senos y < 2 cents en cuerdas con fundamental débil.
+- El audio se procesa en el teléfono y no se guarda ni se envía.
 
 ## 📷 Escáner 3D (botón «Escanear 3D», Android 11+)
 
@@ -53,6 +63,7 @@ Requiere JDK 17 y el SDK de Android (compileSdk 34).
 app/src/main/assets/index.html   ← toda la app (HTML + CSS + JS)
 app/src/main/assets/lib/         ← three.js 0.147 + loaders, pdf.js 3.11 legacy (offline)
 app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + puente al escáner
+app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
 app/src/main/java/.../scan3d/            ← escáner 3D (Camera2, PDF, UI); scan3d/core = algoritmos en Java puro
 app/src/test/java/.../scan3d/core/       ← prueba de extremo a extremo con escena sintética (./gradlew :app:testDebugUnitTest)
 .github/workflows/build.yml      ← CI: compila y publica el APK en Releases
