@@ -19,6 +19,19 @@ public final class RingAngle {
         public double conf;    // pico normalizado (1 = anillo completo y perfecto)
         public double margin;  // pico - segundo pico, normalizado
         public int valid;      // muestras dentro de la imagen
+        public int samples;    // muestras totales
+        public double contrast; // p90 - p10 de la intensidad en el anillo (0..255)
+
+        /** Motivo legible cuando no se pudo leer el anillo (para el log y la UI). */
+        public String problem() {
+            if (valid < samples / 4)
+                return "el anillo cae fuera de la imagen (encuadra todo el disco)";
+            if (contrast < 20)
+                return "no veo el anillo: ¿está el disco recortado puesto sobre el círculo del tapete?";
+            if (!ok())
+                return "veo el anillo pero no se lee (sombra, reflejo, disco torcido o mal centrado)";
+            return null;
+        }
 
         public boolean ok() { return conf >= 0.3 && margin >= 0.12; }
 
@@ -53,11 +66,13 @@ public final class RingAngle {
         }
         Measurement out = new Measurement();
         out.valid = valid;
+        out.samples = m;
         if (valid < m / 4) return out;
         double[] sorted = java.util.Arrays.copyOf(all, valid);
         java.util.Arrays.sort(sorted);
         double lo = sorted[valid / 10], hi = sorted[valid * 9 / 10];
         double thr = (lo + hi) / 2;
+        out.contrast = hi - lo;
         if (hi - lo < 20) return out;
         int[] obs = new int[m];
         for (int k = 0; k < m; k++) obs[k] = !in[k] ? 0 : (s[k] < thr ? 1 : -1);

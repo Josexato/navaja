@@ -358,7 +358,11 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
     }
 
     @Override
-    public void onInfo(String msg) { log(msg); ui.post(this::refresh); }
+    public void onInfo(String msg) {
+        log(msg);
+        if (session != null) session.log(msg); // p. ej. la línea "Distorsión: …" también va a log.txt
+        ui.post(this::refresh);
+    }
 
     @Override
     public void onError(String msg) { log("ERROR: " + msg); setStatus(msg); }
@@ -399,7 +403,10 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
             setStatus("Pasada " + p.index + " calibrada. Pon el objeto en el centro y pulsa Iniciar.");
         } catch (IllegalStateException e) {
             log(e.getMessage());
-            setStatus("No se detectó el tapete. Revisa el encuadre y la luz.");
+            // Mostrar el motivo concreto de la cámara principal (1ª línea tras "Pasada N:").
+            String[] lines = e.getMessage().split("\n");
+            setStatus(lines.length > 1 ? "No calibró" + lines[1].substring(lines[1].indexOf(':'))
+                    : "No se pudo calibrar. Revisa el encuadre y la luz.");
             rig.unlock3A();
         } finally {
             calibrating = false;
