@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" width="128" alt="Logo de Navaja"></p>
+
 # Navaja ◆
 
 App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner o en el afinador.
