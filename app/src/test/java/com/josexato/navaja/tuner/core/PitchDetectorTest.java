@@ -90,16 +90,103 @@ public class PitchDetectorTest {
     }
 
     @Test
-    public void namesAndTrackerMedian() {
+    public void noteNames() {
         assertEquals("La4", Tunings.name(69));
         assertEquals("E2", Tunings.letter(40));
         assertEquals("Mi5", Tunings.name(76));
-        PitchTracker t = new PitchTracker(5, 400);
-        t.push(110, 0);
-        t.push(110.2, 50);
-        t.push(220, 100);      // salto de octava puntual: reinicia (otra nota)
-        double m = t.push(220.1, 150);
-        assertEquals(220.05, m, 0.01);
-        assertTrue(Double.isNaN(t.push(Double.NaN, 1000))); // silencio largo: se reinicia
+    }
+
+    @Test
+    public void trackerSkipsAttackAndRejectsHarmonicGlitches() {
+        PitchTracker t = new PitchTracker(PitchTracker.Response.NORMAL, 600);
+        long ms = 0;
+        // Ataque: los primeros cuadros (onsetSkip=3) se ignoran aunque traigan nota.
+        for (int i = 0; i < 3; i++) assertTrue(Double.isNaN(t.push(220, ms += 21)));
+        // Confirmación: hacen falta 4 cuadros coherentes.
+        double out = Double.NaN;
+        for (int i = 0; i < 4; i++) out = t.push(110 + 0.1 * i, ms += 21);
+        assertEquals(110.15, out, 0.2);
+        // Armónicos sueltos (x2, x3) intercalados: la nota no cambia.
+        double[] seq = {220.3, 110.1, 330.2, 110.0, 220.1, 220.2, 110.2, 330.0, 110.1};
+        for (double f : seq) out = t.push(f, ms += 21);
+        assertEquals(110.1, out, 0.3);
+        // Un armónico sostenido necesita el doble de confirmación (8 cuadros).
+        for (int i = 0; i < 7; i++) assertEquals(110.1, t.push(220.0, ms += 21), 0.3);
+        assertEquals(220.0, t.push(220.0, ms += 21), 0.1);
+        // Cambio de cuerda real (La3 -> Sol3, razón no armónica): 4 cuadros.
+        for (int i = 0; i < 3; i++) assertEquals(220.0, t.push(196.0, ms += 21), 0.1);
+        assertEquals(196.0, t.push(196.0, ms += 21), 0.1);
+        // Silencio largo: se reinicia.
+        assertTrue(Double.isNaN(t.push(Double.NaN, ms += 1000)));
+    }
+
+    @Test
+    public void bandFilterAttenuatesHarmonicsOfLockedString() {
+        double f = Tunings.freq(50, 440); // Re3
+        double g1 = gain(BandFilter.forString(SR, f), f);
+        double g2 = gain(BandFilter.forString(SR, f), 2 * f);
+        double g3 = gain(BandFilter.forString(SR, f), 3 * f);
+        assertTrue("fundamental casi intacta: " + g1, g1 > 0.85);
+        assertTrue("2º armónico -10 dB o más: " + g2, g2 < 0.32);
+        assertTrue("3er armónico -20 dB o más: " + g3, g3 < 0.1);
+        // Banda de instrumento: deja pasar todas las cuerdas de la guitarra.
+        for (int m : Tunings.GUITAR.strings)
+            assertTrue(gain(BandFilter.forInstrument(SR, Tunings.GUITAR, 440), Tunings.freq(m, 440)) > 0.7);
+    }
+
+    /** Cuerda pulsada "vista" por un micrófono de teléfono: fundamental débil que decae antes. */
+    private static float[] phoneMicPluck(double f, int n, long seed) {
+        Random rnd = new Random(seed);
+        double[] harm = {0.1, 1.0, 0.9, 0.6, 0.4, 0.25, 0.15, 0.1};
+        float[] x = new float[n];
+        double a = Math.exp(-2 * Math.PI * 150 / SR), y1 = 0, x1 = 0, y2 = 0, x2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SR, s = 0;
+            for (int k = 0; k < harm.length; k++)
+                s += harm[k] * Math.exp(-t * (k == 0 ? 4 : 1 + k * 0.8))
+                        * Math.sin(2 * Math.PI * f * (k + 1) * t * (1 + 0.0004 * (k + 1) * (k + 1)) + k);
+            double in = 0.3 * s + 0.01 * rnd.nextGaussian();
+            double o1 = a * (y1 + in - x1); x1 = in; y1 = o1;
+            double o2 = a * (y2 + o1 - x2); x2 = o1; y2 = o2;
+            x[i] = (float) o2;
+        }
+        return x;
+    }
+
+    @Test
+    public void fullChainNeverReportsAHarmonicOnPhoneMic() {
+        // Con el YIN clásico, Re3 daba ~13 % de cuadros en el armónico con esta señal.
+        for (Tunings.Instrument ins : Tunings.ALL) {
+            double[] targets = new double[ins.strings.length];
+            for (int i = 0; i < targets.length; i++) targets[i] = Tunings.freq(ins.strings[i], 440);
+            for (int midi : ins.strings) {
+                PitchDetector d = detectorFor(ins);
+                d.setTargets(targets);
+                BandFilter bf = BandFilter.forInstrument(SR, ins, 440);
+                PitchTracker tr = new PitchTracker(PitchTracker.Response.NORMAL, 600);
+                float[] all = phoneMicPluck(Tunings.freq(midi, 440), SR * 2, midi);
+                for (int i = 0; i < all.length; i++) all[i] = bf.process(all[i]);
+                int wrong = 0, shown = 0;
+                for (int off = 0; off + d.bufferSize() < all.length; off += 1024) {
+                    PitchDetector.Result r = d.detect(java.util.Arrays.copyOfRange(all, off, off + d.bufferSize()));
+                    double f = tr.push(r.pitched() && r.clarity > 0.7 ? r.freq : Double.NaN, off * 1000L / SR);
+                    if (Double.isNaN(f)) continue;
+                    shown++;
+                    if (Math.abs(Tunings.cents(f, midi, 440)) > 50) wrong++;
+                }
+                assertEquals(ins.name + " " + Tunings.name(midi) + " cuadros en nota equivocada", 0, wrong);
+                assertTrue(ins.name + " " + Tunings.name(midi) + " casi siempre con lectura", shown > 70);
+            }
+        }
+    }
+
+    private static double gain(BandFilter bf, double f) {
+        double in = 0, out = 0;
+        for (int i = 0; i < SR; i++) {
+            float x = (float) Math.sin(2 * Math.PI * f * i / SR);
+            float y = bf.process(x);
+            if (i > SR / 2) { in += x * x; out += y * y; }
+        }
+        return Math.sqrt(out / in);
     }
 }

@@ -23,6 +23,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.josexato.navaja.tuner.core.BandFilter;
 import com.josexato.navaja.tuner.core.PitchDetector;
 import com.josexato.navaja.tuner.core.PitchTracker;
 import com.josexato.navaja.tuner.core.Tunings;
@@ -41,6 +42,10 @@ public class TunerActivity extends Activity {
     private Tunings.Instrument instrument = Tunings.GUITAR;
     private double a4 = 440;
     private int lockedString = -1;   // -1 = detección automática de la cuerda
+    private PitchTracker.Response response = PitchTracker.Response.NORMAL;
+    private double shownCents = Double.NaN;
+    private int shownString = -1;
+    private Button responseBtn;
 
     private TextView noteView, centsView, freqView, hintView, refView;
     private GaugeView gauge;
@@ -103,6 +108,14 @@ public class TunerActivity extends Activity {
         refRow.addView(button("440", v -> setA4(440)));
         toneBtn = button("♪ Tono de referencia", v -> toggleTone());
         refRow.addView(toneBtn);
+        responseBtn = button("", v -> {
+            PitchTracker.Response[] all = PitchTracker.Response.values();
+            response = all[(response.ordinal() + 1) % all.length];
+            updateResponseLabel();
+            restartAudio();
+        });
+        refRow.addView(responseBtn);
+        updateResponseLabel();
         root.addView(scroll(refRow));
 
         hintView = text("", 13, 0x99FFFFFF);
@@ -139,6 +152,7 @@ public class TunerActivity extends Activity {
                 lockedString = lockedString == idx ? -1 : idx;
                 if (tone != null) startTone(currentToneString());
                 rebuildRows();
+                restartAudio(); // el filtro se estrecha alrededor de la cuerda fija
             });
             styleToggle(bt, i == lockedString);
             stringRow.addView(bt);
@@ -150,8 +164,14 @@ public class TunerActivity extends Activity {
                 + "Pulsa una cuerda a la vez y deja que suene; el afinador reconoce la cuerda.");
     }
 
+    private void updateResponseLabel() {
+        String[] names = {"Rápida", "Normal", "Estable"};
+        responseBtn.setText("Respuesta: " + names[response.ordinal()]);
+    }
+
     private void setA4(double v) {
         a4 = Math.max(415, Math.min(466, v));
+        restartAudio();
         refView.setText(String.format(Locale.US, "La4 = %.0f Hz", a4));
         if (tone != null) startTone(currentToneString());
     }
@@ -191,7 +211,10 @@ public class TunerActivity extends Activity {
         if (running) return;
         running = true;
         final Tunings.Instrument ins = instrument;
-        audioThread = new Thread(() -> audioLoop(ins), "afinador");
+        final int locked = lockedString;
+        final double ref = a4;
+        final PitchTracker.Response resp = response;
+        audioThread = new Thread(() -> audioLoop(ins, locked, ref, resp), "afinador");
         audioThread.start();
     }
 
@@ -208,7 +231,7 @@ public class TunerActivity extends Activity {
     }
 
     @SuppressWarnings("MissingPermission") // sólo se llama con el permiso concedido
-    private void audioLoop(Tunings.Instrument ins) {
+    private void audioLoop(Tunings.Instrument ins, int locked, double ref, PitchTracker.Response resp) {
         int sr = 48000;
         int minBuf = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         if (minBuf <= 0) {
@@ -220,6 +243,18 @@ public class TunerActivity extends Activity {
         int source = "true".equals(am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED))
                 ? MediaRecorder.AudioSource.UNPROCESSED : MediaRecorder.AudioSource.VOICE_RECOGNITION;
         PitchDetector det = new PitchDetector(sr, 2048, ins.minFreq, ins.maxFreq);
+        // Preferencia por las cuerdas (o sólo la fija) y filtro pasabanda acorde.
+        double[] targets;
+        BandFilter filter;
+        if (locked >= 0) {
+            targets = new double[]{Tunings.freq(ins.strings[locked], ref)};
+            filter = BandFilter.forString(sr, targets[0]);
+        } else {
+            targets = new double[ins.strings.length];
+            for (int i = 0; i < targets.length; i++) targets[i] = Tunings.freq(ins.strings[i], ref);
+            filter = BandFilter.forInstrument(sr, ins, ref);
+        }
+        det.setTargets(targets);
         int need = det.bufferSize();
         AudioRecord rec;
         try {
@@ -234,7 +269,7 @@ public class TunerActivity extends Activity {
         }
         float[] win = new float[need];
         short[] hop = new short[1024];
-        PitchTracker tracker = new PitchTracker(5, 600);
+        PitchTracker tracker = new PitchTracker(resp, 600);
         int filled = 0;
         long lastUi = 0;
         try {
@@ -244,12 +279,12 @@ public class TunerActivity extends Activity {
                 // Ventana deslizante: se desplaza y se añaden las muestras nuevas.
                 int keep = Math.min(filled, need - n);
                 System.arraycopy(win, filled - keep, win, 0, keep);
-                for (int i = 0; i < n; i++) win[keep + i] = hop[i] / 32768f;
+                for (int i = 0; i < n; i++) win[keep + i] = filter.process(hop[i] / 32768f);
                 filled = keep + n;
                 if (filled < need) continue;
                 PitchDetector.Result r = det.detect(win);
                 long now = SystemClock.elapsedRealtime();
-                double f = tracker.push(r.pitched() && r.clarity > 0.6 ? r.freq : Double.NaN, now);
+                double f = tracker.push(r.pitched() && r.clarity > 0.7 ? r.freq : Double.NaN, now);
                 if (now - lastUi >= 50) {
                     lastUi = now;
                     final double ff = f;
@@ -264,6 +299,7 @@ public class TunerActivity extends Activity {
 
     private void show(double f) {
         if (Double.isNaN(f)) {
+            shownCents = Double.NaN;
             gauge.setCents(Double.NaN);
             centsView.setText("Toca una cuerda");
             centsView.setTextColor(0xAAFFFFFF);
@@ -272,7 +308,11 @@ public class TunerActivity extends Activity {
         }
         int s = lockedString >= 0 ? lockedString : Tunings.nearestString(instrument, f, a4);
         int target = instrument.strings[s];
-        double c = Tunings.cents(f, target, a4);
+        double raw = Tunings.cents(f, target, a4);
+        // Suavizado exponencial de los cents mientras se afina la misma cuerda.
+        shownCents = s != shownString || Double.isNaN(shownCents) ? raw : shownCents + 0.3 * (raw - shownCents);
+        shownString = s;
+        double c = shownCents;
         noteView.setText(instrument.labels[s] + " · " + Tunings.name(target));
         noteView.setTextColor(GaugeView.colorFor(c));
         gauge.setCents(c);
