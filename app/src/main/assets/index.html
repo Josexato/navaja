@@ -177,6 +177,66 @@
     .stat { font-size: .74rem; }
     #controls { padding: 10px; }
   }
+  /* ===== Pantalla de inicio ===== */
+  #home {
+    position: absolute; inset: 0; z-index: 6; overflow: auto;
+    background:
+      radial-gradient(1200px 500px at 50% -10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+      var(--bg);
+    display: flex; justify-content: center;
+    padding: 28px 16px calc(28px + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+  }
+  .home-inner { width: 100%; max-width: 920px; }
+  .hero { display: flex; align-items: center; gap: 18px; margin: 8px 0 26px; }
+  .hero .logo-big { width: 76px; height: 76px; flex: none; filter: drop-shadow(0 6px 16px rgba(0,0,0,.25)); }
+  .hero h2 { margin: 0; font-size: 1.7rem; letter-spacing: -.01em; }
+  .hero h2 span { color: var(--accent); }
+  .hero p { margin: 4px 0 0; color: var(--muted); font-size: .92rem; line-height: 1.4; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card {
+    position: relative; text-align: left; font: inherit; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 18px 18px 16px; cursor: pointer; display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06); transition: transform .12s ease, border-color .12s ease, box-shadow .12s ease;
+  }
+  .card:hover, .card:focus-visible { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,.12); outline: none; }
+  .card:active { transform: translateY(0); }
+  .card[aria-disabled="true"] { cursor: default; opacity: .62; transform: none; box-shadow: none; border-color: var(--border); }
+  .card .ico { width: 48px; height: 48px; border-radius: 13px; display: grid; place-items: center; color: #fff; }
+  .card .ico svg { width: 28px; height: 28px; }
+  .ico.viewer { background: linear-gradient(135deg, #F2B544, #D9902A); }
+  .ico.scan { background: linear-gradient(135deg, #EE5A4F, #C9322C); }
+  .ico.tuner { background: linear-gradient(135deg, #3DD6C6, #1FA597); }
+  .card h3 { margin: 0; font-size: 1.05rem; }
+  .card p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
+  .card .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+  .chip { font-size: .7rem; font-family: ui-monospace, monospace; padding: 2px 7px; border-radius: 999px;
+          background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+  .card .go { margin-top: auto; font-size: .82rem; font-weight: 600; color: var(--accent); }
+  .card .badge { position: absolute; top: 14px; right: 14px; font-size: .68rem; padding: 3px 8px; border-radius: 999px;
+                 background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+  .linkbtn { font: inherit; font-size: .8rem; background: none; border: 0; padding: 0; color: var(--muted);
+             text-decoration: underline; text-underline-offset: 3px; cursor: pointer; align-self: flex-start; }
+  .linkbtn:hover { color: var(--accent); }
+  .home-foot { margin-top: 22px; color: var(--muted); font-size: .76rem; text-align: center; line-height: 1.5; }
+  @media (max-width: 640px) {
+    #home { padding-top: 18px; }
+    .hero { gap: 14px; margin: 0 0 16px; }
+    .hero .logo-big { width: 60px; height: 60px; }
+    .hero h2 { font-size: 1.4rem; }
+    .hero p { font-size: .84rem; }
+    .cards { gap: 10px; }
+    /* Tarjeta compacta: icono a la izquierda, texto a la derecha. */
+    .card { display: grid; grid-template-columns: 48px 1fr; column-gap: 14px; row-gap: 4px; padding: 14px; align-items: start; }
+    .card .ico { grid-row: span 4; }
+    .card .chips { display: none; }
+    .card .go { margin-top: 2px; }
+    .card .badge { position: static; justify-self: start; grid-column: 2; }
+    .card .linkbtn { grid-column: 2; justify-self: start; }
+    .home-foot { margin-top: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .card { transition: none; } }
   [hidden] { display: none !important; }
   img { max-width: 100%; }
 </style>
@@ -187,13 +247,50 @@
   <h1><svg class="logo" viewBox="18 18 72 72" aria-hidden="true"><defs><radialGradient id="lg" cx="54" cy="46" r="76" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#34496A"/><stop offset="1" stop-color="#161F2C"/></radialGradient></defs><rect x="18" y="18" width="72" height="72" rx="16" fill="url(#lg)"/><g transform="translate(55 58) scale(0.8) rotate(-28) translate(-56 -63)"><path transform="rotate(-70 36 64)" fill="#3DD6C6" d="M34,66 L34,62 L52,62 L52,59 L66,59 Q68,59 68,61 L54,61 L54,63 L68,63 Q68,65 66,65 L52,65 L52,66 Z"/><path transform="rotate(-52 74 64)" fill="#F2B544" d="M73,66.5 L73,61.5 L94,61.5 L97,64 L94,66.5 Z"/><g transform="rotate(-24 32 64)"><path fill="#EEF2F6" d="M28,66 L28,56 L70,56 C79,56 87,59.5 93,66 Z"/><path fill="#B7C3CF" d="M28,66 L28,62.5 L86,62.5 C88.6,63.4 91,64.6 93,66 Z"/></g><rect x="20" y="59" width="68" height="18" rx="9" fill="#E2413B"/><rect x="26" y="60.6" width="56" height="4.2" rx="2.1" fill="#FF8A7E" opacity="0.55"/><circle cx="29" cy="68" r="2.4" fill="#F8D7D3"/><circle cx="79" cy="68" r="2.4" fill="#F8D7D3"/><path fill="#FFF" d="M54,62 L60,68 L54,74 L48,68 Z"/></g></svg>Navaja <span>◆</span></h1>
   <span id="fileLabel">pieza de ejemplo — abre GAG · SVG · STL · OBJ · PDF</span>
   <span class="spacer"></span>
-  <button class="btn" id="scanBtn" hidden>Escanear 3D</button>
-  <button class="btn" id="tunerBtn" hidden>Afinador</button>
+  <button class="btn" id="homeBtn" title="Volver al inicio" aria-label="Inicio">⌂ Inicio</button>
   <button class="btn primary" id="openBtn">Abrir archivo</button>
   <input type="file" id="fileInput" accept=".gag,.sdjf,.svg,.stl,.obj,.pdf,application/pdf,image/svg+xml">
 </header>
 
 <div id="stage">
+  <section id="home" aria-label="Inicio">
+    <div class="home-inner">
+      <div class="hero">
+        <svg class="logo-big" viewBox="18 18 72 72" aria-hidden="true"><defs><radialGradient id="lgHome" cx="54" cy="46" r="76" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#34496A"/><stop offset="1" stop-color="#161F2C"/></radialGradient></defs><rect x="18" y="18" width="72" height="72" rx="16" fill="url(#lgHome)"/><g transform="translate(55 58) scale(0.8) rotate(-28) translate(-56 -63)"><path transform="rotate(-70 36 64)" fill="#3DD6C6" d="M34,66 L34,62 L52,62 L52,59 L66,59 Q68,59 68,61 L54,61 L54,63 L68,63 Q68,65 66,65 L52,65 L52,66 Z"/><path transform="rotate(-52 74 64)" fill="#F2B544" d="M73,66.5 L73,61.5 L94,61.5 L97,64 L94,66.5 Z"/><g transform="rotate(-24 32 64)"><path fill="#EEF2F6" d="M28,66 L28,56 L70,56 C79,56 87,59.5 93,66 Z"/><path fill="#B7C3CF" d="M28,66 L28,62.5 L86,62.5 C88.6,63.4 91,64.6 93,66 Z"/></g><rect x="20" y="59" width="68" height="18" rx="9" fill="#E2413B"/><rect x="26" y="60.6" width="56" height="4.2" rx="2.1" fill="#FF8A7E" opacity="0.55"/><circle cx="29" cy="68" r="2.4" fill="#F8D7D3"/><circle cx="79" cy="68" r="2.4" fill="#F8D7D3"/><path fill="#FFF" d="M54,62 L60,68 L54,74 L48,68 Z"/></g></svg>
+        <div>
+          <h2>Navaja <span>◆</span></h2>
+          <p>Tu navaja suiza en el bolsillo: visor de archivos, escáner 3D y afinador. Todo funciona sin internet.</p>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card" id="cardViewer" role="button" tabindex="0">
+          <div class="ico viewer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 2.8 20 7.2v9.6L12 21.2 4 16.8V7.2z"/><path d="M4 7.2 12 11.6l8-4.4M12 11.6v9.6"/></svg></div>
+          <h3>Visor de archivos</h3>
+          <p>Modelos 3D con medidas y peso para imprimir, diagramas AlmaGag, SVG y PDF.</p>
+          <div class="chips"><span class="chip">STL</span><span class="chip">OBJ</span><span class="chip">GAG</span><span class="chip">SDJF</span><span class="chip">SVG</span><span class="chip">PDF</span></div>
+          <span class="go">Abrir archivo →</span>
+          <button class="linkbtn" id="sampleBtn" type="button">o ver la pieza de ejemplo</button>
+        </div>
+        <div class="card" id="cardScan" role="button" tabindex="0">
+          <span class="badge" hidden>Sólo en la app Android</span>
+          <div class="ico scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M12 7.5 16 9.7v4.6L12 16.5 8 14.3V9.7z"/><path d="M8 9.7l4 2.2 4-2.2M12 11.9v4.6"/></svg></div>
+          <h3>Escáner 3D</h3>
+          <p>Gira el objeto sobre el escenario impreso y obtén un modelo en mm (OBJ, PLY, STL).</p>
+          <div class="chips"><span class="chip">cámara</span><span class="chip">multicámara</span><span class="chip">en mm</span></div>
+          <span class="go">Escanear →</span>
+        </div>
+        <div class="card" id="cardTuner" role="button" tabindex="0">
+          <span class="badge" hidden>Sólo en la app Android</span>
+          <div class="ico tuner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M9 3v7a3 3 0 0 0 6 0V3"/><path d="M12 13v8"/><path d="M5 9.5c-1.3 1.6-1.3 4.4 0 6M19 9.5c1.3 1.6 1.3 4.4 0 6"/></svg></div>
+          <h3>Afinador</h3>
+          <p>Guitarra (estándar y Drop D) y violín, con aguja en cents y tono de referencia.</p>
+          <div class="chips"><span class="chip">guitarra</span><span class="chip">violín</span><span class="chip">La4 ajustable</span></div>
+          <span class="go">Afinar →</span>
+        </div>
+      </div>
+      <p class="home-foot">Los archivos se procesan en tu teléfono; nada se sube a internet.<br>La cámara y el micrófono sólo se piden al entrar en el escáner o el afinador.</p>
+    </div>
+  </section>
   <div id="view3d" class="view"></div>
   <div id="view2d" class="view" hidden><div id="pz"></div></div>
   <div id="viewpdf" class="view" hidden><div id="pdfPages"></div></div>
@@ -810,6 +907,7 @@
   /* ================= Router de archivos ================= */
   function loadFile(file) {
     const ext = (file.name.split('.').pop() || '').toLowerCase();
+    showHome(false);
     if ($('matSelect').value === 'vcolor') $('matSelect').value = 'solid';
     $('vcolorOpt').hidden = true;
     const reader = new FileReader();
@@ -853,6 +951,7 @@
   /* ================= Escáner 3D (nativo, sólo en la app Android) ================= */
   // El modelo llega como OBJ con color por vértice, en mm y con Z hacia arriba.
   window.navajaLoadScan = function (url, label) {
+    showHome(false);
     busy(true);
     fetch(url)
       .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
@@ -869,14 +968,45 @@
       .catch((e) => showError('No se pudo abrir el escaneo: ' + e.message))
       .finally(() => busy(false));
   };
-  if (window.NavajaNative) {
-    $('scanBtn').hidden = false;
-    $('scanBtn').addEventListener('click', () => window.NavajaNative.openScanner());
-    if (window.NavajaNative.openTuner) {
-      $('tunerBtn').hidden = false;
-      $('tunerBtn').addEventListener('click', () => window.NavajaNative.openTuner());
+  /* ================= Pantalla de inicio ================= */
+  const home = $('home');
+  const native = !!window.NavajaNative;
+  function showHome(on) {
+    home.hidden = !on;
+    $('homeBtn').hidden = on;
+    document.querySelector('footer').hidden = on; // el inicio ya trae su propia nota
+    fileLabel.style.visibility = on ? 'hidden' : '';
+    if (on) home.scrollTop = 0;
+  }
+  // El botón Atrás de Android vuelve al inicio; devuelve true si lo gestionó.
+  window.navajaBack = function () {
+    if (!home.hidden) return false;
+    showHome(true);
+    return true;
+  };
+  function onActivate(el, fn) {
+    el.addEventListener('click', fn);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(e); } });
+  }
+  onActivate($('cardViewer'), (e) => { if (e.target.id !== 'sampleBtn') fileInput.click(); });
+  $('sampleBtn').addEventListener('click', (e) => { e.stopPropagation(); showHome(false); });
+  const nativeCards = [
+    ['cardScan', () => window.NavajaNative.openScanner()],
+    ['cardTuner', () => window.NavajaNative.openTuner && window.NavajaNative.openTuner()],
+  ];
+  for (const [id, open] of nativeCards) {
+    const card = $(id);
+    if (native) {
+      onActivate(card, open);
+    } else {
+      card.setAttribute('aria-disabled', 'true');
+      card.removeAttribute('tabindex');
+      card.querySelector('.badge').hidden = false;
+      card.querySelector('.go').hidden = true;
     }
   }
+  $('homeBtn').addEventListener('click', () => showHome(true));
+  showHome(true);
 
   /* ================= Arranque ================= */
   applyTheme3d();

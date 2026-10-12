@@ -117,6 +117,18 @@ public class MainActivity extends Activity {
         webView.loadUrl("file:///android_asset/index.html");
     }
 
+    /**
+     * Atrás: si se está viendo un archivo, vuelve a la pantalla de inicio de
+     * index.html (window.navajaBack devuelve true); si ya está en el inicio, sale.
+     */
+    @Override
+    @SuppressWarnings("deprecation") // onBackPressed sigue siendo la vía simple hasta API 33 sin androidx.activity
+    public void onBackPressed() {
+        webView.evaluateJavascript("(window.navajaBack && window.navajaBack()) === true", value -> {
+            if (!"true".equals(value)) MainActivity.super.onBackPressed();
+        });
+    }
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQ_SCAN) {
