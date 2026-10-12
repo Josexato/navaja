@@ -4,6 +4,10 @@
 
 App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner o en el afinador.
 
+## 🏠 Pantalla de inicio
+
+Al abrir la app aparece un panel con las tres funciones: **Visor de archivos**, **Escáner 3D** y **Afinador** (en la versión web las dos últimas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+
 ## ✨ Qué abre
 
 | Formato | Cómo lo muestra |
