@@ -208,6 +208,7 @@
   .ico.viewer { background: linear-gradient(135deg, #F2B544, #D9902A); }
   .ico.scan { background: linear-gradient(135deg, #EE5A4F, #C9322C); }
   .ico.tuner { background: linear-gradient(135deg, #3DD6C6, #1FA597); }
+  .ico.lan { background: linear-gradient(135deg, #6E8BF0, #3F5AD0); }
   .card h3 { margin: 0; font-size: 1.05rem; }
   .card p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
   .card .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
@@ -286,6 +287,14 @@
           <p>Guitarra (estándar y Drop D) y violín, con aguja en cents y tono de referencia.</p>
           <div class="chips"><span class="chip">guitarra</span><span class="chip">violín</span><span class="chip">La4 ajustable</span></div>
           <span class="go">Afinar →</span>
+        </div>
+        <div class="card" id="cardLan" role="button" tabindex="0">
+          <span class="badge" hidden>Sólo en la app Android</span>
+          <div class="ico lan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><rect x="3" y="4" width="8" height="5" rx="1"/><rect x="13" y="4" width="8" height="5" rx="1"/><rect x="8" y="15" width="8" height="5" rx="1"/><path d="M7 9v3h10V9M12 12v3"/></svg></div>
+          <h3>Red local</h3>
+          <p>Descubre los equipos de tu Wi‑Fi con su tipo y puertos abiertos. Nada sale a internet.</p>
+          <div class="chips"><span class="chip">equipos</span><span class="chip">puertos</span><span class="chip">local</span></div>
+          <span class="go">Escanear red →</span>
         </div>
       </div>
       <p class="home-foot">Los archivos se procesan en tu teléfono; nada se sube a internet.<br>La cámara y el micrófono sólo se piden al entrar en el escáner o el afinador.</p>
@@ -993,6 +1002,7 @@
   const nativeCards = [
     ['cardScan', () => window.NavajaNative.openScanner()],
     ['cardTuner', () => window.NavajaNative.openTuner && window.NavajaNative.openTuner()],
+    ['cardLan', () => window.NavajaNative.openLan && window.NavajaNative.openLan()],
   ];
   for (const [id, open] of nativeCards) {
     const card = $(id);
