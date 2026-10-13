@@ -276,6 +276,6 @@ public class ColorAndStjfTest {
         assertEquals("igual", r.get(0).candidate.id);
         assertEquals(0, r.get(0).total, 1e-9);
         assertTrue(r.get(1).sizeRatio > 2.5);
-        assertTrue(r.get(1).total > 4);
+        assertTrue("total=" + r.get(1).total, r.get(1).total > 3); // piedras ×3: "diferencia clara" aunque el color sea igual
     }
 }

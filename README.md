@@ -33,19 +33,20 @@ Afina **guitarra** (estándar E2 A2 D3 G3 B3 E4 y Drop D) y **violín** (G3 D4 A
 
 Mide el color de una muestra (pintura, cerámica, tela) y también **materiales compuestos como el terrazzo**: color del fondo, color de cada tipo de piedra, qué % del área ocupa y su tamaño en mm. Después la busca en **«mi pantonera»** y la guarda o exporta.
 
-1. Pon la muestra en el **centro de una hoja blanca** (A4, Carta u Oficio; se reconoce sola por su proporción). Mejor papel sin «extra blanco» (los blanqueadores ópticos brillan con luz de día).
+1. Pon la muestra en el **centro de una hoja blanca** (A4, Carta u Oficio; se reconoce sola por su proporción). Mejor papel sin «extra blanco» (los blanqueadores ópticos brillan con luz de día). Si la muestra es **blanca o muy clara** (terrazzo de fondo blanco), ponla **al lado** de la hoja sobre una superficie oscura: la app reconoce cuál es la hoja por su forma y proporción.
 2. **📷 Foto** desde arriba, con la hoja completa, sin sombras ni reflejos. Si puedes, saca **una foto con cada luz** (ventana, foco, LED): se combinan por mediana y la app avisa si el color cambia entre luces (**metamerismo**).
 3. **🔎 Comparar** ordena tu pantonera por parecido (ΔE2000 y su lectura: «no se distingue», «se nota lado a lado»…). Si las dos primeras son equivalentes lo dice: el nombre cambia según la marca, el color no.
 4. **💾 Guardar** con nombre, marca, código y acabado. **📚 Mías** → importar/exportar.
+5. **🖼 Galería → Imagen de catálogo**: mide una foto de catálogo o de la web (la imagen entera es la muestra; opcionalmente su ancho real en mm para los tamaños). Sirve para armar tu pantonera con las baldosas de un proveedor. El color queda tal como viene en la imagen.
 
 | Paso | Técnica |
 |---|---|
-| Hoja | región clara y neutra más grande → envolvente convexa → cuadrilátero → **mm por píxel** con el tamaño del papel |
+| Hoja | regiones claras y neutras → la que mejor parece papel (rectángulo lleno con proporción A4/Carta/Oficio) → brillo del papel modelado como superficie suave (separa grises claros del papel) → cuadrilátero → **mm por píxel** |
 | Luz | **von Kries**: el blanco de la hoja *junto a la muestra* pasa a ser un blanco neutro (corrige luz cálida/fría y sombras suaves) |
 | Color | CIELAB (D65), descarta el borde de la muestra y los reflejos |
-| Composición | k‑means en Lab + fusión de grupos parecidos (ΔE2000) o partidos por el ruido; el color se mide en el núcleo de cada piedra (sin el borde desenfocado) |
+| Composición | k‑means en Lab + fusión según color **y disposición**: grupos con píxeles sueltos (ruido) o casi iguales (ΔE < 4,5) se funden; los bordes desenfocados entre piedra y matriz («anillos») se disuelven; el color se mide en el núcleo de cada piedra |
 | Granulometría | manchas por grupo → diámetro equivalente → p10/p50/p90 ponderados por área (como D10/D50/D90); forma: redondeada, angulosa o vetas |
-| Comparación | fondo ΔE2000 + mezcla con **Earth Mover's Distance** + razón de tamaños |
+| Comparación | fondo ΔE2000 + mezcla con **Earth Mover's Distance** + tamaño típico de las piedras (media ponderada por área) |
 
 **Formato STJF** (*Simple Texture JSON Format*, hermano de SDJF de AlmaGag): ver la [especificación](docs/spec/STJF_v1.0_SPEC.md) y el [ejemplo](docs/examples/terrazzo.stjf). Archivo mínimo:
 
@@ -55,9 +56,9 @@ Mide el color de una muestra (pintura, cerámica, tela) y también **materiales 
 
 Exporta a formatos abiertos: **glTF 2.0 `.glb`** (material PBR con la textura a escala real; se abre en Blender o en cualquier visor 3D; las muestras sin foto llevan una textura sintética generada desde la composición) y **paleta GPL** (GIMP, Inkscape, Krita). Los `.glb` pasan el validador oficial de Khronos sin errores ni avisos.
 
-Probado con fotos sintéticas de color, tamaños y fracciones conocidos (luz cálida/fría, desenfoque, viñeteo, perspectiva, ruido): ΔE < 1,3 en el color, tamaño de piedra con error < 6 % y escala con error de 0,1 %. Archivos en `Android/data/com.josexato.navaja/files/pantonera/` (incluye `log.txt` de diagnóstico).
+Probado con fotos sintéticas de color, tamaños y fracciones conocidos (luz cálida/fría, desenfoque, viñeteo, perspectiva, ruido): ΔE < 1,3 en el color, tamaño de piedra con error < 6 % y escala con error de 0,1 %. Con 12 terrazzos reales (fotos de catálogo usadas como pantonera y luego «fotografiadas» en simulación con hoja, luz cálida o fría, desenfoque y ruido): **22 de 24 reconocidos en primer lugar**; los 2 restantes son dos baldosas casi iguales, que la app marca como empate. Archivos en `Android/data/com.josexato.navaja/files/pantonera/` (incluye `log.txt` de diagnóstico).
 
-Límites: la cámara procesa la foto (tono, nitidez), así que el Lab es una buena aproximación, no un espectrofotómetro; una muestra blanca o muy clara (p. ej. terrazzo de fondo blanco) se confunde con la hoja y hoy no se puede medir; queda pendiente el modo con **tarjeta gris** de referencia para ese caso.
+Límites: la cámara procesa la foto (tono, nitidez), así que el Lab es una buena aproximación, no un espectrofotómetro; las piedras minoritarias de colores parecidos (p. ej. azul y azul grisáceo) pueden quedar en un mismo grupo; granos de 1–2 px se promedian con la matriz (acerca el teléfono).
 
 ## 🌐 Escáner de red local (botón «Red local», Android 11+)
 

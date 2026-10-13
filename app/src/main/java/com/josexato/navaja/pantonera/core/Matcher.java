@@ -31,7 +31,8 @@ public final class Matcher {
             this.mixDe = mixDe;
             this.sizeRatio = sizeRatio;
             this.fractionDiff = fractionDiff;
-            double sizePenalty = Double.isNaN(sizeRatio) ? 0 : 4 * Math.abs(Math.log(sizeRatio));
+            // ×2 de tamaño ≈ 2,8 ΔE; se satura en ×3 para que un dato ruidoso no domine.
+            double sizePenalty = Double.isNaN(sizeRatio) ? 0 : 3 * Math.min(Math.abs(Math.log(sizeRatio)), Math.log(3));
             this.total = Math.max(mixDe, 0.5 * baseDe + 0.5 * mixDe) + sizePenalty;
         }
 
@@ -71,25 +72,24 @@ public final class Matcher {
     }
 
     /**
-     * Razón de tamaños: para cada componente de la muestra con p50, su par más
-     * parecido en color del candidato; promedio geométrico ponderado por fracción.
+     * Razón de tamaños: tamaño típico de las piedras del candidato / el de la
+     * muestra, donde el tamaño típico es la media geométrica de los p50
+     * ponderada por fracción de área. No empareja piedras por color, así que
+     * no depende de que las dos mediciones hayan agrupado los colores igual.
      */
     static double sizeRatio(List<Stjf.Part> a, List<Stjf.Part> b) {
-        double sumW = 0, sumLog = 0;
-        for (Stjf.Part x : a) {
-            if (x.isBase || x.size == null || x.size.p50 == null) continue;
-            Stjf.Part best = null;
-            double bestDe = Double.MAX_VALUE;
-            for (Stjf.Part y : b) {
-                if (y.isBase || y.size == null || y.size.p50 == null) continue;
-                double de = ColorMath.deltaE2000(x.lab, y.lab);
-                if (de < bestDe) { bestDe = de; best = y; }
-            }
-            if (best == null) continue;
-            sumW += x.fraction;
-            sumLog += x.fraction * Math.log(best.size.p50 / x.size.p50);
+        double sa = typicalSize(a), sb = typicalSize(b);
+        return Double.isNaN(sa) || Double.isNaN(sb) ? Double.NaN : sb / sa;
+    }
+
+    static double typicalSize(List<Stjf.Part> parts) {
+        double sw = 0, sl = 0;
+        for (Stjf.Part p : parts) {
+            if (p.isBase || p.size == null || p.size.p50 == null || p.size.p50 <= 0) continue;
+            sw += p.fraction;
+            sl += p.fraction * Math.log(p.size.p50);
         }
-        return sumW > 0 ? Math.exp(sumLog / sumW) : Double.NaN;
+        return sw > 0 ? Math.exp(sl / sw) : Double.NaN;
     }
 
     /**

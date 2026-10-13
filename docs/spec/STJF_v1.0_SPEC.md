@@ -126,7 +126,7 @@ Pensada para mapear 1:1 a un material PBR de glTF 2.0.
 |-----------|------|-------------|
 | `shots` | int | Fotos combinadas (idealmente con luces distintas) |
 | `spread_de` | float | Máximo ΔE2000 de la matriz entre fotos. > 2 sugiere metamerismo |
-| `reference` | string | Referencia usada, p. ej. `paper-A4`, `paper-Carta` |
+| `reference` | string | Referencia usada: `paper-A4`, `paper-Carta`, `paper-Oficio`, o `image` (medido desde una imagen sin hoja: color tal como viene en la imagen) |
 | `date` | string | Fecha ISO 8601 |
 
 ## 6. Reglas de resolución

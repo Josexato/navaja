@@ -70,7 +70,7 @@ import java.util.concurrent.Executors;
 public class PantoneraActivity extends Activity {
 
     private static final String TAG = "Pantonera";
-    private static final int REQ_CAM_PERM = 1, REQ_PHOTO = 10, REQ_GALLERY = 11, REQ_IMPORT = 12;
+    private static final int REQ_CAM_PERM = 1, REQ_PHOTO = 10, REQ_GALLERY = 11, REQ_IMPORT = 12, REQ_CATALOG = 13;
     private static final int MAX_SIDE = 1800;
     private static final String[] FINISH_LABELS = {"Mate", "Satinado", "Brillante", "Pulido"};
 
@@ -125,14 +125,15 @@ public class PantoneraActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
         TextView help = text("Pon la muestra en el centro de una hoja blanca (A4, Carta u Oficio; mejor papel sin "
-                + "«extra blanco»). Toma la foto desde arriba, con la hoja completa y sin sombras ni reflejos. "
+                + "«extra blanco»). Si la muestra es blanca o muy clara, ponla AL LADO de la hoja sobre una "
+                + "superficie oscura. Toma la foto desde arriba, con la hoja completa y sin sombras ni reflejos. "
                 + "Si puedes, saca una foto con cada luz (día, foco, ventana): se combinan.", 13, 0xFFB9C4CF);
         help.setPadding(0, dp(6), 0, dp(10));
         root.addView(help);
 
         LinearLayout row = new LinearLayout(this);
         row.addView(button("📷 Foto", v -> takePhoto()));
-        row.addView(button("🖼 Galería", v -> pickImage()));
+        row.addView(button("🖼 Galería", v -> pickImageMenu()));
         libBtn = button("", v -> showLibrary());
         row.addView(libBtn);
         root.addView(weighted(row));
@@ -198,15 +199,51 @@ public class PantoneraActivity extends Activity {
         }
     }
 
-    private void pickImage() {
+    private void pickImageMenu() {
+        String[] items = {"Foto con la hoja de referencia", "Imagen de catálogo (sin hoja: la imagen entera es la muestra)"};
+        new AlertDialog.Builder(this)
+                .setTitle("¿Qué imagen es?")
+                .setItems(items, (d, which) -> pickImage(which == 0 ? REQ_GALLERY : REQ_CATALOG))
+                .show();
+    }
+
+    private void pickImage(int req) {
         Intent i = new Intent(Intent.ACTION_GET_CONTENT);
         i.setType("image/*");
         i.addCategory(Intent.CATEGORY_OPENABLE);
         try {
-            startActivityForResult(i, REQ_GALLERY);
+            startActivityForResult(i, req);
         } catch (ActivityNotFoundException e) {
             toast("No hay galería disponible");
         }
+    }
+
+    /** Imagen de catálogo: pide el ancho real (opcional) para medir el tamaño de las piedras. */
+    private void askCatalogWidth(Uri uri) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
+        box.addView(text("Si sabes cuánto mide de ancho lo que muestra la imagen (p. ej. 600 para una baldosa "
+                + "de 60 cm), escríbelo para medir el tamaño de las piedras. Si no, déjalo vacío.\n\n"
+                + "El color se toma tal cual viene en la imagen (sin hoja no se puede corregir la luz).",
+                13, 0xFF5D6673));
+        EditText mm = edit("Ancho en mm (opcional)");
+        mm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        box.addView(mm);
+        new AlertDialog.Builder(this)
+                .setTitle("Imagen de catálogo")
+                .setView(box)
+                .setPositiveButton("Medir", (d, w) -> {
+                    double width = Double.NaN;
+                    try {
+                        width = Double.parseDouble(mm.getText().toString().trim().replace(',', '.'));
+                    } catch (NumberFormatException ignored) {
+                        // Sin ancho: se mide color y composición, sin tamaños.
+                    }
+                    analyze(uri, width > 0 ? width : Double.NaN, true);
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     @Override
@@ -217,6 +254,8 @@ public class PantoneraActivity extends Activity {
             analyze(Uri.fromFile(pendingPhoto));
         } else if (req == REQ_GALLERY && data != null && data.getData() != null) {
             analyze(data.getData());
+        } else if (req == REQ_CATALOG && data != null && data.getData() != null) {
+            askCatalogWidth(data.getData());
         } else if (req == REQ_IMPORT && data != null && data.getData() != null) {
             importStjf(data.getData());
         }
@@ -225,6 +264,11 @@ public class PantoneraActivity extends Activity {
     // ============================================================== análisis
 
     private void analyze(Uri uri) {
+        analyze(uri, Double.NaN, false);
+    }
+
+    /** {@code catalog}: la imagen entera es la muestra (sin hoja); {@code widthMm} su ancho real o NaN. */
+    private void analyze(Uri uri, double widthMm, boolean catalog) {
         setStatus("Analizando la foto…");
         exec.submit(() -> {
             try {
@@ -234,7 +278,8 @@ public class PantoneraActivity extends Activity {
                 bmp.getPixels(px, 0, w, 0, 0, w, h);
                 bmp.recycle();
                 long t0 = System.currentTimeMillis();
-                SampleAnalyzer.Result r = new SampleAnalyzer().analyze(px, w, h);
+                SampleAnalyzer.Result r = catalog ? new SampleAnalyzer().analyzeImage(px, w, h, widthMm)
+                        : new SampleAnalyzer().analyze(px, w, h);
                 long ms = System.currentTimeMillis() - t0;
                 Shot s = new Shot();
                 s.res = r;

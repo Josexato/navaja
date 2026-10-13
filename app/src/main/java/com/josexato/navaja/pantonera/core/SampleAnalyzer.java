@@ -30,9 +30,11 @@ public final class SampleAnalyzer {
         public double paperY = 0.85;
         /** Grupos de color a menos de este ΔE2000 se funden en uno. */
         public double mergeDe = 7;
-        public int maxClusters = 6;
+        /** Por debajo de este ΔE2000 dos grupos son siempre el mismo color. */
+        public double sameDe = 4.5;
+        public int maxClusters = 10;
         /** Componentes con menos área que esto se funden con el más cercano. */
-        public double minFraction = 0.01;
+        public double minFraction = 0.005;
         /** Partículas menores que esto (mm) no entran en la granulometría. */
         public double minParticleMm = 0.4;
     }
@@ -92,12 +94,39 @@ public final class SampleAnalyzer {
             float mx = Math.max(r[i], Math.max(g[i], b[i])), mn = Math.min(r[i], Math.min(g[i], b[i]));
             bright[i] = lum[i] > thr && (mx - mn) < 0.45f * mx;
         }
-        boolean[] sheet = largestComponent(bright, w, h);
-        int sheetArea = count(sheet);
-        if (sheetArea < 0.05 * n) {
+        // Las regiones claras grandes son candidatas a hoja; la hoja es la que
+        // mejor parece un rectángulo con proporción de papel. Otra región clara
+        // grande puede ser la muestra puesta AL LADO de la hoja (muestras
+        // blancas o muy claras, sobre una superficie oscura).
+        List<boolean[]> big = bigComponents(bright, w, h, 0.01 * n, 3);
+        boolean[] sheet = null;
+        double bestPaper = -1;
+        for (boolean[] cmp : big) {
+            if (count(cmp) < 0.05 * n) continue;
+            double sc = paperLikeness(fillHoles(cmp, w, h), w, h);
+            if (sc > bestPaper) { bestPaper = sc; sheet = cmp; }
+        }
+        if (sheet == null) {
             res.error = "No se ve la hoja blanca. Pon la muestra sobre una hoja y encuádrala completa.";
             return res;
         }
+        // Refinar: un gris claro (L* 70–85) también pasa el umbral global y se
+        // pegaría a la hoja. Se modela el brillo del papel como una superficie
+        // suave (cuadrática, ajustada de forma robusta: el papel es la mayoría)
+        // y sólo es hoja lo que llega a ~82 % de ese brillo esperado.
+        boolean[] coarse = sheet;
+        double[] field = paperField(lum, sheet, w, h);
+        if (field != null) {
+            boolean[] strict = new boolean[n];
+            for (int i = 0; i < n; i++) {
+                if (!sheet[i]) continue;
+                int x = i % w, y = i / w;
+                strict[i] = lum[i] >= 0.82 * evalField(field, x, y, w, h);
+            }
+            List<boolean[]> refined = bigComponents(strict, w, h, 0.05 * n, 1);
+            if (!refined.isEmpty()) sheet = refined.get(0);
+        }
+        int sheetArea = count(sheet);
 
         // ---- 2. Cuadrilátero y escala.
         double[] quad = fitQuad(sheet, w, h);
@@ -105,16 +134,30 @@ public final class SampleAnalyzer {
         boolean cut = touchesBorder(sheet, w, h);
         measureScale(res, quad, cut);
 
-        // ---- 3. Muestra: lo que hay dentro de la hoja y no es hoja.
+        // ---- 3. Muestra: lo que hay dentro de la hoja y no es hoja…
         boolean[] inside = rasterQuad(quad, w, h);
         boolean[] cand = new boolean[n];
         for (int i = 0; i < n; i++) cand[i] = inside[i] && !sheet[i];
         boolean[] sampleMask = pickSample(cand, inside, w, h);
         int sampleArea = count(sampleMask);
         if (sampleArea < 0.003 * sheetArea) {
-            res.error = "No encontré la muestra sobre la hoja. Ponla en el centro, sin tocar los bordes. "
-                    + "(Si es blanca o muy clara se confunde con el papel: todavía no se puede medir así.)";
-            return res;
+            // …o una región clara grande fuera de la hoja (muestra al lado).
+            boolean[] beside = null;
+            for (boolean[] cmp : big) {
+                if (cmp == coarse) continue;
+                boolean[] f = fillHoles(cmp, w, h);
+                if (count(f) >= 0.01 * sheetArea && (beside == null || count(f) > count(beside))) beside = f;
+            }
+            if (beside == null) {
+                res.error = "No encontré la muestra. Ponla en el centro de la hoja, sin tocar los bordes. "
+                        + "Si es blanca o muy clara, ponla AL LADO de la hoja sobre una superficie oscura.";
+                return res;
+            }
+            sampleMask = beside;
+            res.warnings.add("Muestra al lado de la hoja: la luz debe ser pareja sobre ambas para que el color sea fiel.");
+            if (touchesBorder(beside, w, h)) {
+                res.warnings.add("La muestra sale cortada en la foto; se mide sólo la parte visible.");
+            }
         }
 
         // Quitar el borde de la muestra (sombra y desenfoque).
@@ -148,17 +191,30 @@ public final class SampleAnalyzer {
         }
         checkUniformity(res, lum, sheet, dSheet, erode, w, h);
 
-        // ---- 5. Corrección de luz y paso a Lab.
+        // ---- 5–8. Corrección de luz, colores, partículas y textura.
         double kr = opt.paperY / ref[0], kg = opt.paperY / ref[1], kb = opt.paperY / ref[2];
+        measure(res, r, g, b, sheet, sampleMask, core, kr, kg, kb, 0.97f);
+        if (res.sample != null) res.sample.measurement.reference = "paper-" + (res.paper == null ? "?" : res.paper);
+        return res;
+    }
+
+    /**
+     * Pasos comunes: corrección (kr, kg, kb), Lab, grupos de color, matriz,
+     * componentes, granulometría y textura. {@code specular}: valor lineal
+     * por encima del cual un píxel se toma como reflejo (2 = no descartar).
+     */
+    private void measure(Result res, float[] r, float[] g, float[] b, boolean[] sheet, boolean[] sampleMask,
+                         boolean[] core, double kr, double kg, double kb, float specular) {
+        int w = res.width, h = res.height, n = w * h;
         int[] labels = new int[n];
         Arrays.fill(labels, -3);
-        for (int i = 0; i < n; i++) if (sheet[i]) labels[i] = -2;
+        if (sheet != null) for (int i = 0; i < n; i++) if (sheet[i]) labels[i] = -2;
         int valid = 0, spec = 0;
         for (int i = 0; i < n; i++) {
             if (!sampleMask[i]) continue;
             labels[i] = -1;
             if (!core[i]) continue;
-            if (Math.max(r[i], Math.max(g[i], b[i])) > 0.97f) { spec++; continue; } // reflejo
+            if (Math.max(r[i], Math.max(g[i], b[i])) > specular) { spec++; continue; } // reflejo
             labels[i] = 0;
             valid++;
         }
@@ -169,7 +225,7 @@ public final class SampleAnalyzer {
         }
         if (valid < 200) {
             res.error = "La muestra está casi toda quemada por reflejos. Cambia el ángulo de la luz.";
-            return res;
+            return;
         }
         int[] idx = new int[valid];
         float[] lab = new float[valid * 3];
@@ -184,7 +240,7 @@ public final class SampleAnalyzer {
         }
 
         // ---- 6. Agrupar colores.
-        List<double[]> centers = cluster(lab, valid);
+        List<double[]> centers = cluster(lab, valid, idx, w, n);
         int k = centers.size();
         int[] assign = new int[valid];
         double[][] sum = new double[k][3];
@@ -255,7 +311,6 @@ public final class SampleAnalyzer {
         if (!Double.isNaN(res.mmPerPx)) s.appearance.mmPerPx = res.mmPerPx;
         s.measurement = new Stjf.Measurement();
         s.measurement.shots = 1;
-        s.measurement.reference = "paper-" + (res.paper == null ? "?" : res.paper);
         res.sample = s;
 
         // ---- 8. Textura: el mayor rectángulo completamente dentro de la muestra.
@@ -272,6 +327,35 @@ public final class SampleAnalyzer {
                 }
             }
         }
+    }
+
+    /**
+     * Mide una imagen que ya es la textura (foto de catálogo, recorte de una
+     * baldosa): toda la imagen es la muestra y no se corrige la luz. Si se
+     * conoce el ancho real en mm (p. ej. 600 para una baldosa de 60 cm) se mide
+     * también la granulometría; si no, NaN.
+     */
+    public Result analyzeImage(int[] argb, int w, int h, double widthMm) {
+        Result res = new Result();
+        res.width = w;
+        res.height = h;
+        int n = w * h;
+        float[] r = new float[n], g = new float[n], b = new float[n];
+        for (int i = 0; i < n; i++) {
+            int c = argb[i];
+            r[i] = ColorMath.LIN8[(c >> 16) & 255];
+            g[i] = ColorMath.LIN8[(c >> 8) & 255];
+            b[i] = ColorMath.LIN8[c & 255];
+        }
+        // Se descarta un marco del 1 % (bordes de recorte, compresión).
+        int m = Math.max(1, Math.min(w, h) / 100);
+        boolean[] mask = new boolean[n];
+        for (int y = m; y < h - m; y++) for (int x = m; x < w - m; x++) mask[y * w + x] = true;
+        if (widthMm > 0) res.mmPerPx = widthMm / w;
+        res.paper = null;
+        measure(res, r, g, b, null, mask, mask, 1, 1, 1, 2f);
+        if (res.sample != null) res.sample.measurement.reference = "image";
+        res.warnings.add("Medido desde una imagen sin hoja de referencia: el color depende de cómo se tomó o editó la foto.");
         return res;
     }
 
@@ -320,19 +404,143 @@ public final class SampleAnalyzer {
         return (thr + 0.5) / 255.0;
     }
 
-    /** Componente 4‑conexa más grande. */
-    static boolean[] largestComponent(boolean[] m, int w, int h) {
+    /** Hasta {@code max} componentes 4‑conexas con al menos {@code minArea} píxeles, de mayor a menor. */
+    static List<boolean[]> bigComponents(boolean[] m, int w, int h, double minArea, int max) {
         int[] comp = new int[m.length];
         int[] queue = new int[m.length];
-        int bestId = 0, bestSize = 0, id = 0;
+        List<int[]> found = new ArrayList<>(); // {id, tamaño}
+        int id = 0;
         for (int s = 0; s < m.length; s++) {
             if (!m[s] || comp[s] != 0) continue;
             int size = flood(m, comp, queue, s, ++id, w, h, false);
-            if (size > bestSize) { bestSize = size; bestId = id; }
+            if (size >= minArea) found.add(new int[]{id, size});
         }
-        boolean[] out = new boolean[m.length];
-        for (int i = 0; i < m.length; i++) out[i] = bestId != 0 && comp[i] == bestId;
+        found.sort((a, b) -> Integer.compare(b[1], a[1]));
+        List<boolean[]> out = new ArrayList<>();
+        for (int k = 0; k < Math.min(max, found.size()); k++) {
+            int cid = found.get(k)[0];
+            boolean[] o = new boolean[m.length];
+            for (int i = 0; i < m.length; i++) o[i] = comp[i] == cid;
+            out.add(o);
+        }
         return out;
+    }
+
+    /**
+     * Brillo del papel como superficie cuadrática a + bx + cy + dx² + exy + fy²
+     * (coordenadas normalizadas), ajustada por mínimos cuadrados repetidos
+     * descartando lo que queda por debajo del 90 % del ajuste (la muestra,
+     * sombras). Devuelve los 6 coeficientes o null.
+     */
+    static double[] paperField(float[] lum, boolean[] sheet, int w, int h) {
+        double[] coef = null;
+        int step = Math.max(1, (int) Math.sqrt(count(sheet) / 40000.0));
+        for (int it = 0; it < 4; it++) {
+            double[][] ata = new double[6][6];
+            double[] atb = new double[6];
+            int used = 0;
+            for (int y = 0; y < h; y += step) {
+                for (int x = 0; x < w; x += step) {
+                    int i = y * w + x;
+                    if (!sheet[i]) continue;
+                    if (coef != null && lum[i] < 0.9 * evalField(coef, x, y, w, h)) continue;
+                    double u = x / (double) w - 0.5, v = y / (double) h - 0.5;
+                    double[] f = {1, u, v, u * u, u * v, v * v};
+                    for (int a = 0; a < 6; a++) {
+                        atb[a] += f[a] * lum[i];
+                        for (int b = 0; b < 6; b++) ata[a][b] += f[a] * f[b];
+                    }
+                    used++;
+                }
+            }
+            if (used < 50) return coef;
+            double[] sol = solve(ata, atb);
+            if (sol == null) return coef;
+            coef = sol;
+        }
+        return coef;
+    }
+
+    static double evalField(double[] c, int x, int y, int w, int h) {
+        double u = x / (double) w - 0.5, v = y / (double) h - 0.5;
+        return c[0] + c[1] * u + c[2] * v + c[3] * u * u + c[4] * u * v + c[5] * v * v;
+    }
+
+    /** Gauss con pivoteo parcial; null si la matriz es singular. */
+    static double[] solve(double[][] a0, double[] b0) {
+        int n = b0.length;
+        double[][] a = new double[n][];
+        for (int i = 0; i < n; i++) a[i] = a0[i].clone();
+        double[] b = b0.clone();
+        for (int col = 0; col < n; col++) {
+            int piv = col;
+            for (int r = col + 1; r < n; r++) if (Math.abs(a[r][col]) > Math.abs(a[piv][col])) piv = r;
+            if (Math.abs(a[piv][col]) < 1e-12) return null;
+            double[] t = a[col]; a[col] = a[piv]; a[piv] = t;
+            double tb = b[col]; b[col] = b[piv]; b[piv] = tb;
+            for (int r = col + 1; r < n; r++) {
+                double f = a[r][col] / a[col][col];
+                for (int c = col; c < n; c++) a[r][c] -= f * a[col][c];
+                b[r] -= f * b[col];
+            }
+        }
+        double[] x = new double[n];
+        for (int r = n - 1; r >= 0; r--) {
+            double s = b[r];
+            for (int c = r + 1; c < n; c++) s -= a[r][c] * x[c];
+            x[r] = s / a[r][r];
+        }
+        return x;
+    }
+
+    /** Rellena los huecos (lo que no se alcanza desde el borde de la imagen sin cruzar la máscara). */
+    static boolean[] fillHoles(boolean[] m, int w, int h) {
+        int n = m.length;
+        boolean[] outside = new boolean[n];
+        int[] queue = new int[n];
+        int head = 0, tail = 0;
+        for (int x = 0; x < w; x++) {
+            for (int y : new int[]{0, h - 1}) {
+                int i = y * w + x;
+                if (!m[i] && !outside[i]) { outside[i] = true; queue[tail++] = i; }
+            }
+        }
+        for (int y = 0; y < h; y++) {
+            for (int x : new int[]{0, w - 1}) {
+                int i = y * w + x;
+                if (!m[i] && !outside[i]) { outside[i] = true; queue[tail++] = i; }
+            }
+        }
+        while (head < tail) {
+            int p = queue[head++];
+            int x = p % w, y = p / w;
+            int[] nb = {x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1};
+            for (int q : nb) if (q >= 0 && !m[q] && !outside[q]) { outside[q] = true; queue[tail++] = q; }
+        }
+        boolean[] out = new boolean[n];
+        for (int i = 0; i < n; i++) out[i] = !outside[i];
+        return out;
+    }
+
+    /**
+     * Cuánto parece una hoja de papel (0–1): qué tan lleno está su
+     * cuadrilátero y qué tan cerca está su proporción de A4/Carta/Oficio.
+     */
+    static double paperLikeness(boolean[] filled, int w, int h) {
+        double[] q = fitQuad(filled, w, h);
+        double area = 0;
+        for (int i = 0; i < 4; i++) {
+            int j = (i + 1) % 4;
+            area += q[2 * i] * q[2 * j + 1] - q[2 * j] * q[2 * i + 1];
+        }
+        area = Math.abs(area) / 2;
+        if (area < 1) return 0;
+        double fullness = Math.min(1, count(filled) / area);
+        double a = (side(q, 0) + side(q, 2)) / 2, b = (side(q, 1) + side(q, 3)) / 2;
+        double ratio = Math.max(a, b) / Math.max(1e-9, Math.min(a, b));
+        double bestErr = Double.MAX_VALUE;
+        for (double[] p : PAPER_MM) bestErr = Math.min(bestErr, Math.abs(ratio - p[0] / p[1]) / (p[0] / p[1]));
+        return fullness * Math.max(0, 1 - 3 * bestErr);
     }
 
     /** Relleno por inundación; devuelve el tamaño. */
@@ -592,8 +800,8 @@ public final class SampleAnalyzer {
 
     // ================================================================ colores
 
-    /** k‑means++ en Lab (submuestreado) y fusión de grupos parecidos. */
-    private List<double[]> cluster(float[] lab, int n) {
+    /** k‑means++ en Lab (submuestreado) y fusión de grupos del mismo material. */
+    private List<double[]> cluster(float[] lab, int n, int[] idx, int w, int npx) {
         int step = Math.max(1, n / 40000);
         int m = (n + step - 1) / step;
         double[][] pts = new double[m][];
@@ -623,30 +831,116 @@ public final class SampleAnalyzer {
         }
         double[][] st = lloyd(pts, c, 25);
 
-        // Fundir grupos: (a) colores parecidos (ΔE2000 < mergeDe), (b) grupos que
-        // se solapan, es decir, un mismo color partido por el ruido (distancia
-        // menor que 2× su dispersión; típico en zonas oscuras), (c) grupos diminutos.
+        // Fundir grupos mirando color Y disposición en la imagen. Para cada par:
+        //   ΔE   = diferencia de color (ΔE2000)
+        //   mezcla = bordes compartidos por píxel del grupo menor. Un mismo
+        //            material partido por ruido o vetas da "sal y pimienta"
+        //            (mezcla alta, ~1–2); dos materiales distintos forman
+        //            manchas compactas (piedras: mezcla baja, ~0,1).
+        // Se funde si: es diminuto; o ΔE < sameDe (mismo color a simple vista); o mezcla alta
+        // con ΔE < 14; o ΔE < mergeDe con mezcla media.
+        int[] lbl = new int[npx];
         while (c.size() > 1) {
+            int k = c.size();
+            java.util.Arrays.fill(lbl, -1);
+            long[] cnt = new long[k];
+            for (int p = 0; p < n; p++) {
+                int ci = nearest(c, lab[3 * p], lab[3 * p + 1], lab[3 * p + 2]);
+                lbl[idx[p]] = ci;
+                cnt[ci]++;
+            }
+            long[][] adj = new long[k][k];
+            long[] iso = new long[k]; // píxeles "sueltos": ≤ 1 vecino de su mismo grupo
+            for (int p = 0; p < n; p++) {
+                int i = idx[p], a1 = lbl[i], same = 0;
+                int x = i % w;
+                if (x > 0 && lbl[i - 1] == a1) same++;
+                if (x < w - 1 && lbl[i + 1] == a1) same++;
+                if (i >= w && lbl[i - w] == a1) same++;
+                if (i + w < npx && lbl[i + w] == a1) same++;
+                if (same <= 1) iso[a1]++;
+                if ((i + 1) % w != 0) {
+                    int a2 = lbl[i + 1];
+                    if (a2 >= 0 && a2 != a1) { adj[a1][a2]++; adj[a2][a1]++; }
+                }
+                if (i + w < npx) {
+                    int a2 = lbl[i + w];
+                    if (a2 >= 0 && a2 != a1) { adj[a1][a2]++; adj[a2][a1]++; }
+                }
+            }
+            // Anillos: el borde desenfocado entre una piedra (A) y la matriz (B)
+            // forma un grupo de color intermedio pegado a ambos. Se disuelve:
+            // sus píxeles vuelven al más cercano de A o B.
+            int ring = findRing(c, cnt, adj);
+            if (ring >= 0) {
+                c.remove(ring);
+                st = lloyd(pts, c, 5);
+                continue;
+            }
             int bi = -1, bj = -1;
             double best = Double.MAX_VALUE;
-            for (int i = 0; i < c.size(); i++) {
-                for (int j = i + 1; j < c.size(); j++) {
+            for (int i = 0; i < k; i++) {
+                for (int j = i + 1; j < k; j++) {
                     double de = ColorMath.deltaE2000(c.get(i), c.get(j));
-                    double overlap = Math.sqrt(sq(c.get(i), c.get(j))) / (2 * Math.max(1e-6, Math.max(st[1][i], st[1][j])));
-                    boolean tiny = st[0][i] < opt.minFraction || st[0][j] < opt.minFraction;
-                    // Puntaje < 1 = hay que fundir; los diminutos van primero.
-                    double key = tiny ? de / 1000 : Math.min(de / opt.mergeDe, overlap);
+                    long small = Math.max(1, Math.min(cnt[i], cnt[j]));
+                    double mix = adj[i][j] / (double) small;
+                    boolean tiny = Math.min(cnt[i], cnt[j]) < opt.minFraction * n;
+                    // Ruido: un color partido en dos deja muchos píxeles sueltos en el
+                    // grupo menor (granos y vetas reales, en cambio, son manchas de
+                    // varios píxeles). Además los dos grupos se solapan en color.
+                    int sm = cnt[i] <= cnt[j] ? i : j;
+                    double loose = iso[sm] / (double) Math.max(1, cnt[sm]);
+                    boolean overlap = loose > 0.3 && mix > 0.5 && i < st[1].length && j < st[1].length
+                            && Math.sqrt(sq(c.get(i), c.get(j))) < 2 * Math.max(st[1][i], st[1][j]);
+                    boolean merge = tiny || de < opt.sameDe || overlap || (loose > 0.4 && de < 14)
+                            || (de < opt.mergeDe && mix > 0.35 && loose > 0.2);
+                    if (!merge) continue;
+                    double key = tiny ? de - 1000 : de; // diminutos primero, luego los más parecidos
                     if (key < best) { best = key; bi = i; bj = j; }
                 }
             }
-            if (best >= 1) break;
-            double wi = st[0][bi], wj = st[0][bj], ws = Math.max(1e-9, wi + wj);
+            if (bi < 0) break;
+            double wi = cnt[bi], wj = cnt[bj], ws = Math.max(1, wi + wj);
             double[] ci = c.get(bi), cj = c.get(bj);
             for (int d = 0; d < 3; d++) ci[d] = (ci[d] * wi + cj[d] * wj) / ws;
             c.remove(bj);
             st = lloyd(pts, c, 5);
         }
         return c;
+    }
+
+    /**
+     * Busca un grupo "anillo": su color está entre otros dos (cerca del
+     * segmento que los une en Lab) y casi todos sus píxeles tocan a esos dos.
+     * Devuelve su índice o -1.
+     */
+    static int findRing(List<double[]> c, long[] cnt, long[][] adj) {
+        int k = c.size(), best = -1;
+        double bestScore = 0;
+        for (int r = 0; r < k; r++) {
+            if (cnt[r] == 0) continue;
+            for (int a = 0; a < k; a++) {
+                for (int b = a + 1; b < k; b++) {
+                    if (a == r || b == r) continue;
+                    // Sólo si R es más chico que A y B (el borde es delgado).
+                    if (cnt[r] >= cnt[a] || cnt[r] >= cnt[b]) continue;
+                    double[] pa = c.get(a), pb = c.get(b), pr = c.get(r);
+                    double[] ab = {pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]};
+                    double len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+                    if (len2 < 1e-6) continue;
+                    double t = ((pr[0] - pa[0]) * ab[0] + (pr[1] - pa[1]) * ab[1] + (pr[2] - pa[2]) * ab[2]) / len2;
+                    if (t < 0.12 || t > 0.88) continue;
+                    double[] q = {pa[0] + t * ab[0], pa[1] + t * ab[1], pa[2] + t * ab[2]};
+                    double off = Math.sqrt(sq(pr, q)) / Math.sqrt(len2);
+                    if (off > 0.2) continue;
+                    double touch = (adj[r][a] + adj[r][b]) / (double) cnt[r];
+                    // Pegado a ambos lados, no sólo a uno.
+                    if (touch < 0.6 || adj[r][a] < 0.15 * cnt[r] || adj[r][b] < 0.15 * cnt[r]) continue;
+                    if (touch > bestScore) { bestScore = touch; best = r; }
+                }
+            }
+        }
+        return best;
     }
 
     /** Iteraciones de Lloyd; devuelve {fracción de puntos, dispersión RMS} de cada centro. */

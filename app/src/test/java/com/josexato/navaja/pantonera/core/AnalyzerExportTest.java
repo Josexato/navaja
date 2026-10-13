@@ -57,6 +57,7 @@ public class AnalyzerExportTest {
         List<Stone> stones = new ArrayList<>();
         double paperY = 0.85;
         double halfLong = 148.5, halfShort = 105; // A4
+        double sampleU = 0;      // centro de la muestra (mm); fuera de la hoja = "al lado"
         double blurPx = 0;       // desenfoque gaussiano (σ en píxeles)
         double vignette = 0;     // caída de luz hacia las esquinas (0–1)
         double keystone = 0;     // perspectiva: la parte de arriba se ve más chica
@@ -80,15 +81,15 @@ public class AnalyzerExportTest {
                     double vig = 1 - vignette * rr * rr;
                     double u = cos * dx + sin * dy, v = -sin * dx + cos * dy; // mm desde el centro de la hoja
                     double[] refl;
-                    if (drawSheet && Math.abs(u) <= halfLong && Math.abs(v) <= halfShort) {
-                        refl = new double[]{paperY, paperY, paperY};
-                        if (drawSample && Math.abs(u) <= side / 2 && Math.abs(v) <= side / 2) {
-                            refl = matLin;
-                            for (int k = 0; k < stones.size(); k++) {
-                                Stone s = stones.get(k);
-                                if (Math.hypot(u - s.u, v - s.v) <= s.d / 2) { refl = stoneLin.get(k); break; }
-                            }
+                    double su = u - sampleU;
+                    if (drawSample && Math.abs(su) <= side / 2 && Math.abs(v) <= side / 2) {
+                        refl = matLin;
+                        for (int k = 0; k < stones.size(); k++) {
+                            Stone s = stones.get(k);
+                            if (Math.hypot(su - s.u, v - s.v) <= s.d / 2) { refl = stoneLin.get(k); break; }
                         }
+                    } else if (drawSheet && Math.abs(u) <= halfLong && Math.abs(v) <= halfShort) {
+                        refl = new double[]{paperY, paperY, paperY};
                     } else {
                         refl = new double[]{0.06, 0.045, 0.03}; // mesa de madera oscura
                     }
@@ -264,6 +265,53 @@ public class AnalyzerExportTest {
         assertEquals(8.0, marble.size.p50, 8.0 * 0.15);
         assertEquals(5.0, black.size.p50, 5.0 * 0.15);
         assertEquals(sc.mmPerPx, r.mmPerPx, sc.mmPerPx * 0.04);
+    }
+
+    @Test
+    public void whiteTerrazzoBesideTheSheet() {
+        // Terrazzo de fondo blanco: sobre la hoja se confundiría con el papel,
+        // así que va al lado, sobre la mesa oscura. La hoja sigue dando luz y escala.
+        Scene sc = new Scene();
+        sc.mmPerPx = 0.32;
+        sc.matrix = new double[]{93, 0.5, 2.5};
+        sc.side = 100;
+        sc.sampleU = 148.5 + 20 + 50; // 2 cm a la derecha de la hoja
+        sc.w = 2000;
+        Random rnd = new Random(5);
+        double[] blue = {45, -2, -30}, ochre = {68, 12, 40};
+        sc.scatter(9, blue, 25, rnd);
+        sc.scatter(6, ochre, 30, rnd);
+        SampleAnalyzer.Result r = new SampleAnalyzer().analyze(sc.render(), sc.w, sc.h);
+        assertTrue(r.error, r.ok());
+        assertTrue(r.warnings.toString(), r.warnings.toString().contains("al lado"));
+        Stjf.Sample s = r.sample;
+        assertEquals(Json.write(Stjf.sampleToMap(s)), 2, s.components.size());
+        assertTrue("fondo ΔE", ColorMath.deltaE2000(s.base.lab, sc.matrix) < 1.5);
+        assertTrue(ColorMath.deltaE2000(closest(s, blue).lab, blue) < 2.0);
+        assertTrue(ColorMath.deltaE2000(closest(s, ochre).lab, ochre) < 2.0);
+        assertEquals(9.0, closest(s, blue).size.p50, 9.0 * 0.12);
+        assertEquals(sc.mmPerPx, r.mmPerPx, sc.mmPerPx * 0.03);
+    }
+
+    @Test
+    public void imageModeMeasuresCatalogPhotos() {
+        // Una "foto de catálogo" (sin hoja): toda la imagen es la muestra.
+        Scene sc = new Scene();
+        sc.drawSheet = false;
+        sc.side = 400;
+        sc.w = 800;
+        sc.h = 800;
+        sc.mmPerPx = 0.25; // 200 mm de ancho
+        sc.light = new double[]{1, 1, 1};
+        sc.exposure = 1 / 0.9;
+        sc.matrix = new double[]{70, 5, 20};
+        Random rnd = new Random(9);
+        sc.scatter(8, MARBLE, 60, rnd);
+        SampleAnalyzer.Result r = new SampleAnalyzer().analyzeImage(sc.render(), sc.w, sc.h, 200);
+        assertTrue(r.error, r.ok());
+        assertEquals(1, r.sample.components.size());
+        assertEquals(8.0, r.sample.components.get(0).size.p50, 8.0 * 0.12);
+        assertEquals("image", r.sample.measurement.reference);
     }
 
     @Test
