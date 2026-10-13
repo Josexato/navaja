@@ -29,6 +29,19 @@ Afina **guitarra** (estándar E2 A2 D3 G3 B3 E4 y Drop D) y **violín** (G3 D4 A
 - Probado con señales sintéticas que imitan el micrófono del teléfono (fundamental grave atenuada, cuerdas sonando a la vez): 0 lecturas en el armónico en guitarra, Drop D y violín. Validado además con una grabación real de guitarra: los cambios de cuerda mostrada bajaron de 76 a 17 en 15 s.
 - El audio se procesa en el teléfono y no se guarda ni se envía.
 
+## 🌐 Escáner de red local (botón «Red local», Android 11+)
+
+Descubre los equipos conectados a tu **propia** red Wi‑Fi, al estilo de un barrido de descubrimiento. Útil para ver qué hay en la LAN sin instalar herramientas de terceros ni enviar datos a ningún servicio.
+
+- Muestra los **datos de tu red**: IP, máscara/CIDR, puerta de enlace, DNS e interfaz.
+- Barre en paralelo la subred (acotada a /24) probando puertos TCP conocidos para detectar equipos vivos, incluidos los que no responden a ping.
+- **Clasifica** cada equipo por sus puertos y por los servicios mDNS que anuncia: router, impresora, TV/Chromecast, iPhone/Mac, NAS, PC, servidor, cámara, domótica.
+- Al tocar un equipo, analiza sus **puertos abiertos** (con el nombre del servicio) y permite **abrirlo en el navegador** si expone una web.
+- Resuelve el **nombre** de cada equipo por DNS inverso cuando el router lo publica.
+- **Todo ocurre en el teléfono y sólo dentro de tu subred**; no se envía nada a internet. Usa los permisos `INTERNET` y `ACCESS_NETWORK_STATE` (conexiones TCP dentro de la LAN y lectura de la red actual), sin ubicación.
+
+El núcleo (`lan/core`) es Java puro y está cubierto por pruebas con una red simulada.
+
 ## 📷 Escáner 3D (botón «Escanear 3D», Android 11+)
 
 Genera un modelo 3D a partir de fotos tomadas cada segundo mientras giras el objeto sobre un **escenario impreso**, y lo abre en el visor 3D de Navaja (con medidas, volumen y peso PLA). Pensado para Galaxy S26 Ultra; puede usar varias cámaras físicas a la vez.
@@ -72,6 +85,7 @@ app/src/main/assets/index.html   ← toda la app (HTML + CSS + JS)
 app/src/main/assets/lib/         ← three.js 0.147 + loaders, pdf.js 3.11 legacy (offline)
 app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + puente al escáner
 app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
+app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
 app/src/main/java/.../scan3d/            ← escáner 3D (Camera2, PDF, UI); scan3d/core = algoritmos en Java puro
 app/src/test/java/.../scan3d/core/       ← prueba de extremo a extremo con escena sintética (./gradlew :app:testDebugUnitTest)
 .github/workflows/build.yml      ← CI: compila y publica el APK en Releases

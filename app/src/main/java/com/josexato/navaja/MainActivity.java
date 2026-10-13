@@ -16,6 +16,7 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import com.josexato.navaja.scan3d.ScanActivity;
+import com.josexato.navaja.lan.LanActivity;
 import com.josexato.navaja.tuner.TunerActivity;
 
 import java.io.File;
@@ -55,6 +56,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openTuner() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, TunerActivity.class)));
+        }
+
+        @JavascriptInterface
+        public void openLan() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, LanActivity.class)));
         }
     }
 
