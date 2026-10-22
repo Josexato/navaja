@@ -80,7 +80,6 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
     /** Ruta del OBJ generado, devuelta a Navaja para mostrarlo en su visor 3D. */
     public static final String EXTRA_MODEL = "com.josexato.navaja.scan3d.MODEL";
     // La sesión sobrevive a salir al visor y volver (las fotos ya están en disco).
-    private static Mesh lastMesh;
     private static ScanSession lastSession;
 
     @Override
@@ -169,7 +168,7 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         bCapture.setText(capturing ? "■ Detener captura" : "● Iniciar captura (1 foto/s)");
         bCapture.setEnabled(p != null && !calibrating);
         bBuild.setEnabled(!capturing && session != null && !session.shots.isEmpty());
-        bView.setEnabled(lastMesh != null);
+        bView.setEnabled(session != null && new File(session.dir, "modelo.obj").exists());
         bShare.setEnabled(session != null); // el log sirve aunque aún no haya modelo
         bThr.setText("Umbral silueta: " + threshold);
         bRes.setText("Resolución 3D: " + resolution + " vóxeles");
@@ -187,7 +186,6 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         File root = new File(getExternalFilesDir(null), "scans");
         session = new ScanSession(root, mode);
         lastSession = session;
-        lastMesh = null;
         applySettings();
         preview.setCalibration(null, null);
         preview.setMask(null, 0, 0);
@@ -458,8 +456,8 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         work.post(() -> {
             try {
                 long t0 = System.currentTimeMillis();
+                // La malla sólo vive mientras se escribe: el visor lee modelo.obj del disco.
                 Mesh m = session.reconstruct(this::setStatus);
-                lastMesh = m;
                 String msg = String.format(Locale.US, "Listo en %.1f s: %s", (System.currentTimeMillis() - t0) / 1000.0,
                         m.describe());
                 log(msg + "\n" + session.dir.getAbsolutePath());

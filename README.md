@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner o en el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las tres funciones: **Visor de archivos**, **Escáner 3D** y **Afinador** (en la versión web las dos últimas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -28,6 +28,37 @@ Afina **guitarra** (estándar E2 A2 D3 G3 B3 E4 y Drop D) y **violín** (G3 D4 A
 - Botón **Respuesta: Rápida / Normal / Estable** para elegir entre velocidad y estabilidad de la aguja.
 - Probado con señales sintéticas que imitan el micrófono del teléfono (fundamental grave atenuada, cuerdas sonando a la vez): 0 lecturas en el armónico en guitarra, Drop D y violín. Validado además con una grabación real de guitarra: los cambios de cuerda mostrada bajaron de 76 a 17 en 15 s.
 - El audio se procesa en el teléfono y no se guarda ni se envía.
+
+## 🎨 Pantonera (botón «Pantonera»)
+
+Mide el color de una muestra (pintura, cerámica, tela) y también **materiales compuestos como el terrazzo**: color del fondo, color de cada tipo de piedra, qué % del área ocupa y su tamaño en mm. Después la busca en **«mi pantonera»** y la guarda o exporta.
+
+1. Pon la muestra en el **centro de una hoja blanca** (A4, Carta u Oficio; se reconoce sola por su proporción). Mejor papel sin «extra blanco» (los blanqueadores ópticos brillan con luz de día). Si la muestra es **blanca o muy clara** (terrazzo de fondo blanco), ponla **al lado** de la hoja sobre una superficie oscura: la app reconoce cuál es la hoja por su forma y proporción.
+2. **📷 Foto** desde arriba, con la hoja completa, sin sombras ni reflejos. Si puedes, saca **una foto con cada luz** (ventana, foco, LED): se combinan por mediana y la app avisa si el color cambia entre luces (**metamerismo**).
+3. **🔎 Comparar** ordena tu pantonera por parecido (ΔE2000 y su lectura: «no se distingue», «se nota lado a lado»…). Si las dos primeras son equivalentes lo dice: el nombre cambia según la marca, el color no.
+4. **💾 Guardar** con nombre, marca, código y acabado. **📚 Mías** → importar/exportar.
+5. **🖼 Galería → Imagen de catálogo**: mide una foto de catálogo o de la web (la imagen entera es la muestra; opcionalmente su ancho real en mm para los tamaños). Sirve para armar tu pantonera con las baldosas de un proveedor. El color queda tal como viene en la imagen.
+
+| Paso | Técnica |
+|---|---|
+| Hoja | regiones claras y neutras → la que mejor parece papel (rectángulo lleno con proporción A4/Carta/Oficio) → brillo del papel modelado como superficie suave (separa grises claros del papel) → cuadrilátero → **mm por píxel** |
+| Luz | **von Kries**: el blanco de la hoja *junto a la muestra* pasa a ser un blanco neutro (corrige luz cálida/fría y sombras suaves) |
+| Color | CIELAB (D65), descarta el borde de la muestra y los reflejos |
+| Composición | k‑means en Lab + fusión según color **y disposición**: grupos con píxeles sueltos (ruido) o casi iguales (ΔE < 4,5) se funden; los bordes desenfocados entre piedra y matriz («anillos») se disuelven; el color se mide en el núcleo de cada piedra |
+| Granulometría | manchas por grupo → diámetro equivalente → p10/p50/p90 ponderados por área (como D10/D50/D90); forma: redondeada, angulosa o vetas |
+| Comparación | fondo ΔE2000 + mezcla con **Earth Mover's Distance** + tamaño típico de las piedras (media ponderada por área) |
+
+**Formato STJF** (*Simple Texture JSON Format*, hermano de SDJF de AlmaGag): ver la [especificación](docs/spec/STJF_v1.0_SPEC.md) y el [ejemplo](docs/examples/terrazzo.stjf). Archivo mínimo:
+
+```json
+{ "samples": [ { "id": "a101", "label": "Blanco hueso", "color": "#E3DACB" } ] }
+```
+
+Exporta a formatos abiertos: **glTF 2.0 `.glb`** (material PBR con la textura a escala real; se abre en Blender o en cualquier visor 3D; las muestras sin foto llevan una textura sintética generada desde la composición) y **paleta GPL** (GIMP, Inkscape, Krita). Los `.glb` pasan el validador oficial de Khronos sin errores ni avisos.
+
+Probado con fotos sintéticas de color, tamaños y fracciones conocidos (luz cálida/fría, desenfoque, viñeteo, perspectiva, ruido): ΔE < 1,3 en el color, tamaño de piedra con error < 6 % y escala con error de 0,1 %. Con 12 terrazzos reales (fotos de catálogo usadas como pantonera y luego «fotografiadas» en simulación con hoja, luz cálida o fría, desenfoque y ruido): **22 de 24 reconocidos en primer lugar**; los 2 restantes son dos baldosas casi iguales, que la app marca como empate. Archivos en `Android/data/com.josexato.navaja/files/pantonera/` (incluye `log.txt` de diagnóstico).
+
+Límites: la cámara procesa la foto (tono, nitidez), así que el Lab es una buena aproximación, no un espectrofotómetro; las piedras minoritarias de colores parecidos (p. ej. azul y azul grisáceo) pueden quedar en un mismo grupo; granos de 1–2 px se promedian con la matriz (acerca el teléfono).
 
 ## 🌐 Escáner de red local (botón «Red local», Android 11+)
 
@@ -86,6 +117,8 @@ app/src/main/assets/lib/         ← three.js 0.147 + loaders, pdf.js 3.11 legac
 app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + puente al escáner
 app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
+app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exportar); pantonera/core = color, STJF, análisis, glTF/GPL
+docs/spec/STJF_v1.0_SPEC.md      ← especificación del formato STJF
 app/src/main/java/.../scan3d/            ← escáner 3D (Camera2, PDF, UI); scan3d/core = algoritmos en Java puro
 app/src/test/java/.../scan3d/core/       ← prueba de extremo a extremo con escena sintética (./gradlew :app:testDebugUnitTest)
 .github/workflows/build.yml      ← CI: compila y publica el APK en Releases

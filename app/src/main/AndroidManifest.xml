@@ -55,6 +55,14 @@
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Pantonera: color y composición de una muestra sobre hoja blanca (usa la app de cámara). -->
+        <activity
+            android:name=".pantonera.PantoneraActivity"
+            android:exported="false"
+            android:label="Navaja · Pantonera"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

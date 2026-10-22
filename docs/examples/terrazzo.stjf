@@ -1,0 +1,36 @@
+{
+  "stjf": "1.0",
+  "samples": [
+    {
+      "id": "tz-204",
+      "label": "Terrazzo gris con mármol blanco",
+      "brand": "Proveedor X",
+      "code": "TZ-204",
+      "finish": "polished",
+      "base": { "lab": [62.0, 0.4, 3.1], "fraction": 0.55 },
+      "components": [
+        { "id": "marmol", "label": "Mármol blanco", "lab": [90.1, 0.2, 2.0], "fraction": 0.25,
+          "size_mm": { "p10": 3, "p50": 8, "p90": 15 }, "shape": "angular" },
+        { "id": "negra", "label": "Piedra negra", "color": "#2B2A2C", "fraction": 0.12,
+          "size_mm": { "p50": 5 } },
+        { "id": "vidrio", "label": "Vidrio verde", "color": "#4F7A5A", "fraction": 0.08,
+          "size_mm": { "p10": 4, "p50": 6, "p90": 10 } }
+      ]
+    },
+    {
+      "id": "tz-110",
+      "label": "Terrazzo blanco con escamas rojas",
+      "finish": "satin",
+      "base": { "color": "#EDEAE3" },
+      "components": [
+        { "id": "roja", "label": "Escama roja", "color": "#A8432F", "fraction": 0.15,
+          "size_mm": { "p10": 2, "p50": 4, "p90": 7 }, "shape": "angular" },
+        { "id": "gris", "label": "Grava gris", "color": "#8D8A86", "fraction": 0.10,
+          "size_mm": { "p50": 3 } }
+      ]
+    },
+    { "id": "a101", "label": "Blanco hueso", "brand": "Marca A", "code": "A-101", "color": "#E3DACB" },
+    { "id": "b550", "label": "Marfil antiguo", "brand": "Marca B", "code": "B-550", "lab": [87.1, 0.9, 9.0] },
+    { "id": "gris-perla", "label": "Gris perla", "color": "#C3C3BF", "finish": "satin" }
+  ]
+}
