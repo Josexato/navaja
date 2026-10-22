@@ -209,6 +209,7 @@
   .ico.scan { background: linear-gradient(135deg, #EE5A4F, #C9322C); }
   .ico.tuner { background: linear-gradient(135deg, #3DD6C6, #1FA597); }
   .ico.lan { background: linear-gradient(135deg, #6E8BF0, #3F5AD0); }
+  .ico.cell { background: linear-gradient(135deg, #F28B4C, #D2552A); }
   .ico.pant { background: linear-gradient(135deg, #C86FD8, #8E3FB0); }
   .card h3 { margin: 0; font-size: 1.05rem; }
   .card p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
@@ -261,7 +262,7 @@
         <svg class="logo-big" viewBox="18 18 72 72" aria-hidden="true"><defs><radialGradient id="lgHome" cx="54" cy="46" r="76" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#34496A"/><stop offset="1" stop-color="#161F2C"/></radialGradient></defs><rect x="18" y="18" width="72" height="72" rx="16" fill="url(#lgHome)"/><g transform="translate(55 58) scale(0.8) rotate(-28) translate(-56 -63)"><path transform="rotate(-70 36 64)" fill="#3DD6C6" d="M34,66 L34,62 L52,62 L52,59 L66,59 Q68,59 68,61 L54,61 L54,63 L68,63 Q68,65 66,65 L52,65 L52,66 Z"/><path transform="rotate(-52 74 64)" fill="#F2B544" d="M73,66.5 L73,61.5 L94,61.5 L97,64 L94,66.5 Z"/><g transform="rotate(-24 32 64)"><path fill="#EEF2F6" d="M28,66 L28,56 L70,56 C79,56 87,59.5 93,66 Z"/><path fill="#B7C3CF" d="M28,66 L28,62.5 L86,62.5 C88.6,63.4 91,64.6 93,66 Z"/></g><rect x="20" y="59" width="68" height="18" rx="9" fill="#E2413B"/><rect x="26" y="60.6" width="56" height="4.2" rx="2.1" fill="#FF8A7E" opacity="0.55"/><circle cx="29" cy="68" r="2.4" fill="#F8D7D3"/><circle cx="79" cy="68" r="2.4" fill="#F8D7D3"/><path fill="#FFF" d="M54,62 L60,68 L54,74 L48,68 Z"/></g></svg>
         <div>
           <h2>Navaja <span>◆</span></h2>
-          <p>Tu navaja suiza en el bolsillo: visor de archivos, escáner 3D, afinador, red local y pantonera. Todo funciona sin internet.</p>
+          <p>Tu navaja suiza en el bolsillo: visor de archivos, escáner 3D, afinador, red local, red móvil y pantonera. Todo funciona sin internet.</p>
         </div>
       </div>
       <div class="cards">
@@ -297,6 +298,14 @@
           <div class="chips"><span class="chip">equipos</span><span class="chip">puertos</span><span class="chip">local</span></div>
           <span class="go">Escanear red →</span>
         </div>
+        <div class="card" id="cardCell" role="button" tabindex="0">
+          <span class="badge" hidden>Sólo en la app Android</span>
+          <div class="ico cell"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 10v11M9 21h6"/><circle cx="12" cy="8" r="1.6"/><path d="M8.5 4.5a5 5 0 0 0 0 7M15.5 4.5a5 5 0 0 1 0 7M5.8 2a9 9 0 0 0 0 12M18.2 2a9 9 0 0 1 0 12"/></svg></div>
+          <h3>Red móvil</h3>
+          <p>Modo ingeniería: torre eNB/gNB, banda 4G/5G, RSRP/SINR, vecinas, recorrido con GPS y torres estimadas.</p>
+          <div class="chips"><span class="chip">4G/5G</span><span class="chip">eNB</span><span class="chip">dBm</span><span class="chip">KML</span></div>
+          <span class="go">Ver señal →</span>
+        </div>
         <div class="card" id="cardPant" role="button" tabindex="0">
           <span class="badge" hidden>Sólo en la app Android</span>
           <div class="ico pant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg></div>
@@ -306,7 +315,7 @@
           <span class="go">Medir color →</span>
         </div>
       </div>
-      <p class="home-foot">Los archivos se procesan en tu teléfono; nada se sube a internet.<br>La cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.</p>
+      <p class="home-foot">Los archivos se procesan en tu teléfono; nada se sube a internet.<br>La cámara, el micrófono y la ubicación sólo se piden al entrar en la función que los usa.</p>
     </div>
   </section>
   <div id="view3d" class="view"></div>
@@ -1012,6 +1021,7 @@
     ['cardScan', () => window.NavajaNative.openScanner()],
     ['cardTuner', () => window.NavajaNative.openTuner && window.NavajaNative.openTuner()],
     ['cardLan', () => window.NavajaNative.openLan && window.NavajaNative.openLan()],
+    ['cardCell', () => window.NavajaNative.openCellular && window.NavajaNative.openCellular()],
     ['cardPant', () => window.NavajaNative.openPantonera && window.NavajaNative.openPantonera()],
   ];
   for (const [id, open] of nativeCards) {

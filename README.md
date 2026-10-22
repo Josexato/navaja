@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -28,6 +28,20 @@ Afina **guitarra** (estándar E2 A2 D3 G3 B3 E4 y Drop D) y **violín** (G3 D4 A
 - Botón **Respuesta: Rápida / Normal / Estable** para elegir entre velocidad y estabilidad de la aguja.
 - Probado con señales sintéticas que imitan el micrófono del teléfono (fundamental grave atenuada, cuerdas sonando a la vez): 0 lecturas en el armónico en guitarra, Drop D y violín. Validado además con una grabación real de guitarra: los cambios de cuerda mostrada bajaron de 76 a 17 en 15 s.
 - El audio se procesa en el teléfono y no se guarda ni se envía.
+
+## 📶 Red móvil · modo ingeniería (botón «Red móvil»)
+
+Monitor de campo celular con las APIs públicas de Android, sin servicios externos. Especificación: [docs/spec/RED_MOVIL_v1.1_SPEC.md](docs/spec/RED_MOVIL_v1.1_SPEC.md).
+
+- **Celda servidora:** eNB y sector (LTE) o gNB y celda (NR, largo de gNB ID configurable: 22–32 bits), PCI, TAC, banda y canal (EARFCN/NR‑ARFCN), ancho de banda y **distancia a la antena por Timing Advance** (78,07 m por unidad en LTE).
+- **Señal con semáforo:** RSRP, RSRQ, SINR y CQI (con la modulación aproximada).
+- **Bandas por fórmula 3GPP** (TS 36.101 / 38.104), así sirven en cualquier país; si Android informa la banda (API 30+) manda esa.
+- **5G NSA:** indicador del sistema («5G NSA», «5G+», «LTE‑CA») y señal de la portadora NR aunque Android no la reporte como celda registrada.
+- **Celdas vecinas**, **Dual SIM** y roaming.
+- **Grabar recorrido:** celda servidora + GPS cada 2 s → exportar **CSV** o **KML** (Google Earth/QGIS, puntos coloreados por RSRP).
+- **Torres estimadas:** con varias mediciones de TA desde lugares distintos estima dónde está cada eNB (multilateración local, con aviso si el recorrido fue en línea recta y hay una solución espejo). El TA sólo existe con conexión de datos activa.
+- Permisos: ubicación (Android la exige para leer celdas; además la ubicación del sistema debe estar encendida) y `READ_PHONE_STATE` (Dual SIM e indicador 5G). Nada sale del teléfono.
+- No disponible para apps normales: agregación de portadoras, canales físicos y menús del fabricante (`*#0011#`).
 
 ## 🎨 Pantonera (botón «Pantonera»)
 
@@ -117,8 +131,10 @@ app/src/main/assets/lib/         ← three.js 0.147 + loaders, pdf.js 3.11 legac
 app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + puente al escáner
 app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
+app/src/main/java/.../cellular/          ← red móvil (celdas, GPS, exportar); cellular/core = bandas 3GPP, IDs, señal, recorrido, torres
 app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exportar); pantonera/core = color, STJF, análisis, glTF/GPL
 docs/spec/STJF_v1.0_SPEC.md      ← especificación del formato STJF
+docs/spec/RED_MOVIL_v1.1_SPEC.md ← especificación del modo ingeniería de red móvil
 app/src/main/java/.../scan3d/            ← escáner 3D (Camera2, PDF, UI); scan3d/core = algoritmos en Java puro
 app/src/test/java/.../scan3d/core/       ← prueba de extremo a extremo con escena sintética (./gradlew :app:testDebugUnitTest)
 .github/workflows/build.yml      ← CI: compila y publica el APK en Releases
