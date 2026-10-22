@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -50,6 +50,21 @@ Monitor de campo celular con las APIs públicas de Android, sin servicios extern
 - **⤴ KMZ:** exporta todos los puntos a **KMZ** con las fotos dentro (se ven en el globo de cada punto en Google Earth o Google My Maps); con fotos reducidas a 1600 px o en calidad original. También **GPX** para apps de GPS.
 - Cada punto se puede ver en el mapa, editar, compartir su foto o borrar.
 - Archivos en `Android/data/com.josexato.navaja/files/marcador/` (`waypoints.json`, `fotos/`, `export/`). Nada sale del teléfono hasta que compartes.
+
+## 🧭 Brújula y nivel (botón «Brújula y nivel»)
+
+**Brújula**
+- Rumbo con el sensor de rotación fusionado (o acelerómetro + magnetómetro), con 16 rumbos en español y contrarrumbo.
+- **Norte verdadero**: corrige la declinación magnética del lugar con el modelo WMM que trae Android (necesita una ubicación; sin ella muestra el norte magnético y lo dice).
+- Con el teléfono vertical da el rumbo hacia donde apunta la cámara trasera.
+- Avisos de **interferencia** (campo magnético medido vs. el esperado en ese lugar) y de **calibración** (mover el teléfono en 8).
+- **🎯 Ir a punto**: elige un waypoint del Marcador y una flecha verde apunta hacia él, con la distancia y cuánto girar.
+- **⏸ Fijar rumbo** para leer con calma una dirección tomada.
+
+**Nivel**
+- **Plano**: burbuja en 2D con la inclinación izquierda‑derecha y adelante‑atrás. **De canto** (vertical o apaisado): nivel de barra; el dibujo gira para quedar derecho.
+- Unidades: grados, **% de pendiente** o **mm por metro**. Vibra al quedar nivelado.
+- **Calibración en dos posiciones**: se mide, se gira el teléfono 180° en el mismo lugar y se mide otra vez; el promedio anula el error del sensor **aunque la mesa no esté nivelada**.
 
 ## 🎨 Pantonera (botón «Pantonera»)
 
@@ -140,6 +155,7 @@ app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + pu
 app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
 app/src/main/java/.../cellular/          ← red móvil (celdas, GPS, exportar); cellular/core = bandas 3GPP, IDs, señal, recorrido, torres
+app/src/main/java/.../compass/           ← brújula y nivel (sensores, vistas); compass/core = ángulos, rumbo, inclinación, calibración
 app/src/main/java/.../marker/            ← marcador (GPS, cámara, exportar); marker/core = waypoints, EXIF GPS, KMZ/GPX
 app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exportar); pantonera/core = color, STJF, análisis, glTF/GPL
 docs/spec/STJF_v1.0_SPEC.md      ← especificación del formato STJF

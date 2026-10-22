@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -83,6 +85,15 @@
             android:name=".marker.MarkerActivity"
             android:exported="false"
             android:label="Navaja · Marcador"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Brújula y nivel. Vertical fija: el nivel "de canto" gira su propio dibujo. -->
+        <activity
+            android:name=".compass.CompassActivity"
+            android:exported="false"
+            android:label="Navaja · Brújula y nivel"
+            android:screenOrientation="portrait"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 

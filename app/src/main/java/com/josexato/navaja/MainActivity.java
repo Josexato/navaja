@@ -17,6 +17,7 @@ import android.widget.Toast;
 
 import com.josexato.navaja.scan3d.ScanActivity;
 import com.josexato.navaja.cellular.CellularActivity;
+import com.josexato.navaja.compass.CompassActivity;
 import com.josexato.navaja.lan.LanActivity;
 import com.josexato.navaja.marker.MarkerActivity;
 import com.josexato.navaja.pantonera.PantoneraActivity;
@@ -82,6 +83,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openCellular() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, CellularActivity.class)));
+        }
+
+        @JavascriptInterface
+        public void openCompass() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, CompassActivity.class)));
         }
 
         @JavascriptInterface
