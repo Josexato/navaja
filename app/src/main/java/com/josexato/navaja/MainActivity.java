@@ -18,6 +18,7 @@ import android.widget.Toast;
 import com.josexato.navaja.scan3d.ScanActivity;
 import com.josexato.navaja.cellular.CellularActivity;
 import com.josexato.navaja.lan.LanActivity;
+import com.josexato.navaja.marker.MarkerActivity;
 import com.josexato.navaja.pantonera.PantoneraActivity;
 import com.josexato.navaja.tuner.TunerActivity;
 
@@ -81,6 +82,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openCellular() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, CellularActivity.class)));
+        }
+
+        @JavascriptInterface
+        public void openMarker() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, MarkerActivity.class)));
         }
 
         @JavascriptInterface
