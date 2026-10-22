@@ -36,6 +36,19 @@ public class MainActivity extends Activity {
     private static final int REQ_SCAN = 2;
     /** URL virtual (servida por shouldInterceptRequest) del último modelo escaneado. */
     private static final String SCAN_URL = "https://navaja.local/scan/modelo.obj";
+
+    /**
+     * ¿Es una petición del modelo escaneado? Se compara host y ruta, no la URL
+     * entera: el visor agrega "?t=<hora>" para saltarse la caché.
+     */
+    static boolean isScanUrl(String url) {
+        try {
+            java.net.URI u = new java.net.URI(url);
+            return "navaja.local".equals(u.getHost()) && "/scan/modelo.obj".equals(u.getPath());
+        } catch (java.net.URISyntaxException e) {
+            return false;
+        }
+    }
     private WebView webView;
     private ValueCallback<Uri[]> pendingFileCallback;
     private File scanModel;
@@ -85,7 +98,7 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
-                if (!SCAN_URL.equals(req.getUrl().toString())) return null;
+                if (req.getUrl() == null || !isScanUrl(req.getUrl().toString())) return null;
                 try {
                     if (scanModel == null) throw new IOException("sin modelo");
                     WebResourceResponse r = new WebResourceResponse("text/plain", "utf-8",

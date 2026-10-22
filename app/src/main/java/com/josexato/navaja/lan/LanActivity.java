@@ -26,6 +26,8 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Escáner de la red local (sólo la propia subred Wi‑Fi): muestra los datos de
@@ -39,6 +41,8 @@ public class LanActivity extends Activity {
     private LanScanner scanner;
     private Thread worker;
     private final Handler ui = new Handler(Looper.getMainLooper());
+    /** DNS inverso aparte: una IP sin nombre tarda segundos y no debe frenar el barrido. */
+    private final ExecutorService dnsPool = Executors.newFixedThreadPool(4);
     private final List<Device> devices = new ArrayList<>();
     private boolean scanning;
 
@@ -128,8 +132,8 @@ public class LanActivity extends Activity {
             @Override
             public void onDeviceFound(Device d) {
                 d.services.addAll(mdns.servicesFor(d.ip));
-                resolveHostname(d);
                 ui.post(() -> addDeviceRow(d));
+                dnsPool.execute(() -> resolveHostname(d));
             }
 
             @Override
@@ -147,13 +151,15 @@ public class LanActivity extends Activity {
         setStatus((cancelled ? "Detenido. " : "Listo. ") + count + " equipos en la red.");
     }
 
-    /** DNS inverso en un hilo aparte (puede tardar). */
+    /** DNS inverso (en dnsPool: puede tardar segundos por IP). */
     private void resolveHostname(Device d) {
         try {
             String name = InetAddress.getByName(d.ip).getCanonicalHostName();
             if (name != null && !name.equals(d.ip)) {
-                d.hostname = name;
-                ui.post(this::refreshList);
+                ui.post(() -> {
+                    d.hostname = name; // se escribe en el hilo de UI, que es quien lo lee
+                    refreshList();
+                });
             }
         } catch (Exception ignored) {
         }
@@ -263,6 +269,7 @@ public class LanActivity extends Activity {
     protected void onDestroy() {
         if (scanner != null) scanner.cancel();
         if (mdns != null) mdns.stop();
+        dnsPool.shutdownNow();
         super.onDestroy();
     }
 

@@ -39,6 +39,9 @@ public final class PitchTracker {
     private final double[] hist;
     private int n = 0, head = 0;
     private final double[] pending;
+    // Buffers de trabajo reutilizados en cada cuadro (sin basura en el hilo de audio).
+    private final double[] agree;
+    private final double[] sorted;
     private final long[] pendingMs;
     private int pn = 0;
     private int onset = 0;
@@ -52,6 +55,8 @@ public final class PitchTracker {
         this.resetAfterMs = resetAfterMs;
         this.hist = new double[resp.median];
         this.pending = new double[resp.confirm * 4];
+        this.agree = new double[resp.confirm * 4];
+        this.sorted = new double[resp.median];
         this.pendingMs = new long[resp.confirm * 4];
     }
 
@@ -107,7 +112,6 @@ public final class PitchTracker {
         pendingMs[pn++] = nowMs;
         int need = Double.isNaN(stable) ? resp.confirm
                 : isHarmonicJump(f, stable) ? resp.confirm * 2 : resp.confirm;
-        double[] agree = new double[pn];
         int k = 0;
         for (int i = 0; i < pn; i++)
             if (nowMs - pendingMs[i] <= windowMs() && Math.abs(cents(pending[i], f)) <= CONSISTENT_CENTS)
@@ -156,9 +160,8 @@ public final class PitchTracker {
     }
 
     private double median() {
-        double[] a = new double[n];
-        for (int i = 0; i < n; i++) a[i] = hist[(head - 1 - i + hist.length) % hist.length];
-        Arrays.sort(a);
-        return n % 2 == 1 ? a[n / 2] : 0.5 * (a[n / 2 - 1] + a[n / 2]);
+        for (int i = 0; i < n; i++) sorted[i] = hist[(head - 1 - i + hist.length) % hist.length];
+        Arrays.sort(sorted, 0, n);
+        return n % 2 == 1 ? sorted[n / 2] : 0.5 * (sorted[n / 2 - 1] + sorted[n / 2]);
     }
 }
