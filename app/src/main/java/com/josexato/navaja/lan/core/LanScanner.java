@@ -31,6 +31,15 @@ public final class LanScanner {
     private volatile boolean cancelled;
     private ExecutorService pool;
 
+    /**
+     * 64 hilos a propósito (revisado, no es un error). Cada hilo hace un único
+     * connect() TCP a la vez con timeout de 300 ms, así que hay como máximo 64
+     * sockets abiertos: muy por debajo del límite de descriptores de Android
+     * (miles por proceso) y lejos de una "inundación SYN" (nmap -T4 usa
+     * cientos de sondas en paralelo). Con menos hilos, un /24 de IPs mudas
+     * tarda varias veces más. Si una red concreta descarta conexiones, se
+     * puede bajar con el otro constructor sin tocar este valor por defecto.
+     */
     public LanScanner(HostProbe probe) { this(probe, 64, 300, 500); }
 
     public LanScanner(HostProbe probe, int threads, int discoveryTimeoutMs, int portTimeoutMs) {

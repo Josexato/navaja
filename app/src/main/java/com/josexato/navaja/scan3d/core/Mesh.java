@@ -101,7 +101,14 @@ public final class Mesh {
                 vertexCount(), triangleCount(), b[1] - b[0], b[3] - b[2], b[5] - b[4]);
     }
 
-    /** OBJ con color por vértice ("v x y z r g b": lo leen MeshLab y Blender). */
+    /**
+     * OBJ con color por vértice ("v x y z r g b": lo leen MeshLab y Blender).
+     *
+     * <p>Revisado, no es un error: el OBJ ya está indexado. Cada vértice (v) y
+     * normal (vn) se escribe una sola vez y las caras los referencian por
+     * índice ("f a//a b//b c//c"); Surface Nets ya entrega la malla con
+     * vértices compartidos, así que no hay duplicados que eliminar.
+     */
     public void writeObj(File f) throws IOException {
         try (BufferedWriter w = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f), StandardCharsets.UTF_8))) {
             w.write("# scan3d - unidades mm, Z hacia arriba\n");
