@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -42,6 +42,14 @@ Monitor de campo celular con las APIs públicas de Android, sin servicios extern
 - **Torres estimadas:** con varias mediciones de TA desde lugares distintos estima dónde está cada eNB (multilateración local, con aviso si el recorrido fue en línea recta y hay una solución espejo). El TA sólo existe con conexión de datos activa.
 - Permisos: ubicación (Android la exige para leer celdas; además la ubicación del sistema debe estar encendida) y `READ_PHONE_STATE` (Dual SIM e indicador 5G). Nada sale del teléfono.
 - No disponible para apps normales: agregación de portadoras, canales físicos y menús del fabricante (`*#0011#`).
+
+## 📍 Marcador de ubicaciones (botón «Marcador»)
+
+- **📍 Guardar punto:** posición GPS actual (lat, lon, altitud, precisión y hora) con nombre y nota. Si el GPS es impreciso (> ±30 m) o viejo (> 30 s), avisa antes de guardar.
+- **📷 Foto:** abre la cámara y, al volver, escribe la ubicación en el **EXIF** del JPEG (latitud, longitud, altitud, fecha/hora GPS y el nombre como descripción) y crea un punto con esa foto.
+- **⤴ KMZ:** exporta todos los puntos a **KMZ** con las fotos dentro (se ven en el globo de cada punto en Google Earth o Google My Maps); con fotos reducidas a 1600 px o en calidad original. También **GPX** para apps de GPS.
+- Cada punto se puede ver en el mapa, editar, compartir su foto o borrar.
+- Archivos en `Android/data/com.josexato.navaja/files/marcador/` (`waypoints.json`, `fotos/`, `export/`). Nada sale del teléfono hasta que compartes.
 
 ## 🎨 Pantonera (botón «Pantonera»)
 
@@ -132,6 +140,7 @@ app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + pu
 app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
 app/src/main/java/.../cellular/          ← red móvil (celdas, GPS, exportar); cellular/core = bandas 3GPP, IDs, señal, recorrido, torres
+app/src/main/java/.../marker/            ← marcador (GPS, cámara, exportar); marker/core = waypoints, EXIF GPS, KMZ/GPX
 app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exportar); pantonera/core = color, STJF, análisis, glTF/GPL
 docs/spec/STJF_v1.0_SPEC.md      ← especificación del formato STJF
 docs/spec/RED_MOVIL_v1.1_SPEC.md ← especificación del modo ingeniería de red móvil
