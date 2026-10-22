@@ -145,6 +145,14 @@ public class MainActivity extends Activity {
     /**
      * Atrás: si se está viendo un archivo, vuelve a la pantalla de inicio de
      * index.html (window.navajaBack devuelve true); si ya está en el inicio, sale.
+     *
+     * <p>Revisado, no es un error: con targetSdk 34 y sin
+     * {@code android:enableOnBackInvokedCallback="true"} en el manifiesto,
+     * Android sigue llamando a onBackPressed() también en API 33/34. Registrar
+     * un OnBackInvokedCallback sin activar esa opción no tiene efecto, y
+     * activarla exige decidir el retroceso ANTES del gesto, mientras que aquí la
+     * respuesta llega de forma asíncrona desde el JavaScript del WebView. Migrar
+     * cuando una versión de targetSdk lo exija.
      */
     @Override
     @SuppressWarnings("deprecation") // onBackPressed sigue siendo la vía simple hasta API 33 sin androidx.activity
