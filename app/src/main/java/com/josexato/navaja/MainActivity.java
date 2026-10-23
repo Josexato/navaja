@@ -21,6 +21,7 @@ import com.josexato.navaja.compass.CompassActivity;
 import com.josexato.navaja.lan.LanActivity;
 import com.josexato.navaja.marker.MarkerActivity;
 import com.josexato.navaja.pantonera.PantoneraActivity;
+import com.josexato.navaja.pulse.PulseActivity;
 import com.josexato.navaja.tuner.TunerActivity;
 
 import java.io.File;
@@ -88,6 +89,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openCompass() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, CompassActivity.class)));
+        }
+
+        @JavascriptInterface
+        public void openPulse() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, PulseActivity.class)));
         }
 
         @JavascriptInterface
