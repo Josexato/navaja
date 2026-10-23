@@ -7,6 +7,8 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.view.View;
 
+import com.josexato.navaja.ui.Palette;
+
 /** Aguja de afinación: arco de -50 a +50 cents con zona verde de ±5. */
 final class GaugeView extends View {
 
@@ -43,7 +45,7 @@ final class GaugeView extends View {
         p.setStrokeWidth(r * 0.06f);
         p.setColor(0x33FFFFFF);
         c.drawArc(oval, 210, 120, false, p);
-        p.setColor(0xFF2E7D32);
+        p.setColor(Palette.withAlpha(Palette.OK, 0x55));
         c.drawArc(oval, (float) (270 - IN_TUNE_CENTS * 1.2), (float) (2 * IN_TUNE_CENTS * 1.2), false, p);
 
         p.setStrokeWidth(r * 0.012f);
@@ -68,7 +70,7 @@ final class GaugeView extends View {
         double a = Math.toRadians(270 + shown * 1.2);
         p.setStrokeWidth(r * 0.025f);
         p.setStyle(Paint.Style.STROKE);
-        p.setColor(!has ? 0x55FFFFFF : ok ? 0xFF4CAF50 : Math.abs(cents) < 15 ? 0xFFFFC107 : 0xFFF44336);
+        p.setColor(!has ? 0x55FFFFFF : ok ? Palette.OK : Math.abs(cents) < 15 ? Palette.WARN : Palette.BAD);
         c.drawLine(cx, cy, cx + (float) Math.cos(a) * r * 0.92f, cy + (float) Math.sin(a) * r * 0.92f, p);
         p.setStyle(Paint.Style.FILL);
         c.drawCircle(cx, cy, r * 0.05f, p);
@@ -76,8 +78,8 @@ final class GaugeView extends View {
     }
 
     static int colorFor(double cents) {
-        if (Double.isNaN(cents)) return Color.GRAY;
+        if (Double.isNaN(cents)) return Palette.UNKNOWN;
         double a = Math.abs(cents);
-        return a <= IN_TUNE_CENTS ? 0xFF4CAF50 : a < 15 ? 0xFFFFC107 : 0xFFF44336;
+        return a <= IN_TUNE_CENTS ? Palette.OK : a < 15 ? Palette.WARN : Palette.BAD;
     }
 }

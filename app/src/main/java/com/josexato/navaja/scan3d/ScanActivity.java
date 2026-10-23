@@ -19,6 +19,9 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
+import com.josexato.navaja.ui.NavajaUi;
+import com.josexato.navaja.ui.Palette;
 import android.widget.Toast;
 
 import androidx.annotation.RequiresApi;
@@ -100,21 +103,31 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         preview = new PreviewView(this);
         root.addView(preview, new LinearLayout.LayoutParams(0, -1, 3f));
 
+        LinearLayout side = new LinearLayout(this);
+        side.setOrientation(LinearLayout.VERTICAL);
+        side.setBackgroundColor(Palette.BG);
+        side.addView(NavajaUi.headerBar(this, "Escáner 3D", "fotos + escenario impreso", null));
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(12, 12, 12, 12);
+        panel.setPadding(NavajaUi.dp(this, 10), 0, NavajaUi.dp(this, 10), NavajaUi.dp(this, 10));
         ScrollView sv = new ScrollView(this);
         sv.addView(panel);
-        root.addView(sv, new LinearLayout.LayoutParams(0, -1, 1.4f));
+        side.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+        root.addView(side, new LinearLayout.LayoutParams(0, -1, 1.4f));
 
-        status = new TextView(this);
-        status.setText("Listo");
-        panel.addView(status);
+        // Estado en una tarjeta fija arriba: en la cámara no se pierde como un Toast.
+        LinearLayout statusCard = NavajaUi.card(this);
+        status = NavajaUi.text(this, "Listo", NavajaUi.Style.BODY);
+        statusCard.addView(status);
+        panel.addView(statusCard);
         add(panel, "Imprimir escenario (PDF)", v -> printSheets());
         bMode = add(panel, "", v -> { mode = mode == ScanSession.Mode.DISCO ? ScanSession.Mode.LIBRE : ScanSession.Mode.DISCO; newSession(); refresh(); });
         bCams = add(panel, "Cámaras…", v -> chooseCameras());
         bCalib = add(panel, "", v -> calibrate());
         bCapture = add(panel, "", v -> toggleCapture());
+        bCapture.setBackground(NavajaUi.primary(this, "", null).getBackground());
+        bCapture.setTextColor(Palette.ON_ACCENT);
+        bCapture.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         bBuild = add(panel, "Generar 3D", v -> build());
         bView = add(panel, "Ver 3D en Navaja", v -> showInNavaja());
         bShare = add(panel, "Compartir log (+ modelo si existe)", v -> share());
@@ -124,8 +137,9 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         bGate = add(panel, "", v -> { gate = !gate; refresh(); });
         bDir = add(panel, "", v -> { ccw = !ccw; applySettings(); });
         add(panel, "Diagnóstico de cámaras (JSON)", v -> probe());
-        logView = new TextView(this);
+        logView = NavajaUi.text(this, "", NavajaUi.Style.MONO);
         logView.setTextSize(11);
+        logView.setPadding(0, NavajaUi.dp(this, 8), 0, 0);
         panel.addView(logView);
         setContentView(root);
         if (lastSession != null) {
@@ -139,11 +153,10 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
     }
 
     private Button add(LinearLayout p, String text, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        p.addView(b);
+        Button b = NavajaUi.secondary(this, text, l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = NavajaUi.dp(this, 6);
+        p.addView(b, lp);
         return b;
     }
 

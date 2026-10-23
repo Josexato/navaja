@@ -18,6 +18,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.josexato.navaja.lan.core.Device;
+import com.josexato.navaja.ui.NavajaUi;
+import com.josexato.navaja.ui.Palette;
 import com.josexato.navaja.lan.core.LanScanner;
 import com.josexato.navaja.lan.core.Ports;
 import com.josexato.navaja.lan.core.Subnet;
@@ -47,6 +49,9 @@ public class LanActivity extends Activity {
     private boolean scanning;
 
     private TextView netView, statusView;
+    private NavajaUi.Screen screen;
+    private NavajaUi.Metric mDevices, mTime, mIp;
+    private long scanStart;
     private Button scanBtn;
     private LinearLayout list;
 
@@ -58,28 +63,28 @@ public class LanActivity extends Activity {
     }
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF15171A);
-        root.setPadding(dp(16), dp(16), dp(16), dp(16));
+        NavajaUi.Screen sc = NavajaUi.screen(this, "Red local", "sólo tu subred · nada sale a internet", null);
+        screen = sc;
+        LinearLayout root = sc.content;
 
-        TextView title = text("Escáner de red local", 20, 0xFFFFFFFF);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
+        mDevices = NavajaUi.metric(this, "Equipos");
+        mTime = NavajaUi.metric(this, "Barrido");
+        mIp = NavajaUi.metric(this, "Tu IP");
+        root.addView(NavajaUi.metricRow(this, mDevices, mTime, mIp));
+        mDevices.set("—", null, 0);
+        mTime.set("—", null, 0);
+        mIp.set("—", null, 0);
 
-        netView = text("", 13, 0xFFB9C4CF);
-        netView.setPadding(0, dp(8), 0, dp(10));
-        netView.setTypeface(Typeface.MONOSPACE);
-        root.addView(netView);
+        LinearLayout netCard = NavajaUi.card(this);
+        netView = NavajaUi.text(this, "", NavajaUi.Style.MONO);
+        netCard.addView(netView);
+        root.addView(netCard);
 
-        LinearLayout row = new LinearLayout(this);
-        scanBtn = button("Escanear la red", v -> toggleScan());
-        row.addView(scanBtn);
-        row.addView(button("Datos de red", v -> refreshNet()));
-        root.addView(row);
+        scanBtn = NavajaUi.primary(this, "Escanear la red", v -> toggleScan());
+        root.addView(NavajaUi.buttonRow(this, scanBtn, NavajaUi.secondary(this, "Datos de red", v -> refreshNet())));
 
-        statusView = text("", 13, 0x99FFFFFF);
-        statusView.setPadding(0, dp(10), 0, dp(6));
+        statusView = NavajaUi.text(this, "", NavajaUi.Style.SECONDARY);
+        statusView.setPadding(0, dp(8), 0, dp(2));
         root.addView(statusView);
 
         list = new LinearLayout(this);
@@ -88,7 +93,7 @@ public class LanActivity extends Activity {
         sv.addView(list);
         root.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        setContentView(root);
+        setContentView(sc.root);
     }
 
     private void refreshNet() {
@@ -99,6 +104,8 @@ public class LanActivity extends Activity {
             return;
         }
         scanBtn.setEnabled(true);
+        mIp.set(net.ipv4, net.subnet().cidr(), 0);
+        screen.setSubtitle((net.wifi ? "Wi‑Fi" : "red") + " · " + net.subnet().cidr() + " · nada sale a internet");
         StringBuilder sb = new StringBuilder(net.summary());
         if (!net.wifi) sb.append("\n⚠ No estás en Wi‑Fi: el escaneo de datos móviles no tiene sentido.");
         netView.setText(sb.toString());
@@ -115,6 +122,7 @@ public class LanActivity extends Activity {
         devices.clear();
         list.removeAllViews();
         scanning = true;
+        scanStart = System.currentTimeMillis();
         scanBtn.setText("Detener");
         mdns = new MdnsScanner(this);
         mdns.start();
@@ -125,8 +133,11 @@ public class LanActivity extends Activity {
         worker = new Thread(() -> scanner.scan(subnet, gw, self, new LanScanner.Listener() {
             @Override
             public void onProgress(int done, int total) {
-                ui.post(() -> setStatus(String.format(Locale.US, "Explorando… %d/%d (%d encontrados)",
-                        done, total, devices.size())));
+                ui.post(() -> {
+                    setStatus(String.format(Locale.US, "Explorando… %d/%d (%d encontrados)", done, total, devices.size()));
+                    mTime.set(String.format(Locale.US, "%.0f s", (System.currentTimeMillis() - scanStart) / 1000.0),
+                            String.format(Locale.US, "%d%%", 100 * done / Math.max(1, total)), 0);
+                });
             }
 
             @Override
@@ -149,6 +160,8 @@ public class LanActivity extends Activity {
         scanBtn.setText("Escanear la red");
         if (mdns != null) mdns.stop();
         setStatus((cancelled ? "Detenido. " : "Listo. ") + count + " equipos en la red.");
+        mTime.set(String.format(Locale.US, "%.1f s", (System.currentTimeMillis() - scanStart) / 1000.0),
+                cancelled ? "detenido" : "completo", 0);
     }
 
     /** DNS inverso (en dnsPool: puede tardar segundos por IP). */
@@ -168,6 +181,7 @@ public class LanActivity extends Activity {
     // --------------------------------------------------------------- lista
 
     private void refreshList() {
+        mDevices.set(Integer.toString(devices.size()), scanning ? "buscando…" : null, 0);
         list.removeAllViews();
         for (Device d : devices) list.addView(buildRow(d));
     }
@@ -185,26 +199,37 @@ public class LanActivity extends Activity {
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2);
         clp.topMargin = dp(8);
         card.setLayoutParams(clp);
-        card.setBackground(rowBg());
+        card.setBackground(NavajaUi.cardBackground(this));
 
-        TextView icon = text(d.kind().icon, 26, 0xFFFFFFFF);
+        TextView icon = text(d.kind().icon, 26, Palette.TEXT);
         icon.setPadding(0, 0, dp(12), 0);
         card.addView(icon);
 
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        TextView name = text(d.displayName(), 15, 0xFFFFFFFF);
+        TextView name = text(d.displayName(), 15, Palette.TEXT);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         col.addView(name);
-        String sub = d.ip + "  ·  " + d.kind().label + (d.latencyMs >= 0 ? "  ·  " + d.latencyMs + " ms" : "");
-        col.addView(text(sub, 12, 0xFF9FB0C3));
+        String sub = d.ip + "  ·  " + d.kind().label;
+        TextView subv = text(sub, 12, Palette.TEXT_2);
+        subv.setTypeface(Typeface.MONOSPACE);
+        col.addView(subv);
         if (!d.openPorts.isEmpty()) {
             StringBuilder ps = new StringBuilder("Puertos: ");
             int i = 0;
             for (int p : d.openPorts) { if (i++ > 0) ps.append(", "); ps.append(p); }
-            col.addView(text(ps.toString(), 11, 0xFF7E8A99));
+            col.addView(text(ps.toString(), 11, Palette.TEXT_3));
         }
         card.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (d.latencyMs >= 0) {
+            // Latencia de conexión TCP (no es ping ICMP): verde si responde rápido.
+            int c = d.latencyMs < 20 ? Palette.OK : d.latencyMs < 100 ? Palette.WARN : Palette.BAD;
+            TextView lat = text(d.latencyMs + " ms", 12, c);
+            lat.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            lat.setPadding(dp(8), dp(3), dp(8), dp(3));
+            lat.setBackground(NavajaUi.shape(Palette.withAlpha(c, 0x22), c, dp(10), 1));
+            card.addView(lat);
+        }
         card.setOnClickListener(v -> openDetail(d));
         return card;
     }
@@ -215,12 +240,12 @@ public class LanActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(20), dp(16), dp(20), dp(8));
-        TextView head = text(d.kind().icon + "  " + d.displayName(), 17, 0xFF1B222C);
+        TextView head = text(d.kind().icon + "  " + d.displayName(), 17, Palette.TEXT);
         head.setTypeface(Typeface.DEFAULT_BOLD);
         box.addView(head);
-        box.addView(text(d.ip + "  ·  " + d.kind().label, 13, 0xFF5D6673));
+        box.addView(text(d.ip + "  ·  " + d.kind().label, 13, Palette.TEXT_2));
 
-        TextView info = text("Analizando puertos…", 13, 0xFF1B222C);
+        TextView info = text("Analizando puertos…", 13, Palette.TEXT);
         info.setPadding(0, dp(12), 0, 0);
         box.addView(info);
 
@@ -283,22 +308,6 @@ public class LanActivity extends Activity {
         t.setTextSize(sp);
         t.setTextColor(color);
         return t;
-    }
-
-    private Button button(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
-    }
-
-    private android.graphics.drawable.GradientDrawable rowBg() {
-        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
-        g.setColor(0xFF1E232B);
-        g.setCornerRadius(dp(12));
-        g.setStroke(1, 0xFF333B46);
-        return g;
     }
 
     private ScrollView wrapScroll(View v) {

@@ -46,6 +46,8 @@ import com.josexato.navaja.cellular.core.CellReading;
 import com.josexato.navaja.cellular.core.DriveLog;
 import com.josexato.navaja.cellular.core.SignalMetrics;
 import com.josexato.navaja.cellular.core.TowerLocator;
+import com.josexato.navaja.ui.NavajaUi;
+import com.josexato.navaja.ui.Palette;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -92,6 +94,7 @@ public class CellularActivity extends Activity {
     private final LocationListener locListener = loc -> lastFix = loc;
 
     private TextView headView, statusView;
+    private NavajaUi.Screen screen;
     private LinearLayout simRow, content;
     private Button recBtn, gnbBtn;
 
@@ -401,22 +404,22 @@ public class CellularActivity extends Activity {
             box.addView(text("Aún no hay mediciones con Timing Advance.\n\n1. Pulsa «Grabar recorrido».\n"
                     + "2. Usa datos móviles mientras te mueves (el TA sólo existe con conexión activa).\n"
                     + "3. Muévete alrededor de la zona, no sólo en línea recta: con " + TowerLocator.MIN_OBS
-                    + "+ mediciones desde lugares distintos se estima dónde está cada torre.", 13, 0xFF1B222C));
+                    + "+ mediciones desde lugares distintos se estima dónde está cada torre.", 13, Palette.TEXT));
         }
         for (Map.Entry<String, Integer> e : counts.entrySet()) {
             TowerLocator.Estimate t = towers.get(e.getKey());
-            TextView name = text(e.getKey(), 14, 0xFF1B222C);
+            TextView name = text(e.getKey(), 14, Palette.TEXT);
             name.setTypeface(Typeface.DEFAULT_BOLD);
             name.setPadding(0, dp(10), 0, 0);
             box.addView(name);
             if (t == null) {
-                box.addView(text(e.getValue() + " mediciones con TA · faltan datos o movimiento para estimar", 12, 0xFF5D6673));
+                box.addView(text(e.getValue() + " mediciones con TA · faltan datos o movimiento para estimar", 12, Palette.TEXT_2));
                 continue;
             }
             box.addView(text(String.format(Locale.US, "%.6f, %.6f · ±%.0f m · %d mediciones%s",
                     t.lat, t.lon, t.uncertaintyM, t.used,
                     t.ambiguous ? "\n⚠ Recorrido casi en línea recta: puede estar del otro lado de la calle (solución espejo)." : ""),
-                    12, 0xFF5D6673));
+                    12, Palette.TEXT_2));
             Button map = button("Ver en mapa", v -> openMap(t.lat, t.lon, e.getKey()));
             box.addView(map);
         }
@@ -472,33 +475,25 @@ public class CellularActivity extends Activity {
     // ================================================================= UI
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF15171A);
-        root.setPadding(dp(16), dp(16), dp(16), dp(8));
-
-        TextView title = text("Red móvil · modo ingeniería", 20, 0xFFFFFFFF);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
+        NavajaUi.Screen sc = NavajaUi.screen(this, "Red móvil", "modo ingeniería · LTE / 5G NR",
+                NavajaUi.headerAction(this, "⤴", v -> exportMenu()));
+        screen = sc;
+        LinearLayout root = sc.content;
 
         simRow = new LinearLayout(this);
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.addView(simRow);
         root.addView(hs);
 
-        headView = text("", 13, 0xFFB9C4CF);
+        headView = text("", 13, Palette.TEXT_2);
         headView.setTypeface(Typeface.MONOSPACE);
         headView.setPadding(0, dp(6), 0, dp(6));
         root.addView(headView);
 
-        LinearLayout row = new LinearLayout(this);
-        recBtn = button("● Grabar recorrido", v -> toggleRecording());
-        row.addView(recBtn);
-        row.addView(button("🗼 Torres", v -> showTowers()));
-        row.addView(button("⤴ Exportar", v -> exportMenu()));
-        root.addView(weighted(row));
+        recBtn = NavajaUi.primary(this, "● Grabar recorrido", v -> toggleRecording());
+        root.addView(NavajaUi.buttonRow(this, recBtn, NavajaUi.secondary(this, "🗼 Torres", v -> showTowers())));
 
-        statusView = text("", 12, 0x99FFFFFF);
+        statusView = text("", 12, Palette.TEXT_3);
         statusView.setPadding(0, dp(6), 0, dp(4));
         root.addView(statusView);
 
@@ -512,11 +507,11 @@ public class CellularActivity extends Activity {
         LinearLayout foot = new LinearLayout(this);
         foot.setGravity(Gravity.CENTER_VERTICAL);
         TextView note = text("Sólo APIs públicas: CA, canales físicos y menús del fabricante (*#0011#) no están disponibles para apps.",
-                11, 0xFF7E8A99);
+                11, Palette.TEXT_3);
         foot.addView(note, new LinearLayout.LayoutParams(0, -2, 1f));
         foot.addView(gnbBtn);
         root.addView(foot);
-        setContentView(root);
+        setContentView(sc.root);
         render();
     }
 
@@ -539,12 +534,12 @@ public class CellularActivity extends Activity {
         if (!hasLocationPerm()) {
             headView.setText("");
             content.addView(text("\nAndroid exige el permiso de ubicación para leer las celdas de radio. Navaja no "
-                    + "guarda ni envía tu ubicación (salvo que grabes un recorrido, que queda en el teléfono).", 13, 0xFFB9C4CF));
+                    + "guarda ni envía tu ubicación (salvo que grabes un recorrido, que queda en el teléfono).", 13, Palette.TEXT_2));
             content.addView(button("Dar permiso", v -> askPermissions()));
             return;
         }
         if (!locationEnabled()) {
-            content.addView(text("\nLa ubicación del sistema está apagada: sin ella Android no entrega las celdas.", 13, 0xFFFFC266));
+            content.addView(text("\nLa ubicación del sistema está apagada: sin ella Android no entrega las celdas.", 13, Palette.WARN));
             content.addView(button("Activar ubicación", v -> askLocationOn()));
         }
 
@@ -553,7 +548,7 @@ public class CellularActivity extends Activity {
         renderHead(serving);
 
         if (cells.isEmpty()) {
-            content.addView(text("\nEsperando datos del módem…", 13, 0x99FFFFFF));
+            content.addView(text("\nEsperando datos del módem…", 13, Palette.TEXT_3));
             return;
         }
         List<CellReading> neighbors = new ArrayList<>();
@@ -562,7 +557,7 @@ public class CellularActivity extends Activity {
             else neighbors.add(c);
         }
         if (!neighbors.isEmpty()) {
-            TextView h = text("Celdas vecinas (" + neighbors.size() + ")", 15, 0xFFFFFFFF);
+            TextView h = text("Celdas vecinas (" + neighbors.size() + ")", 15, Palette.TEXT);
             h.setTypeface(Typeface.DEFAULT_BOLD);
             h.setPadding(0, dp(14), 0, dp(4));
             content.addView(h);
@@ -598,7 +593,7 @@ public class CellularActivity extends Activity {
     private View servingCard(CellReading c) {
         LinearLayout card = card();
         boolean nsa = c.rat == CellReading.Rat.NR && c.cellId == CellReading.NA_LONG;
-        TextView h = text((nsa ? "Portadora 5G NSA" : "Celda servidora · " + c.rat.label), 15, 0xFFFFFFFF);
+        TextView h = text((nsa ? "Portadora 5G NSA" : "Celda servidora · " + c.rat.label), 15, Palette.TEXT);
         h.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(h);
 
@@ -628,7 +623,7 @@ public class CellularActivity extends Activity {
         } else if (c.rat == CellReading.Rat.LTE) {
             id.append("\nDistancia: sin TA (sólo con conexión de datos activa)");
         }
-        TextView idv = text(id.toString(), 13, 0xFFB9C4CF);
+        TextView idv = text(id.toString(), 13, Palette.TEXT_2);
         idv.setTypeface(Typeface.MONOSPACE);
         idv.setPadding(0, dp(4), 0, dp(8));
         card.addView(idv);
@@ -658,25 +653,16 @@ public class CellularActivity extends Activity {
     }
 
     private View metric(String name, int value, String unit, SignalMetrics.Level lvl, String extra) {
-        LinearLayout m = new LinearLayout(this);
-        m.setOrientation(LinearLayout.VERTICAL);
-        m.setPadding(dp(10), dp(8), dp(10), dp(8));
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0xFF15171A);
-        g.setCornerRadius(dp(10));
-        g.setStroke(dp(2), lvl.color);
-        m.setBackground(g);
+        NavajaUi.Metric m = NavajaUi.metric(this, name);
+        String v = CellReading.has(value) ? value + (unit.isEmpty() ? "" : " " + unit) : "—";
+        // El color es el dato (semáforo), no el acento de la marca.
+        m.set(v, lvl.label + (extra == null ? "" : " · " + extra), lvl == SignalMetrics.Level.UNKNOWN ? 0 : lvl.color);
         GridLayout.LayoutParams lp = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED, 1f),
                 GridLayout.spec(GridLayout.UNDEFINED, 1f));
         lp.width = 0;
         lp.setMargins(dp(3), dp(3), dp(3), dp(3));
-        m.setLayoutParams(lp);
-        m.addView(text(name, 11, 0xFF9FB0C3));
-        TextView v = text(CellReading.has(value) ? value + (unit.isEmpty() ? "" : " " + unit) : "—", 18, 0xFFFFFFFF);
-        v.setTypeface(Typeface.DEFAULT_BOLD);
-        m.addView(v);
-        m.addView(text(lvl.label + (extra == null ? "" : " · " + extra), 11, lvl.color));
-        return m;
+        m.view.setLayoutParams(lp);
+        return m.view;
     }
 
     private View neighborRow(CellReading c) {
@@ -694,7 +680,7 @@ public class CellularActivity extends Activity {
         String s = String.format(Locale.US, "%s  PCI %s  ·  %s %s%s  ·  %s dBm",
                 c.rat == null ? "" : c.rat.name(), n(c.pci), channelName(c), n(c.channel),
                 band == null ? "" : "  ·  " + band.split(" · ")[0], CellReading.has(signal) ? signal : "—");
-        TextView t = text(s, 12, 0xFFB9C4CF);
+        TextView t = text(s, 12, Palette.TEXT_2);
         t.setTypeface(Typeface.MONOSPACE);
         t.setPadding(dp(8), 0, 0, 0);
         r.addView(t);
@@ -706,18 +692,7 @@ public class CellularActivity extends Activity {
     private static String n(int v) { return CellReading.has(v) ? Integer.toString(v) : "—"; }
 
     private LinearLayout card() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(12), dp(12), dp(12), dp(12));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(10);
-        card.setLayoutParams(lp);
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0xFF1E232B);
-        g.setCornerRadius(dp(12));
-        g.setStroke(1, 0xFF333B46);
-        card.setBackground(g);
-        return card;
+        return NavajaUi.card(this);
     }
 
     private void setStatus(String s) { statusView.setText(s); }
@@ -735,17 +710,9 @@ public class CellularActivity extends Activity {
     }
 
     private Button button(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
+        return NavajaUi.secondary(this, s, l);
     }
 
-    private static LinearLayout weighted(LinearLayout row) {
-        for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
-        return row;
-    }
 
     private ScrollView wrapScroll(View v) {
         ScrollView s = new ScrollView(this);
