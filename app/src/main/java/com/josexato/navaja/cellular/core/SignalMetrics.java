@@ -1,5 +1,7 @@
 package com.josexato.navaja.cellular.core;
 
+import com.josexato.navaja.ui.Palette;
+
 /**
  * Evaluación de la señal (semáforo) y distancia por Timing Advance.
  * Umbrales habituales de campo para LTE/NR; son una guía de lectura, no un
@@ -10,8 +12,8 @@ public final class SignalMetrics {
     private SignalMetrics() { }
 
     public enum Level {
-        EXCELLENT("Excelente", 0xFF6EE7A0), GOOD("Buena", 0xFF5BD3E6), FAIR("Regular", 0xFFFFD166),
-        POOR("Crítica", 0xFFFF8A7E), UNKNOWN("—", 0xFF7E8A99);
+        EXCELLENT("Excelente", Palette.OK), GOOD("Buena", Palette.GOOD), FAIR("Regular", Palette.WARN),
+        POOR("Crítica", Palette.BAD), UNKNOWN("—", Palette.UNKNOWN);
 
         public final String label;
         public final int color;

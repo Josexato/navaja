@@ -27,6 +27,7 @@ import android.widget.Toast;
 import com.josexato.navaja.compass.core.Angles;
 import com.josexato.navaja.compass.core.Tilt;
 import com.josexato.navaja.marker.core.Waypoint;
+import com.josexato.navaja.ui.NavajaUi;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -78,7 +79,8 @@ public class CompassActivity extends Activity implements SensorEventListener {
     private CompassView compassView;
     private LevelView levelView;
     private TextView info;
-    private Button tabCompass, tabLevel, b1, b2, b3;
+    private TextView tabCompass, tabLevel;
+    private Button b1, b2, b3;
     private long lastUi;
 
     private final LocationListener locListener = loc -> location = loc;
@@ -354,17 +356,14 @@ public class CompassActivity extends Activity implements SensorEventListener {
     // ================================================================== UI
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF15171A);
-        root.setPadding(dp(12), dp(12), dp(12), dp(8));
+        NavajaUi.Screen sc = NavajaUi.screen(this, "Brújula y nivel", "WMM · sensores del teléfono", null);
+        LinearLayout root = sc.content;
 
         LinearLayout tabs = new LinearLayout(this);
-        tabCompass = button("🧭 Brújula", v -> setMode(true));
-        tabLevel = button("📐 Nivel", v -> setMode(false));
-        tabs.addView(tabCompass);
-        tabs.addView(tabLevel);
-        weighted(tabs);
+        TextView[] t = NavajaUi.tabs(tabs, new String[]{"🧭 Brújula", "📐 Nivel"},
+                prefs.getBoolean("compassMode", true) ? 0 : 1, i -> setMode(i == 0));
+        tabCompass = t[0];
+        tabLevel = t[1];
         root.addView(tabs);
 
         FrameLayout stage = new FrameLayout(this);
@@ -374,22 +373,16 @@ public class CompassActivity extends Activity implements SensorEventListener {
         stage.addView(levelView, new FrameLayout.LayoutParams(-1, -1));
         root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1f));
 
-        info = new TextView(this);
-        info.setTextColor(0xFFB9C4CF);
+        info = NavajaUi.text(this, "", NavajaUi.Style.SECONDARY);
         info.setTextSize(13);
-        info.setPadding(dp(4), dp(6), dp(4), dp(6));
+        info.setPadding(dp(4), dp(6), dp(4), dp(2));
         root.addView(info);
 
-        LinearLayout actions = new LinearLayout(this);
-        b1 = button("", v -> onAction(1));
-        b2 = button("", v -> onAction(2));
-        b3 = button("", v -> onAction(3));
-        actions.addView(b1);
-        actions.addView(b2);
-        actions.addView(b3);
-        weighted(actions);
-        root.addView(actions);
-        setContentView(root);
+        b1 = NavajaUi.secondary(this, "", v -> onAction(1));
+        b2 = NavajaUi.secondary(this, "", v -> onAction(2));
+        b3 = NavajaUi.secondary(this, "", v -> onAction(3));
+        root.addView(NavajaUi.buttonRow(this, b1, b2, b3));
+        setContentView(sc.root);
         setMode(prefs.getBoolean("compassMode", true));
     }
 
@@ -398,8 +391,8 @@ public class CompassActivity extends Activity implements SensorEventListener {
         prefs.edit().putBoolean("compassMode", compass).apply();
         compassView.setVisibility(compass ? View.VISIBLE : View.GONE);
         levelView.setVisibility(compass ? View.GONE : View.VISIBLE);
-        tabCompass.setAlpha(compass ? 1f : 0.5f);
-        tabLevel.setAlpha(compass ? 0.5f : 1f);
+        NavajaUi.setChip(tabCompass, compass);
+        NavajaUi.setChip(tabLevel, !compass);
         updateButtons();
         render();
     }
@@ -458,15 +451,5 @@ public class CompassActivity extends Activity implements SensorEventListener {
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
-    private Button button(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
-    }
 
-    private static void weighted(LinearLayout row) {
-        for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
-    }
 }

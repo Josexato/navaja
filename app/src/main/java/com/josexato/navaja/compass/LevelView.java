@@ -2,13 +2,13 @@ package com.josexato.navaja.compass;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.view.View;
 
 import com.josexato.navaja.compass.core.Tilt;
+import com.josexato.navaja.ui.Palette;
 
 /**
  * Nivel de burbuja: plano (burbuja 2D en un círculo, ±10°) o de canto (tubo
@@ -28,7 +28,7 @@ final class LevelView extends View {
     LevelView(Context c) {
         super(c);
         stroke.setStyle(Paint.Style.STROKE);
-        text.setColor(Color.WHITE);
+        text.setColor(Palette.TEXT);
         text.setTextAlign(Paint.Align.CENTER);
         text.setTypeface(Typeface.DEFAULT_BOLD);
     }
@@ -41,9 +41,9 @@ final class LevelView extends View {
     }
 
     static int color(double total) {
-        if (total < 0.3) return 0xFF6EE7A0;
-        if (total < 1.5) return 0xFFFFD166;
-        return 0xFFFF8A7E;
+        if (total < 0.3) return Palette.OK;
+        if (total < 1.5) return Palette.WARN;
+        return Palette.BAD;
     }
 
     @Override
@@ -63,20 +63,20 @@ final class LevelView extends View {
         float textY = reading.mode == Tilt.Mode.FLAT ? dp(56) : cy - dp(70);
         c.drawText(big, cx, textY, text);
         text.setTextSize(14 * d);
-        text.setColor(0xFFB9C4CF);
+        text.setColor(Palette.TEXT_2);
         c.drawText(small, cx, textY + dp(24), text);
 
         if (reading.mode == Tilt.Mode.FLAT) {
             float r = Math.min(w, h - dp(90)) / 2 - dp(16);
             float ccy = dp(90) + r;
-            fill.setColor(0xFF1E232B);
+            fill.setColor(Palette.SURFACE);
             c.drawCircle(cx, ccy, r, fill);
-            stroke.setColor(0xFF4A5563);
+            stroke.setColor(Palette.BORDER);
             stroke.setStrokeWidth(1.5f * d);
             c.drawCircle(cx, ccy, r * 0.5f, stroke);
             c.drawLine(cx - r, ccy, cx + r, ccy, stroke);
             c.drawLine(cx, ccy - r, cx, ccy + r, stroke);
-            stroke.setColor(0xFF6EE7A0);
+            stroke.setColor(Palette.OK);
             c.drawCircle(cx, ccy, (r - dp(14)) * (float) (1 / RANGE) + dp(14), stroke); // burbuja dentro = menos de 1°
             // La burbuja va hacia el lado más alto.
             double bx = clamp(reading.x / RANGE), by = clamp(reading.y / RANGE);
@@ -87,13 +87,13 @@ final class LevelView extends View {
         } else {
             float tw = span * 0.85f, th = dp(46);
             tube.set(cx - tw / 2, cy - th / 2, cx + tw / 2, cy + th / 2);
-            fill.setColor(0xFF1E232B);
+            fill.setColor(Palette.SURFACE);
             c.drawRoundRect(tube, th / 2, th / 2, fill);
-            stroke.setColor(0xFF4A5563);
+            stroke.setColor(Palette.BORDER);
             stroke.setStrokeWidth(2 * d);
             c.drawRoundRect(tube, th / 2, th / 2, stroke);
             float mark = (float) (tw / 2 / RANGE);
-            stroke.setColor(0xFF6EE7A0);
+            stroke.setColor(Palette.OK);
             c.drawLine(cx - mark - dp(18), tube.top, cx - mark - dp(18), tube.bottom, stroke);
             c.drawLine(cx + mark + dp(18), tube.top, cx + mark + dp(18), tube.bottom, stroke);
             double bx = clamp(reading.edge / RANGE);

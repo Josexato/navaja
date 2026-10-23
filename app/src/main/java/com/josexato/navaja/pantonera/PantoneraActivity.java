@@ -21,14 +21,12 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -42,6 +40,8 @@ import com.josexato.navaja.pantonera.core.Matcher;
 import com.josexato.navaja.pantonera.core.MultiShot;
 import com.josexato.navaja.pantonera.core.SampleAnalyzer;
 import com.josexato.navaja.pantonera.core.Stjf;
+import com.josexato.navaja.ui.NavajaUi;
+import com.josexato.navaja.ui.Palette;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -116,30 +116,21 @@ public class PantoneraActivity extends Activity {
     // ==================================================================== UI
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF15171A);
-        root.setPadding(dp(16), dp(16), dp(16), dp(16));
-
-        TextView title = text("Pantonera", 20, 0xFFFFFFFF);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
+        libBtn = NavajaUi.headerAction(this, "", v -> showLibrary());
+        NavajaUi.Screen sc = NavajaUi.screen(this, "Pantonera", "color · composición · STJF", libBtn);
+        LinearLayout root = sc.content;
         TextView help = text("Pon la muestra en el centro de una hoja blanca (A4, Carta u Oficio; mejor papel sin "
                 + "«extra blanco»). Si la muestra es blanca o muy clara, ponla AL LADO de la hoja sobre una "
                 + "superficie oscura. Toma la foto desde arriba, con la hoja completa y sin sombras ni reflejos. "
-                + "Si puedes, saca una foto con cada luz (día, foco, ventana): se combinan.", 13, 0xFFB9C4CF);
+                + "Si puedes, saca una foto con cada luz (día, foco, ventana): se combinan.", 13, Palette.TEXT_2);
         help.setPadding(0, dp(6), 0, dp(10));
         root.addView(help);
 
-        LinearLayout row = new LinearLayout(this);
-        row.addView(button("📷 Foto", v -> takePhoto()));
-        row.addView(button("🖼 Galería", v -> pickImageMenu()));
-        libBtn = button("", v -> showLibrary());
-        row.addView(libBtn);
-        root.addView(weighted(row));
+        root.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "📷 Foto", v -> takePhoto()),
+                NavajaUi.secondary(this, "🖼 Galería", v -> pickImageMenu())));
         updateLibButton();
 
-        statusView = text("", 13, 0x99FFFFFF);
+        statusView = text("", 13, Palette.TEXT_3);
         statusView.setPadding(0, dp(8), 0, dp(4));
         root.addView(statusView);
 
@@ -159,12 +150,12 @@ public class PantoneraActivity extends Activity {
         ScrollView sv = new ScrollView(this);
         sv.addView(content);
         root.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
-        setContentView(root);
+        setContentView(sc.root);
         renderResult();
     }
 
     private void updateLibButton() {
-        libBtn.setText("📚 Mías (" + lib.doc.samples.size() + ")");
+        libBtn.setText("📚 " + lib.doc.samples.size());
     }
 
     // ============================================================== captura
@@ -226,7 +217,7 @@ public class PantoneraActivity extends Activity {
         box.addView(text("Si sabes cuánto mide de ancho lo que muestra la imagen (p. ej. 600 para una baldosa "
                 + "de 60 cm), escríbelo para medir el tamaño de las piedras. Si no, déjalo vacío.\n\n"
                 + "El color se toma tal cual viene en la imagen (sin hoja no se puede corregir la luz).",
-                13, 0xFF5D6673));
+                13, Palette.TEXT_2));
         EditText mm = edit("Ancho en mm (opcional)");
         mm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         box.addView(mm);
@@ -393,40 +384,47 @@ public class PantoneraActivity extends Activity {
         if (combined == null || combined.sample == null) {
             resultBox.addView(text("\nAún no hay mediciones. Toma una foto de la muestra sobre la hoja blanca.\n\n"
                     + "En la foto de diagnóstico verás la hoja en celeste, el borde descartado en rosa y cada "
-                    + "grupo de color de la muestra pintado con su color medido.", 13, 0x99FFFFFF));
+                    + "grupo de color de la muestra pintado con su color medido.", 13, Palette.TEXT_3));
             return;
         }
         Stjf.Sample s = combined.sample;
         TextView h = text(s.isComposite() ? "Muestra compuesta (" + (s.components.size() + 1) + " colores)" : "Color medido",
-                16, 0xFFFFFFFF);
+                16, Palette.TEXT);
         h.setTypeface(Typeface.DEFAULT_BOLD);
         h.setPadding(0, dp(12), 0, dp(6));
         resultBox.addView(h);
+        double[] bl = s.baseLab();
+        if (bl != null) {
+            resultBox.addView(NavajaUi.metricRow(this,
+                    NavajaUi.metric(this, s.isComposite() ? "Fondo L*" : "L*").set(String.format(Locale.US, "%.1f", bl[0]), null, 0),
+                    NavajaUi.metric(this, "a*").set(String.format(Locale.US, "%.1f", bl[1]), null, 0),
+                    NavajaUi.metric(this, "b*").set(String.format(Locale.US, "%.1f", bl[2]), null, 0)));
+        }
         resultBox.addView(partsView(s));
 
         Set<String> warns = new LinkedHashSet<>();
         for (Shot sh : shots) warns.addAll(sh.res.warnings);
         warns.addAll(combined.warnings);
         for (String w : warns) {
-            TextView t = text("⚠ " + w, 12, 0xFFFFC266);
+            TextView t = text("⚠ " + w, 12, Palette.WARN);
             t.setPadding(0, dp(4), 0, 0);
             resultBox.addView(t);
         }
         if (shots.size() > 1) {
             resultBox.addView(text(String.format(Locale.US, "Variación entre fotos: ΔE %.1f (%s)",
-                    combined.spreadDe, ColorMath.verdict(combined.spreadDe)), 12, 0xFF9FB0C3));
+                    combined.spreadDe, ColorMath.verdict(combined.spreadDe)), 12, Palette.TEXT_2));
         }
 
-        LinearLayout row = new LinearLayout(this);
-        row.setPadding(0, dp(10), 0, 0);
-        row.addView(button("🔎 Comparar", v -> compare()));
-        row.addView(button("💾 Guardar", v -> saveDialog()));
-        row.addView(button("🗑 Nueva", v -> {
-            shots.clear();
-            recompute();
-            setStatus("");
-        }));
-        resultBox.addView(weighted(row));
+        LinearLayout row = NavajaUi.buttonRow(this,
+                NavajaUi.primary(this, "🔎 Comparar", v -> compare()),
+                NavajaUi.secondary(this, "💾 Guardar", v -> saveDialog()),
+                NavajaUi.secondary(this, "🗑 Nueva", v -> {
+                    shots.clear();
+                    recompute();
+                    setStatus("");
+                }));
+        NavajaUi.topMargin(row, 10);
+        resultBox.addView(row);
     }
 
     /** Fila de muestras de color: matriz + componentes con %, tamaño y Lab. */
@@ -444,7 +442,7 @@ public class PantoneraActivity extends Activity {
             info.setPadding(dp(12), 0, 0, 0);
             String name = p.isBase && !s.isComposite() ? ColorNames.describe(p.lab)
                     : (p.isBase ? "Fondo · " + ColorNames.describe(p.lab) : p.name);
-            TextView n = text(name, 14, 0xFFFFFFFF);
+            TextView n = text(name, 14, Palette.TEXT);
             n.setTypeface(Typeface.DEFAULT_BOLD);
             info.addView(n);
             StringBuilder d = new StringBuilder(labText(p.lab));
@@ -457,7 +455,7 @@ public class PantoneraActivity extends Activity {
             for (Stjf.Component c : s.components) {
                 if (!p.isBase && c.name().equals(p.name) && c.shape != null) d.append(" · ").append(shapeEs(c.shape));
             }
-            info.addView(text(d.toString(), 12, 0xFF9FB0C3));
+            info.addView(text(d.toString(), 12, Palette.TEXT_2));
             r.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
             col.addView(r);
         }
@@ -489,13 +487,13 @@ public class PantoneraActivity extends Activity {
             return;
         }
         List<Matcher.Score> rank = Matcher.rank(combined.sample, lib.doc.samples);
-        TextView h = text("Más parecidas en tu pantonera", 16, 0xFFFFFFFF);
+        TextView h = text("Más parecidas en tu pantonera", 16, Palette.TEXT);
         h.setTypeface(Typeface.DEFAULT_BOLD);
         h.setPadding(0, dp(16), 0, dp(4));
         compareBox.addView(h);
         if (Matcher.nearTie(rank)) {
             compareBox.addView(text("Las dos primeras son prácticamente el mismo color: elige por marca, precio o "
-                    + "disponibilidad; el nombre cambia según el fabricante.", 12, 0xFF8FD3FF));
+                    + "disponibilidad; el nombre cambia según el fabricante.", 12, Palette.GOOD));
         }
         for (int i = 0; i < Math.min(6, rank.size()); i++) compareBox.addView(scoreRow(rank.get(i)));
     }
@@ -507,7 +505,7 @@ public class PantoneraActivity extends Activity {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.topMargin = dp(8);
         card.setLayoutParams(lp);
-        card.setBackground(rowBg());
+        card.setBackground(NavajaUi.cardBackground(this));
         card.addView(swatch(combined.sample.baseLab(), 36));
         View gap = new View(this);
         card.addView(gap, new LinearLayout.LayoutParams(dp(4), 1));
@@ -517,19 +515,19 @@ public class PantoneraActivity extends Activity {
         LinearLayout info = new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setPadding(dp(12), 0, 0, 0);
-        TextView n = text(sc.candidate.name(), 14, 0xFFFFFFFF);
+        TextView n = text(sc.candidate.name(), 14, Palette.TEXT);
         n.setTypeface(Typeface.DEFAULT_BOLD);
         info.addView(n);
         StringBuilder sub = new StringBuilder();
         if (sc.candidate.brand != null) sub.append(sc.candidate.brand);
         if (sc.candidate.code != null) sub.append(sub.length() > 0 ? " · " : "").append(sc.candidate.code);
-        if (sub.length() > 0) info.addView(text(sub.toString(), 12, 0xFF9FB0C3));
+        if (sub.length() > 0) info.addView(text(sub.toString(), 12, Palette.TEXT_2));
         info.addView(text(String.format(Locale.US, "ΔE %.1f · %s", sc.total, sc.verdict()), 13, verdictColor(sc.total)));
         if (combined.sample.isComposite() || sc.candidate.isComposite()) {
             StringBuilder d = new StringBuilder(String.format(Locale.US, "Fondo ΔE %.1f · Mezcla %.1f", sc.baseDe, sc.mixDe));
             if (!Double.isNaN(sc.sizeRatio)) d.append(String.format(Locale.US, " · Piedras ×%.2f", sc.sizeRatio));
             d.append(String.format(Locale.US, " · %% piedras ±%.0f", 100 * sc.fractionDiff));
-            info.addView(text(d.toString(), 11, 0xFF7E8A99));
+            info.addView(text(d.toString(), 11, Palette.TEXT_3));
         }
         card.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
         card.setOnClickListener(v -> showSample(sc.candidate));
@@ -537,9 +535,9 @@ public class PantoneraActivity extends Activity {
     }
 
     private static int verdictColor(double de) {
-        if (de < 2) return 0xFF6EE7A0;
-        if (de < 3.5) return 0xFFFFD166;
-        return 0xFFFF8A7E;
+        if (de < 2) return Palette.OK;
+        if (de < 3.5) return Palette.WARN;
+        return Palette.BAD;
     }
 
     // ============================================================== guardar
@@ -552,21 +550,32 @@ public class PantoneraActivity extends Activity {
         EditText name = edit("Nombre (p. ej. Terrazzo cocina)");
         EditText brand = edit("Marca (opcional)");
         EditText code = edit("Código (opcional)");
-        Spinner finish = new Spinner(this);
-        finish.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, FINISH_LABELS));
+        final int[] finishSel = {0};
+        LinearLayout finish = new LinearLayout(this);
+        TextView[] chips = new TextView[FINISH_LABELS.length];
+        for (int i = 0; i < FINISH_LABELS.length; i++) {
+            final int idx = i;
+            chips[i] = NavajaUi.chip(this, FINISH_LABELS[i], i == 0, v -> {
+                finishSel[0] = idx;
+                for (int k = 0; k < chips.length; k++) NavajaUi.setChip(chips[k], k == idx);
+            });
+            finish.addView(chips[i]);
+        }
         box.addView(name);
         box.addView(brand);
         box.addView(code);
-        TextView fl = text("Acabado", 13, 0xFF5D6673);
+        TextView fl = text("Acabado", 13, Palette.TEXT_2);
         fl.setPadding(0, dp(8), 0, 0);
         box.addView(fl);
-        box.addView(finish);
+        HorizontalScrollView fs = new HorizontalScrollView(this);
+        fs.addView(finish);
+        box.addView(fs);
         new AlertDialog.Builder(this)
                 .setTitle("Guardar en mi pantonera")
                 .setView(box)
                 .setPositiveButton("Guardar", (d, w) -> save(name.getText().toString().trim(),
                         brand.getText().toString().trim(), code.getText().toString().trim(),
-                        Stjf.FINISHES[finish.getSelectedItemPosition()]))
+                        Stjf.FINISHES[finishSel[0]]))
                 .setNegativeButton("Cancelar", null)
                 .show();
     }
@@ -622,7 +631,7 @@ public class PantoneraActivity extends Activity {
         final AlertDialog[] dlg = new AlertDialog[1];
         if (lib.doc.samples.isEmpty()) {
             box.addView(text("Todavía no hay muestras. Guarda una medición o importa un catálogo .stjf "
-                    + "(por ejemplo, la carta de colores de una marca escrita a mano).", 13, 0xFF5D6673));
+                    + "(por ejemplo, la carta de colores de una marca escrita a mano).", 13, Palette.TEXT_2));
         }
         for (Stjf.Sample s : lib.doc.samples) {
             LinearLayout r = new LinearLayout(this);
@@ -633,12 +642,12 @@ public class PantoneraActivity extends Activity {
             LinearLayout info = new LinearLayout(this);
             info.setOrientation(LinearLayout.VERTICAL);
             info.setPadding(dp(10), 0, 0, 0);
-            TextView n = text(s.name(), 14, 0xFF1B222C);
+            TextView n = text(s.name(), 14, Palette.TEXT);
             n.setTypeface(Typeface.DEFAULT_BOLD);
             info.addView(n);
             String sub = (s.brand != null ? s.brand + " · " : "") + (s.code != null ? s.code + " · " : "")
                     + (s.isComposite() ? (s.components.size() + 1) + " colores" : (l == null ? "?" : ColorMath.labToHex(l)));
-            info.addView(text(sub, 12, 0xFF5D6673));
+            info.addView(text(sub, 12, Palette.TEXT_2));
             r.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
             r.setOnClickListener(v -> {
                 dlg[0].dismiss();
@@ -832,7 +841,7 @@ public class PantoneraActivity extends Activity {
                 r.reference[0], r.reference[1], r.reference[2]));
         for (String w : r.warnings) sb.append("⚠ ").append(w).append('\n');
         sb.append("\nCeleste = hoja · rosa = borde/reflejos descartados · colores = grupos medidos · amarillo = contorno de la hoja.");
-        TextView t = text(sb.toString().trim(), 12, 0xFF1B222C);
+        TextView t = text(sb.toString().trim(), 12, Palette.TEXT);
         t.setPadding(0, dp(10), 0, 0);
         box.addView(t);
         AlertDialog.Builder b = new AlertDialog.Builder(this)
@@ -860,11 +869,11 @@ public class PantoneraActivity extends Activity {
         }
         LinearLayout dark = new LinearLayout(this);
         dark.setOrientation(LinearLayout.VERTICAL);
-        dark.setBackgroundColor(0xFF15171A);
+        dark.setBackgroundColor(Palette.BG);
         dark.setPadding(dp(10), dp(6), dp(10), dp(6));
         dark.addView(partsView(s));
         box.addView(dark);
-        TextView json = text(Json.write(Stjf.sampleToMap(s)).trim(), 11, 0xFF1B222C);
+        TextView json = text(Json.write(Stjf.sampleToMap(s)).trim(), 11, Palette.TEXT);
         json.setTypeface(Typeface.MONOSPACE);
         json.setTextIsSelectable(true);
         json.setPadding(0, dp(10), 0, 0);
@@ -929,27 +938,7 @@ public class PantoneraActivity extends Activity {
     }
 
     private Button button(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
-    }
-
-    /** Reparte el ancho de la fila en partes iguales entre sus botones. */
-    private static LinearLayout weighted(LinearLayout row) {
-        for (int i = 0; i < row.getChildCount(); i++) {
-            row.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
-        }
-        return row;
-    }
-
-    private GradientDrawable rowBg() {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0xFF1E232B);
-        g.setCornerRadius(dp(12));
-        g.setStroke(1, 0xFF333B46);
-        return g;
+        return NavajaUi.secondary(this, s, l);
     }
 
     private ScrollView wrapScroll(View v) {

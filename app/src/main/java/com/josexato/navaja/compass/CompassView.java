@@ -2,13 +2,13 @@ package com.josexato.navaja.compass;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Typeface;
 import android.view.View;
 
 import com.josexato.navaja.compass.core.Angles;
+import com.josexato.navaja.ui.Palette;
 
 import java.util.Locale;
 
@@ -25,12 +25,12 @@ final class CompassView extends View {
 
     CompassView(Context c) {
         super(c);
-        tick.setColor(0xFFB9C4CF);
+        tick.setColor(Palette.TEXT_2);
         tick.setStrokeCap(Paint.Cap.ROUND);
-        label.setColor(0xFFE6EDF3);
+        label.setColor(Palette.TEXT);
         label.setTextAlign(Paint.Align.CENTER);
         label.setTypeface(Typeface.DEFAULT_BOLD);
-        big.setColor(Color.WHITE);
+        big.setColor(Palette.TEXT);
         big.setTextAlign(Paint.Align.CENTER);
         big.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
     }
@@ -53,11 +53,11 @@ final class CompassView extends View {
         String head = Double.isNaN(heading) ? "—" : String.format(Locale.US, "%.0f° %s", heading, Angles.cardinal(heading));
         c.drawText(head, cx, dp(46), big);
         label.setTextSize(13 * d);
-        label.setColor(0xFF9FB0C3);
+        label.setColor(Palette.TEXT_2);
         c.drawText(sub, cx, dp(66), label);
 
         // Marca fija (línea de fe).
-        fill.setColor(0xFFFF5A4E);
+        fill.setColor(Palette.NORTH);
         path.reset();
         path.moveTo(cx, cy - r - dp(4));
         path.lineTo(cx - dp(9), cy - r - dp(18));
@@ -67,12 +67,12 @@ final class CompassView extends View {
 
         c.save();
         c.rotate((float) (Double.isNaN(heading) ? 0 : -heading), cx, cy);
-        fill.setColor(0xFF1E232B);
+        fill.setColor(Palette.SURFACE);
         c.drawCircle(cx, cy, r, fill);
         for (int deg = 0; deg < 360; deg += 5) {
             boolean major = deg % 30 == 0;
             tick.setStrokeWidth(major ? 3 * d : 1.5f * d);
-            tick.setColor(deg == 0 ? 0xFFFF5A4E : major ? 0xFFE6EDF3 : 0xFF7E8A99);
+            tick.setColor(deg == 0 ? Palette.NORTH : major ? Palette.TEXT : Palette.TEXT_3);
             float len = major ? 16 * d : deg % 10 == 0 ? 10 * d : 6 * d;
             double a = Math.toRadians(deg);
             float sx = (float) Math.sin(a), sy = (float) -Math.cos(a);
@@ -81,7 +81,7 @@ final class CompassView extends View {
                 String t = deg == 0 ? "N" : deg == 90 ? "E" : deg == 180 ? "S" : deg == 270 ? "O" : Integer.toString(deg);
                 boolean cardinal = deg % 90 == 0;
                 label.setTextSize((cardinal ? 22 : 13) * d);
-                label.setColor(deg == 0 ? 0xFFFF5A4E : cardinal ? Color.WHITE : 0xFFB9C4CF);
+                label.setColor(deg == 0 ? Palette.NORTH : cardinal ? Palette.TEXT : Palette.TEXT_2);
                 float tr = r - (cardinal ? 44 : 36) * d;
                 c.save();
                 c.rotate(deg, cx, cy);
@@ -93,20 +93,20 @@ final class CompassView extends View {
         if (!Double.isNaN(target)) {
             c.save();
             c.rotate((float) target, cx, cy);
-            fill.setColor(0xFF6EE7A0);
+            fill.setColor(Palette.OK);
             path.reset();
             path.moveTo(cx, cy - r + dp(22));
             path.lineTo(cx - dp(14), cy - r + dp(50));
             path.lineTo(cx + dp(14), cy - r + dp(50));
             path.close();
             c.drawPath(path, fill);
-            tick.setColor(0xFF6EE7A0);
+            tick.setColor(Palette.OK);
             tick.setStrokeWidth(4 * d);
             c.drawLine(cx, cy - r + dp(48), cx, cy, tick);
             c.restore();
         }
         c.restore();
-        fill.setColor(0xFFE6EDF3);
+        fill.setColor(Palette.TEXT);
         c.drawCircle(cx, cy, dp(5), fill);
     }
 

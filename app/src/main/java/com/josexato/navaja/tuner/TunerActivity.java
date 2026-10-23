@@ -23,6 +23,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.josexato.navaja.ui.NavajaUi;
+import com.josexato.navaja.ui.Palette;
+
 import com.josexato.navaja.tuner.core.BandFilter;
 import com.josexato.navaja.tuner.core.PitchDetector;
 import com.josexato.navaja.tuner.core.PitchTracker;
@@ -52,6 +55,7 @@ public class TunerActivity extends Activity {
     private TextView noteView, centsView, freqView, hintView, refView;
     private GaugeView gauge;
     private LinearLayout instrumentRow, stringRow;
+    private NavajaUi.Screen screen;
     private Button toneBtn;
 
     private Thread audioThread;
@@ -67,19 +71,13 @@ public class TunerActivity extends Activity {
     }
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(16), dp(16), dp(16));
-        root.setBackgroundColor(0xFF15171A);
-
-        TextView title = text("Afinador", 22, 0xFFFFFFFF);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
+        screen = NavajaUi.screen(this, "Afinador", "YIN · micrófono", null, true);
+        LinearLayout root = screen.content;
 
         instrumentRow = row();
         root.addView(scroll(instrumentRow));
 
-        noteView = text("—", 72, 0xFFFFFFFF);
+        noteView = text("—", 72, Palette.TEXT);
         noteView.setGravity(Gravity.CENTER);
         noteView.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(noteView, new LinearLayout.LayoutParams(-1, -2));
@@ -87,14 +85,14 @@ public class TunerActivity extends Activity {
         gauge = new GaugeView(this);
         root.addView(gauge, new LinearLayout.LayoutParams(-1, -2));
 
-        centsView = text("", 26, 0xFFFFFFFF);
+        centsView = text("", 26, Palette.TEXT);
         centsView.setGravity(Gravity.CENTER);
         root.addView(centsView, new LinearLayout.LayoutParams(-1, -2));
-        freqView = text("", 15, 0xAAFFFFFF);
+        freqView = text("", 15, Palette.TEXT_2);
         freqView.setGravity(Gravity.CENTER);
         root.addView(freqView, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView sl = text("Cuerda (toca una para fijarla; otra vez = automático)", 13, 0xAAFFFFFF);
+        TextView sl = text("Cuerda (toca una para fijarla; otra vez = automático)", 13, Palette.TEXT_2);
         sl.setPadding(0, dp(12), 0, dp(4));
         root.addView(sl);
         stringRow = row();
@@ -103,7 +101,7 @@ public class TunerActivity extends Activity {
         LinearLayout refRow = row();
         refRow.setGravity(Gravity.CENTER_VERTICAL);
         refRow.addView(button("−", v -> setA4(a4 - 1)));
-        refView = text("", 15, 0xFFFFFFFF);
+        refView = text("", 15, Palette.TEXT);
         refView.setPadding(dp(8), 0, dp(8), 0);
         refRow.addView(refView);
         refRow.addView(button("+", v -> setA4(a4 + 1)));
@@ -120,15 +118,11 @@ public class TunerActivity extends Activity {
         updateResponseLabel();
         root.addView(scroll(refRow));
 
-        hintView = text("", 13, 0x99FFFFFF);
+        hintView = text("", 13, Palette.TEXT_3);
         hintView.setPadding(0, dp(12), 0, 0);
         root.addView(hintView);
 
-        ScrollView sv = new ScrollView(this);
-        sv.setFillViewport(true);
-        sv.setBackgroundColor(0xFF15171A);
-        sv.addView(root);
-        setContentView(sv);
+        setContentView(screen.root);
         rebuildRows();
         setA4(440);
     }
@@ -244,6 +238,9 @@ public class TunerActivity extends Activity {
         AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         int source = "true".equals(am.getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED))
                 ? MediaRecorder.AudioSource.UNPROCESSED : MediaRecorder.AudioSource.VOICE_RECOGNITION;
+        final String sub = String.format(Locale.US, "YIN · %.1f kHz · %s", sr / 1000.0,
+                source == MediaRecorder.AudioSource.UNPROCESSED ? "audio sin procesar" : "micrófono");
+        runOnUiThread(() -> screen.setSubtitle(sub));
         PitchDetector det = new PitchDetector(sr, 2048, ins.minFreq, ins.maxFreq);
         // Preferencia por las cuerdas (o sólo la fija) y filtro pasabanda acorde.
         double[] targets;
@@ -304,7 +301,7 @@ public class TunerActivity extends Activity {
             shownCents = Double.NaN;
             gauge.setCents(Double.NaN);
             centsView.setText("Toca una cuerda");
-            centsView.setTextColor(0xAAFFFFFF);
+            centsView.setTextColor(Palette.TEXT_2);
             freqView.setText("");
             return;
         }
@@ -408,15 +405,16 @@ public class TunerActivity extends Activity {
     }
 
     private Button button(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
+        Button b = NavajaUi.secondary(this, s, l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.rightMargin = dp(6);
+        lp.topMargin = dp(4);
+        b.setLayoutParams(lp);
         return b;
     }
 
+    /** Cuerda/instrumento seleccionado: chip ámbar (antes azul, fuera de la paleta). */
     private void styleToggle(Button b, boolean on) {
-        b.setBackgroundColor(on ? 0xFF3F7DE0 : 0xFF2A2E33);
-        b.setTextColor(Color.WHITE);
+        NavajaUi.setChip(b, on);
     }
 }

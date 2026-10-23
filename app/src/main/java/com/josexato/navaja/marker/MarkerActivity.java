@@ -10,7 +10,6 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -39,6 +38,8 @@ import androidx.core.content.FileProvider;
 import com.josexato.navaja.marker.core.ExifGps;
 import com.josexato.navaja.marker.core.KmzWriter;
 import com.josexato.navaja.marker.core.Waypoint;
+import com.josexato.navaja.ui.NavajaUi;
+import com.josexato.navaja.ui.Palette;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -81,6 +82,7 @@ public class MarkerActivity extends Activity {
     private File pendingPhoto;
 
     private TextView gpsView;
+    private NavajaUi.Metric mLat, mLon, mAlt, mAcc;
     private LinearLayout list;
 
     private final LocationListener listener = loc -> {
@@ -439,49 +441,49 @@ public class MarkerActivity extends Activity {
     // ================================================================== UI
 
     private void buildUi() {
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF15171A);
-        root.setPadding(dp(16), dp(16), dp(16), dp(8));
-        TextView title = text("Marcador de ubicaciones", 20, 0xFFFFFFFF);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
-        gpsView = text("", 13, 0xFFB9C4CF);
-        gpsView.setTypeface(Typeface.MONOSPACE);
-        gpsView.setPadding(0, dp(6), 0, dp(8));
+        NavajaUi.Screen sc = NavajaUi.screen(this, "Marcador", "GPS WGS‑84 · fotos con EXIF · KMZ",
+                NavajaUi.headerAction(this, "⤴ KMZ", v -> exportMenu()));
+        LinearLayout root = sc.content;
+        mLat = NavajaUi.metric(this, "Latitud");
+        mLon = NavajaUi.metric(this, "Longitud");
+        mAlt = NavajaUi.metric(this, "Altitud");
+        mAcc = NavajaUi.metric(this, "Precisión");
+        root.addView(NavajaUi.metricRow(this, mLat, mLon));
+        root.addView(NavajaUi.metricRow(this, mAlt, mAcc));
+        gpsView = NavajaUi.text(this, "", NavajaUi.Style.SECONDARY);
+        gpsView.setPadding(0, dp(6), 0, 0);
         root.addView(gpsView);
 
-        LinearLayout row = new LinearLayout(this);
-        row.addView(button("📍 Guardar punto", v -> savePoint()));
-        row.addView(button("📷 Foto", v -> takePhoto()));
-        row.addView(button("⤴ KMZ", v -> exportMenu()));
-        for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
-        root.addView(row);
+        root.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "📍 Guardar punto", v -> savePoint()),
+                NavajaUi.secondary(this, "📷 Foto con ubicación", v -> takePhoto())));
 
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         ScrollView sv = new ScrollView(this);
         sv.addView(list);
         root.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
-        setContentView(root);
+        setContentView(sc.root);
         render();
     }
 
     private void renderGps() {
         if (gpsView == null) return;
-        if (!hasLoc()) { gpsView.setText("Sin permiso de ubicación."); return; }
-        if (!locationOn()) { gpsView.setText("La ubicación del teléfono está apagada."); return; }
-        if (fix == null) { gpsView.setText("Buscando GPS…"); return; }
+        String problem = !hasLoc() ? "Sin permiso de ubicación." : !locationOn() ? "La ubicación del teléfono está apagada."
+                : fix == null ? "Buscando GPS…" : null;
+        if (problem != null) {
+            for (NavajaUi.Metric m : new NavajaUi.Metric[]{mLat, mLon, mAlt, mAcc}) m.set("—", null, 0);
+            gpsView.setText(problem);
+            return;
+        }
         long age = fixAgeMs() / 1000;
-        StringBuilder sb = new StringBuilder(String.format(Locale.US, "%.6f, %.6f", fix.getLatitude(), fix.getLongitude()));
-        if (fix.hasAltitude()) sb.append(String.format(Locale.US, " · %.0f m", fix.getAltitude()));
-        sb.append('\n');
-        if (fix.hasAccuracy()) sb.append(String.format(Locale.US, "±%.0f m", fix.getAccuracy()));
-        sb.append(" · ").append(LocationManager.GPS_PROVIDER.equals(fix.getProvider()) ? "GPS" : "red");
-        sb.append(" · hace ").append(age).append(" s");
-        gpsView.setText(sb.toString());
+        mLat.set(String.format(Locale.US, "%.6f", fix.getLatitude()), null, 0);
+        mLon.set(String.format(Locale.US, "%.6f", fix.getLongitude()), null, 0);
+        mAlt.set(fix.hasAltitude() ? String.format(Locale.US, "%.0f m", fix.getAltitude()) : "—", "elipsoide", 0);
         boolean good = fix.hasAccuracy() && fix.getAccuracy() <= 15 && age < 10;
-        gpsView.setTextColor(good ? 0xFF6EE7A0 : age > 30 ? 0xFFFF8A7E : 0xFFFFD166);
+        int status = good ? Palette.OK : age > 30 || (fix.hasAccuracy() && fix.getAccuracy() > 30) ? Palette.BAD : Palette.WARN;
+        mAcc.set(fix.hasAccuracy() ? String.format(Locale.US, "±%.0f m", fix.getAccuracy()) : "—",
+                (LocationManager.GPS_PROVIDER.equals(fix.getProvider()) ? "GPS" : "red") + " · hace " + age + " s", status);
+        gpsView.setText("");
     }
 
     private void render() {
@@ -489,7 +491,7 @@ public class MarkerActivity extends Activity {
         if (points.isEmpty()) {
             list.addView(text("\nGuarda puntos con «📍 Guardar punto» o toma fotos con «📷 Foto»: cada foto lleva la "
                     + "ubicación en su EXIF. Después exporta todo como KMZ (las fotos van dentro y se ven en el globo "
-                    + "de cada punto en Google Earth o My Maps) o como GPX.", 13, 0x99FFFFFF));
+                    + "de cada punto en Google Earth o My Maps) o como GPX.", 13, Palette.TEXT_3));
             return;
         }
         SimpleDateFormat f = new SimpleDateFormat("dd/MM HH:mm", Locale.US);
@@ -500,11 +502,7 @@ public class MarkerActivity extends Activity {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
             lp.topMargin = dp(8);
             card.setLayoutParams(lp);
-            GradientDrawable g = new GradientDrawable();
-            g.setColor(0xFF1E232B);
-            g.setCornerRadius(dp(12));
-            g.setStroke(1, 0xFF333B46);
-            card.setBackground(g);
+            card.setBackground(NavajaUi.cardBackground(this));
 
             if (w.hasPhoto()) {
                 ImageView iv = new ImageView(this);
@@ -517,20 +515,20 @@ public class MarkerActivity extends Activity {
                     if (t != null) ui.post(() -> iv.setImageBitmap(t));
                 });
             } else {
-                TextView pin = text("📍", 26, 0xFFFFFFFF);
+                TextView pin = text("📍", 26, Palette.TEXT);
                 pin.setGravity(Gravity.CENTER);
                 card.addView(pin, new LinearLayout.LayoutParams(dp(56), dp(56)));
             }
             LinearLayout col = new LinearLayout(this);
             col.setOrientation(LinearLayout.VERTICAL);
             col.setPadding(dp(12), 0, 0, 0);
-            TextView name = text(w.name, 15, 0xFFFFFFFF);
+            TextView name = text(w.name, 15, Palette.TEXT);
             name.setTypeface(Typeface.DEFAULT_BOLD);
             col.addView(name);
             String sub = String.format(Locale.US, "%.6f, %.6f%s · %s", w.lat, w.lon,
                     Double.isNaN(w.accM) ? "" : String.format(Locale.US, " · ±%.0f m", w.accM), f.format(new Date(w.timeMs)));
-            col.addView(text(sub, 12, 0xFF9FB0C3));
-            if (w.note != null && !w.note.isEmpty()) col.addView(text(w.note, 12, 0xFF7E8A99));
+            col.addView(text(sub, 12, Palette.TEXT_2));
+            if (w.note != null && !w.note.isEmpty()) col.addView(text(w.note, 12, Palette.TEXT_3));
             card.addView(col, new LinearLayout.LayoutParams(0, -2, 1f));
             card.setOnClickListener(v -> pointMenu(w));
             list.addView(card);
@@ -693,12 +691,5 @@ public class MarkerActivity extends Activity {
         return t;
     }
 
-    private Button button(String s, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
-    }
 
 }

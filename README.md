@@ -155,11 +155,13 @@ app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + pu
 app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
 app/src/main/java/.../cellular/          ← red móvil (celdas, GPS, exportar); cellular/core = bandas 3GPP, IDs, señal, recorrido, torres
+app/src/main/java/.../ui/                ← sistema de diseño: Palette (colores, contraste probado) y NavajaUi (cabecera, tarjetas, métricas, botones, chips)
 app/src/main/java/.../compass/           ← brújula y nivel (sensores, vistas); compass/core = ángulos, rumbo, inclinación, calibración
 app/src/main/java/.../marker/            ← marcador (GPS, cámara, exportar); marker/core = waypoints, EXIF GPS, KMZ/GPX
 app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exportar); pantonera/core = color, STJF, análisis, glTF/GPL
 docs/spec/STJF_v1.0_SPEC.md      ← especificación del formato STJF
 docs/spec/RED_MOVIL_v1.1_SPEC.md ← especificación del modo ingeniería de red móvil
+docs/DISENO_UI.md                ← sistema de diseño de las pantallas nativas
 app/src/main/java/.../scan3d/            ← escáner 3D (Camera2, PDF, UI); scan3d/core = algoritmos en Java puro
 app/src/test/java/.../scan3d/core/       ← prueba de extremo a extremo con escena sintética (./gradlew :app:testDebugUnitTest)
 .github/workflows/build.yml      ← CI: compila y publica el APK en Releases
