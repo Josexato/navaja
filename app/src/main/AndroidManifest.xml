@@ -19,6 +19,8 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
 
     <application
@@ -93,6 +95,15 @@
             android:name=".compass.CompassActivity"
             android:exported="false"
             android:label="Navaja · Brújula y nivel"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Pulso: magnificación euleriana en vivo y frecuencia cardíaca por cámara. -->
+        <activity
+            android:name=".pulse.PulseActivity"
+            android:exported="false"
+            android:label="Navaja · Pulso"
             android:screenOrientation="portrait"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />

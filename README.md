@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -65,6 +65,15 @@ Monitor de campo celular con las APIs públicas de Android, sin servicios extern
 - **Plano**: burbuja en 2D con la inclinación izquierda‑derecha y adelante‑atrás. **De canto** (vertical o apaisado): nivel de barra; el dibujo gira para quedar derecho.
 - Unidades: grados, **% de pendiente** o **mm por metro**. Vibra al quedar nivelado.
 - **Calibración en dos posiciones**: se mide, se gira el teléfono 180° en el mismo lugar y se mide otra vez; el promedio anula el error del sensor **aunque la mesa no esté nivelada**.
+
+## 💓 Pulso (botón «Pulso»)
+
+- **Magnificación de video euleriana en vivo** (Wu et al., MIT 2012, variante IIR): pasabanda temporal en la banda del pulso (0,75–2,5 Hz) sobre la imagen reducida, amplificado ×30/×60/×120 y sumado a la imagen completa. La piel se ve "latir".
+- **Rostro (sin contacto)**: algoritmo **POS** (Wang et al., 2017) sobre frente y mejillas (cara detectada con `android.media.FaceDetector`, filtro de piel); si no detecta cara usa un óvalo guía.
+- **Dedo**: yema sobre la cámara trasera con la linterna (PPG de contacto, más preciso); además **RMSSD** (variabilidad entre latidos) e **índice de perfusión** relativo.
+- Frecuencia por el pico del espectro (42–210 lpm) con **confianza** por relación señal/ruido: con señal débil no inventa un valor y dice qué mejorar. Exposición y balance de blancos se bloquean a los 2 s.
+- Probado con señales sintéticas (pulso de 0,3 % en la piel, ruido, brillo que oscila 5 %, cuadros irregulares): error < 2,5 lpm entre 58 y 128 lpm.
+- **Límites declarados en pantalla**: no es un dispositivo médico; no mide oxígeno en sangre (la cámara no ve infrarrojo); el pulso no indica si alguien miente; medir sólo a quien sepa y acepte. No guarda video.
 
 ## 🎨 Pantonera (botón «Pantonera»)
 
@@ -156,6 +165,7 @@ app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono);
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
 app/src/main/java/.../cellular/          ← red móvil (celdas, GPS, exportar); cellular/core = bandas 3GPP, IDs, señal, recorrido, torres
 app/src/main/java/.../ui/                ← sistema de diseño: Palette (colores, contraste probado) y NavajaUi (cabecera, tarjetas, métricas, botones, chips)
+app/src/main/java/.../pulse/             ← pulso (Camera2, vista); pulse/core = magnificación euleriana, POS, espectro, RMSSD
 app/src/main/java/.../compass/           ← brújula y nivel (sensores, vistas); compass/core = ángulos, rumbo, inclinación, calibración
 app/src/main/java/.../marker/            ← marcador (GPS, cámara, exportar); marker/core = waypoints, EXIF GPS, KMZ/GPX
 app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exportar); pantonera/core = color, STJF, análisis, glTF/GPL
