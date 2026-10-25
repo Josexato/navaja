@@ -1,6 +1,6 @@
 # SSJF v1 — Simple Signature JSON Format
 
-**Estado:** borrador 1.0 · **Implementación de referencia:** Navaja
+**Estado:** borrador 1.1 ([cambios](#10-historial-de-versiones)) · **Implementación de referencia:** Navaja
 (`app/src/main/java/com/josexato/navaja/sign/core/`) · **Verificador
 independiente:** [`verificar_ssjf.py`](verificar_ssjf.py)
 
@@ -32,7 +32,7 @@ viajan resúmenes SHA-256.
 ## 3. Contenido del QR
 
 ```
-[URL "#"] "SSJF1" ";h=" h0 ";n=" n0 ";t=" t [";b=" altura "-" hash32] ";k=" kid ";s=" firma
+[URL "#"] "SSJF1" ";h=" h0 ";n=" n0 ";t=" t [";b=" altura "-" hash32] [";r=" revisión] ";k=" kid ";s=" firma
 ```
 
 | Campo | Obligatorio | Formato |
@@ -41,10 +41,11 @@ viajan resúmenes SHA-256.
 | `n` | sí | largo en bytes de ese documento (decimal) |
 | `t` | sí | segundos Unix UTC (decimal), declarado por el firmante |
 | `b` | no | altura decimal del último bloque Bitcoin conocido al firmar, `-`, y los primeros 32 caracteres hex de su hash |
+| `r` | v1.1: sí | revisión del formato (decimal). `2` = el anexo DEBE llevar `seal_sig` (§4). Ausente = 1.0 |
 | `k` | sí | `kid` (§2) |
 | `s` | sí | firma (§2) en base64url |
 
-- Los campos DEBEN aparecer en ese orden y no hay otros en v1.
+- Los campos DEBEN aparecer en ese orden y no hay otros en v1.x.
 - **Mensaje firmado** = bytes UTF-8 desde `SSJF1` hasta, sin incluir, `;s=`.
 - El prefijo URL es OPCIONAL y no está firmado. DEBERÍA apuntar a una guía de
   verificación; los datos van en el fragmento (`#…`), que los navegadores no
@@ -63,7 +64,18 @@ Sea `D0` el archivo recibido (`n0` bytes, `h0` = SHA-256(D0)). Un firmante DEBE:
 2. **Actualización 1 — sello visible**: firma manuscrita, el QR y,
    RECOMENDADO, una línea con la URL de la guía. Resultado `D1`
    (`n1` bytes, `h1` = SHA-256(D1)).
-3. **Actualización 2 — anexo**: un stream sin filtro con diccionario
+3. **Firma del sello** (v1.1, OBLIGATORIA con `r=2`): con la misma clave,
+   firmar los bytes UTF-8 de
+
+   ```
+   SSJF1-SEAL;h0=<h0>;h1=<h1>;n1=<n1>;k=<kid>
+   ```
+
+   y guardar la firma (r‖s, base64url) en el anexo como `seal_sig`. El QR
+   firma `D0`; esta segunda firma avala `D1` (la firma visible, el QR y
+   cualquier otro cambio de esa actualización). No hay circularidad: se
+   guarda fuera de `D1`.
+4. **Actualización 2 — anexo**: un stream sin filtro con diccionario
    `<< /Type /SSJF /V 1 /Length … >>`, precedido en su línea anterior por el
    comentario PDF `%SSJF-anexo-v1`, y referenciado desde el catálogo en el
    array `/SSJF`. El contenido es JSON UTF-8:
@@ -75,6 +87,7 @@ Sea `D0` el archivo recibido (`n0` bytes, `h0` = SHA-256(D0)). Un firmante DEBE:
   "h0": "<hex>", "n0": 123,
   "h1": "<hex>", "n1": 456,
   "pk": "<clave pública comprimida, base64url>",
+  "seal_sig": "<firma del sello, base64url>",
   "btc": {"height": 921345, "hash": "<hash completo del bloque>"},
   "rfc3161": {"url": "https://freetsa.org/tsr", "tsr": "<TimeStampResp DER, base64>"},
   "opentimestamps": {"calendar": "https://…", "ots": "<archivo .ots, base64>"},
@@ -99,6 +112,12 @@ Para cada anexo encontrado en el archivo `F` (buscando `%SSJF-anexo-v1`):
 1. Interpretar el QR (§3). `qr.h == anexo.h0` y `qr.n == anexo.n0`.
 2. **Documento**: SHA-256(F[0:n0]) == h0. Si no → *no es el documento firmado*.
 3. **Sello**: SHA-256(F[0:n1]) == h1 y el anexo está después de `n1`. Si no → *sello alterado*.
+   Además, con la clave del paso 4: si hay `seal_sig`, DEBE verificar sobre
+   `SSJF1-SEAL;…` (si no → *sello alterado*: alguien reutilizó el QR con otra
+   `D1`). Si falta y el QR tiene `r=2` → *sello alterado* (el anexo fue
+   reemplazado). Si falta y el QR no tiene `r` (firma 1.0), el verificador
+   DEBE advertir que sólo `D0` está garantizado: lo agregado al sellar
+   podría contener otros cambios.
 4. **Firma**: obtener la clave (de un llavero confiable o de `anexo.pk` si
    `kid` coincide) y verificar `s`. Si falla → *firma falsa*.
 5. **Dueño**: la clave sólo identifica a alguien si se conoce por otra vía.
@@ -112,6 +131,11 @@ Para cada anexo encontrado en el archivo `F` (buscando `%SSJF-anexo-v1`):
 
 Con sólo el QR (papel) se pueden hacer los pasos 1, 4 y 5, y comparar `h`
 con un archivo candidato.
+
+Un verificador DEBE distinguir tres resultados: **verificada**, **inválida** y
+**válida con advertencias / no comprobada** (cambios posteriores, firma 1.0 sin
+sello firmado, clave de dueño desconocido o firma que no pudo comprobarse). Un
+resultado no comprobado NUNCA se informa como éxito.
 
 ## 6. Historial del firmante
 
@@ -184,3 +208,11 @@ la entrada `clave` del historial llevan: `old_kid, old_pk, new_kid, new_pk, ct
 
 PAdES / firmas PDF (ISO 32000 §12.8), RFC 3161, OpenTimestamps, Certificate
 Transparency (RFC 9162), Sigstore/Rekor, certificados QR firmados (EU DCC).
+
+## 10. Historial de versiones
+
+- **1.1** — Firma del sello (`seal_sig`) sobre `h1` y campo `r=2` en el QR que
+  la hace obligatoria; tres resultados de verificación. Motivo: en 1.0 sólo
+  `D0` estaba firmado, y alguien podía reutilizar un QR legítimo con otra
+  actualización visible (otra apariencia o contenido) y otro anexo.
+- **1.0** — Versión inicial.

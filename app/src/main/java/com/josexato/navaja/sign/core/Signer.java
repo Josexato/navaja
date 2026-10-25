@@ -73,6 +73,7 @@ public final class Signer {
             c.btcHash = r.btc.hash.substring(0, 32);
         }
         c.kid = Ecdsa.keyId(pk);
+        c.rev = 2;
         c.sig = Ecdsa.derToRaw(key.sign(c.signedBytes()));
         if (!c.verify(pk)) throw new IllegalStateException("La firma recién hecha no verifica con la clave pública");
 
@@ -98,6 +99,11 @@ public final class Signer {
         a.h1 = Bytes.hex(Bytes.sha256(d1));
         a.n1 = d1.length;
         a.pk = Bytes.b64url(pk);
+        // Segunda firma, ahora sobre la versión sellada: sin ella, alguien podría reutilizar el QR con otra D1.
+        byte[] seal = Ecdsa.derToRaw(key.sign(Ssjf.sealMessage(a.h0, a.h1, a.n1, c.kid).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        if (!Ecdsa.verify(Ecdsa.decompress(pk), Ssjf.sealMessage(a.h0, a.h1, a.n1, c.kid).getBytes(java.nio.charset.StandardCharsets.UTF_8), seal))
+            throw new IllegalStateException("La firma del sello no verifica con la clave pública");
+        a.seal = Bytes.b64url(seal);
         if (r.btc != null) {
             a.btcHeight = r.btc.height;
             a.btcHash = r.btc.hash;

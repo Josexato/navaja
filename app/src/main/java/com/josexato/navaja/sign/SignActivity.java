@@ -993,7 +993,8 @@ public class SignActivity extends Activity {
             case STAMP_ALTERED:
                 head = "✗ El sello fue modificado";
                 color = Palette.BAD;
-                expl = "El documento original coincide, pero la firma dibujada / QR / anexo cambiaron después.";
+                expl = "El documento original coincide, pero lo agregado al sellar (firma dibujada, QR o cualquier otro cambio "
+                        + "de esa versión) no es lo que produjo el firmante." + (ck.detail == null ? "" : "\n" + ck.detail);
                 break;
             default:
                 head = "✗ Firma ilegible";
@@ -1017,6 +1018,14 @@ public class SignActivity extends Activity {
                 card.addView(o);
                 card.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Consultar OpenTimestamps", v -> checkAnnexOts(ck, o))));
             }
+        }
+        if (ck.valid() && ck.sigOk && ck.sealUnattested()) {
+            TextView w = body("⚠ Firma en formato antiguo (sin firma del sello): el QR garantiza el documento ORIGINAL, pero no "
+                    + "lo agregado al sellar, que podría incluir otros cambios. Para ver con certeza lo que se firmó, usa "
+                    + "«Extraer original».");
+            w.setTextColor(Palette.WARN);
+            NavajaUi.topMargin(w, 6);
+            card.addView(w);
         }
         if (ck.keyRetiredAt >= 0 && ck.sigOk) {
             TextView w = body("⚠ Firmado con una clave que ya habías reemplazado el " + local(ck.keyRetiredAt)

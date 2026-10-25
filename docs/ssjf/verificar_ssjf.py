@@ -14,6 +14,10 @@ Uso:
   python3 verificar_ssjf.py original.pdf --qr "..."     # ¿este archivo es el que dice el QR?
   python3 verificar_ssjf.py firmado.pdf --clave vieja.json --cambio cambio.json   # confiar en la clave nueva
 
+Código de salida: 0 = todo verificado; 2 = válido pero con advertencias o sin
+poder comprobarlo todo (falta `cryptography`, cambios después de la firma,
+firma antigua sin sello firmado, clave sin confirmar); 1 = inválido.
+
 Especificación: SSJF_v1.md (misma carpeta).
 """
 import argparse
@@ -25,6 +29,12 @@ import re
 import sys
 
 MARKER = b"%SSJF-anexo-v1"
+OK, ERR, WARN = 0, 1, 2
+
+
+def worst(a, b):
+    """Combina resultados: un error manda sobre una advertencia, y esta sobre el éxito."""
+    return ERR if ERR in (a, b) else WARN if WARN in (a, b) else OK
 QR_RE = re.compile(r"SSJF1;[^\s]+")
 
 
@@ -95,7 +105,7 @@ def check_key_change(path, keys):
     b = ecdsa_ok(new, pop, b64url_dec(k["sig_new"]))
     if a is None:
         print("? cambio de clave sin comprobar (pip install cryptography)")
-        return 1
+        return WARN
     print(f"Cambio de clave {key_id(old)} → {key_id(new)} ({k['reason']}, t={k['ct']}): "
           f"{ok(a)} autorizado por la anterior · {ok(b)} posesión de la nueva")
     if not (a and b):
@@ -165,40 +175,73 @@ def check_pdf(path, keys, extract_dir):
     annexes = find_annexes(data)
     if not annexes:
         print("  Sin firmas SSJF.")
-        return 1
-    bad = 0
+        return ERR
+    rc = OK
     for i, (a, end) in enumerate(annexes, 1):
         print(f"\nFirma {i} de {len(annexes)}")
         if "error" in a:
             print("  ✗ anexo ilegible:", a["error"])
-            bad += 1
+            rc = worst(rc, ERR)
             continue
-        qr = parse_qr(a["qr"])
+        try:
+            qr = parse_qr(a["qr"])
+        except ValueError as e:
+            print("  ✗ QR del anexo inválido:", e)
+            rc = worst(rc, ERR)
+            continue
         n0, n1 = a["n0"], a["n1"]
         pre = sha256(data[:n0]) == a["h0"] == qr["h"] and str(n0) == qr["n"]
         stamp = sha256(data[:n1]) == a["h1"]
         pk = keys.get(qr["k"]) or b64url_dec(a["pk"])
-        mine = qr["k"] in keys
-        sig = verify_sig(qr, pk)
+        known = qr["k"] in keys
+        sig = verify_sig(qr, pk) if key_id(pk) == qr["k"] else False
+        res = OK
         print(f"  {ok(pre)} documento original = primeros {n0} bytes, SHA-256 {a['h0']}")
         print(f"  {ok(stamp)} versión sellada = primeros {n1} bytes, SHA-256 {a['h1']}")
+        if not (pre and stamp):
+            res = ERR
         if sig is None:
-            print("  ? firma ECDSA no comprobada (pip install cryptography)")
+            print("  ? firma ECDSA NO comprobada (pip install cryptography)")
+            res = worst(res, WARN)
         else:
-            print(f"  {ok(sig)} firma ECDSA P-256 de la clave {qr['k']}" + (" (clave conocida)" if mine else " (clave del anexo, sin confirmar dueño)"))
+            print(f"  {ok(sig)} firma ECDSA P-256 del QR, clave {qr['k']}" + (" (clave conocida)" if known else " (clave del anexo, sin confirmar dueño)"))
+            if not sig:
+                res = ERR
+            elif not known:
+                res = worst(res, WARN)
+        # Firma del sello (revisión 2): el firmante avala la versión sellada D1, no sólo el original.
+        if "seal_sig" in a:
+            msg = f"SSJF1-SEAL;h0={a['h0']};h1={a['h1']};n1={n1};k={qr['k']}".encode()
+            seal = ecdsa_ok(pk, msg, b64url_dec(a["seal_sig"])) if key_id(pk) == qr["k"] else False
+            if seal is None:
+                print("  ? firma del sello NO comprobada (pip install cryptography)")
+                res = worst(res, WARN)
+            else:
+                print(f"  {ok(seal)} firma del sello: el firmante avala la versión sellada (firma visible incluida)")
+                if not seal:
+                    res = ERR
+        elif qr.get("r") is not None and int(qr["r"]) >= 2:
+            print("  ✗ falta la firma del sello que el QR exige: el anexo fue reemplazado")
+            res = ERR
+        else:
+            print("  ⚠ formato antiguo sin firma del sello: sólo el ORIGINAL está garantizado; lo agregado al sellar no")
+            res = worst(res, WARN)
         print(f"  · hora declarada {qr['t']} (unix)" + (f" · no antes del bloque Bitcoin {qr['b']}" if "b" in qr else ""))
         tail = len(data) - end
         nxt = annexes[i][0] if i < len(annexes) else None
         if tail > 0 and not (nxt and nxt.get("n0") == end):
             print(f"  ⚠ hay {tail} bytes agregados DESPUÉS de esta firma que no están firmados")
+            res = worst(res, WARN)
         if "rfc3161" in a:
             tsr = os.path.join(extract_dir or ".", f"firma{i}.tsr")
             if extract_dir:
+                os.makedirs(extract_dir, exist_ok=True)
                 open(tsr, "wb").write(base64.b64decode(a["rfc3161"]["tsr"]))
             print(f"  · sello RFC 3161 de {a['rfc3161']['url']}: openssl ts -verify -digest {a['h1']} -in {tsr} -CAfile <CA de la TSA>")
         if "opentimestamps" in a:
             ots = os.path.join(extract_dir or ".", f"firma{i}.ots")
             if extract_dir:
+                os.makedirs(extract_dir, exist_ok=True)
                 open(ots, "wb").write(base64.b64decode(a["opentimestamps"]["ots"]))
             print(f"  · OpenTimestamps: ots upgrade {ots} && ots verify -d {a['h1']} {ots}")
         if extract_dir:
@@ -206,9 +249,9 @@ def check_pdf(path, keys, extract_dir):
             open(os.path.join(extract_dir, f"firma{i}_original.pdf"), "wb").write(data[:n0])
             open(os.path.join(extract_dir, f"firma{i}_version_firmada.pdf"), "wb").write(data[:n1])
             print(f"  → extraídos en {extract_dir}/")
-        if not (pre and stamp and sig is not False):
-            bad += 1
-    return 1 if bad else 0
+        print("  RESULTADO:", {OK: "✓ verificada", WARN: "⚠ válida con advertencias", ERR: "✗ INVÁLIDA"}[res])
+        rc = worst(rc, res)
+    return rc
 
 
 def check_qr(text, keys, file_path):
@@ -218,16 +261,22 @@ def check_qr(text, keys, file_path):
     pk = keys.get(qr["k"])
     if pk is None:
         print(f"  ? clave {qr['k']} desconocida: pasa --clave con la clave pública del firmante")
-        sig = None
+        res = WARN
     else:
         sig = verify_sig(qr, pk)
-        print(f"  {ok(sig)} firma ECDSA de la clave {qr['k']}" if sig is not None else "  ? instala cryptography")
+        if sig is None:
+            print("  ? firma NO comprobada (pip install cryptography)")
+            res = WARN
+        else:
+            print(f"  {ok(sig)} firma ECDSA de la clave {qr['k']}")
+            res = OK if sig else ERR
     if file_path:
         data = open(file_path, "rb").read()
         same = sha256(data) == qr["h"] and len(data) == int(qr["n"])
         print(f"  {ok(same)} {file_path} " + ("ES el documento que se firmó" if same else "NO es el documento que se firmó"))
-        return 0 if same and sig is not False else 1
-    return 0 if sig is not False else 1
+        if not same:
+            res = ERR
+    return res
 
 
 def check_ledger(path):
@@ -268,13 +317,13 @@ def main():
         keys[key_id(pk)] = pk
     rc = 0
     for c in a.cambio:
-        rc |= check_key_change(c, keys)
+        rc = worst(rc, check_key_change(c, keys))
     if a.historial:
-        rc |= check_ledger(a.historial)
+        rc = worst(rc, check_ledger(a.historial))
     if a.qr:
-        rc |= check_qr(a.qr, keys, a.pdf)
+        rc = worst(rc, check_qr(a.qr, keys, a.pdf))
     elif a.pdf:
-        rc |= check_pdf(a.pdf, keys, a.extraer)
+        rc = worst(rc, check_pdf(a.pdf, keys, a.extraer))
     if not (a.pdf or a.qr or a.historial or a.cambio):
         ap.print_help()
         return 2
