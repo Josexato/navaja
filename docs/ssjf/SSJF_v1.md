@@ -1,6 +1,6 @@
 # SSJF v1 — Simple Signature JSON Format
 
-**Estado:** borrador 1.1 ([cambios](#10-historial-de-versiones)) · **Implementación de referencia:** Navaja
+**Estado:** borrador 1.1 ([cambios](#10-historial-de-versiones)) · **Implementación de referencia:** [Navaja](https://github.com/Josexato/navaja)
 (`app/src/main/java/com/josexato/navaja/sign/core/`) · **Verificador
 independiente:** [`verificar_ssjf.py`](verificar_ssjf.py)
 
@@ -105,7 +105,16 @@ comentarios).
 Varias firmas se encadenan: la segunda firma toma como `D0` el archivo final de
 la primera.
 
+<p align="center"><img src="diagramas/01-firma.svg" alt="Proceso de firma" width="380">
+<img src="diagramas/02-estructura-pdf.svg" alt="Estructura del PDF firmado" width="330"></p>
+
+*Figura 1: proceso de firma y bytes del PDF resultante (informativa).*
+
 ## 5. Verificación
+
+<p align="center"><img src="diagramas/03-verificacion.svg" alt="Árbol de verificación" width="520"></p>
+
+*Figura 2: orden de las comprobaciones y resultado (informativa; el texto es normativo).*
 
 Para cada anexo encontrado en el archivo `F` (buscando `%SSJF-anexo-v1`):
 
@@ -168,6 +177,10 @@ La copia **pública** (sin `priv` ni `salt`) verifica su cadena sola; quien
 tenga la copia completa puede demostrar los datos privados revelando `priv` y
 `salt`. Los respaldos PUEDEN ir a cualquier almacenamiento (archivo local,
 WebDAV, S3/OBS, FTP, correo…): el formato no depende del destino.
+
+<p align="center"><img src="diagramas/04-historial-claves.svg" alt="Historial y cambio de clave" width="360"></p>
+
+*Figura 3: historial encadenado, compromiso de datos privados y cambio de clave (informativa).*
 
 ## 7. Cambio de clave
 

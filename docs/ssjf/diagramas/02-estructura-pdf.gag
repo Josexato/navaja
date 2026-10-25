@@ -1,0 +1,62 @@
+{
+  "_": "SSJF 1.1 · bytes del PDF firmado: el original es prefijo exacto",
+  "elements": [
+    {
+      "id": "b0",
+      "type": "document",
+      "label": "1 · Original intacto\nbytes 0 … n0",
+      "color": "#1F3864"
+    },
+    {
+      "id": "b1",
+      "type": "document",
+      "label": "2 · Actualización:\nfirma + QR (… n1)",
+      "color": "#2E75B6"
+    },
+    {
+      "id": "b2",
+      "type": "document",
+      "label": "3 · Actualización:\nanexo JSON",
+      "color": "gray"
+    },
+    {
+      "id": "qrh",
+      "type": "escudo",
+      "label": "QR: h0, n0\n+ firma 1"
+    },
+    {
+      "id": "anx",
+      "type": "escudo",
+      "label": "Anexo: h1, n1\nseal_sig, sellos"
+    }
+  ],
+  "connections": [
+    {
+      "from": "b0",
+      "to": "b1",
+      "direction": "forward",
+      "label": "se agrega"
+    },
+    {
+      "from": "b1",
+      "to": "b2",
+      "direction": "forward",
+      "label": "se agrega"
+    },
+    {
+      "from": "qrh",
+      "to": "b0",
+      "direction": "forward",
+      "label": "garantiza 1"
+    },
+    {
+      "from": "anx",
+      "to": "b1",
+      "direction": "forward",
+      "label": "garantiza 1+2"
+    }
+  ],
+  "icons": {
+    "escudo": "<svg viewBox='0 0 80 50'><path d='M40 4 L64 12 V26 C64 38 53 45 40 48 C27 45 16 38 16 26 V12 Z' fill='#2E75B6' stroke='#173d5e' stroke-width='2.5' stroke-linejoin='round'/><rect x='33' y='25' width='14' height='12' rx='2' fill='#F6C445' stroke='#173d5e' stroke-width='1.6'/><path d='M35 25 V21 a5 5 0 0 1 10 0 V25' fill='none' stroke='#173d5e' stroke-width='2'/><circle cx='40' cy='30' r='1.8' fill='#173d5e'/></svg>"
+  }
+}
