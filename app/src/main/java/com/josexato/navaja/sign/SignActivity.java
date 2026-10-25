@@ -171,6 +171,7 @@ public class SignActivity extends Activity {
     // ================================================================ inicio
 
     private void showHome() {
+        dismissBusy();
         onHome = true;
         scr = NavajaUi.screen(this, "Firma verificable", "SSJF v1 · el documento no sale del teléfono", null, true);
         LinearLayout c = scr.content;
@@ -439,6 +440,7 @@ public class SignActivity extends Activity {
     private Button continueBtn;
 
     private void showPlace() {
+        dismissBusy(); // "Abriendo PDF…" quedaba encima y bloqueaba la pantalla
         scr = NavajaUi.screen(this, "Ubicar la firma", pdfName, NavajaUi.headerAction(this, "Inicio", v -> showHome()));
         LinearLayout c = scr.content;
         TextView hint = NavajaUi.text(this, "Toca donde va la firma. Arrastra para moverla; el punto de la esquina cambia el tamaño.",
