@@ -26,7 +26,7 @@ public final class Ssjf {
 
     public static final String MAGIC = "SSJF1";
     /** Guía pública de verificación (lo que abre el QR al escanearlo con cualquier cámara). */
-    public static final String DEFAULT_URL = "https://github.com/Josexato/navaja/tree/main/docs/ssjf";
+    public static final String DEFAULT_URL = "https://github.com/Josexato/SSJF";
 
     public static final class Claim {
         public String url;          // puede ser null

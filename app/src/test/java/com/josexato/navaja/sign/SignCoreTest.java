@@ -258,7 +258,7 @@ public class SignCoreTest {
         r.v = 0.8;
         r.w = 0.5;
         r.ink = ink();
-        r.lines = new String[]{"Firmado 25/10/2026 · SSJF v1", "Verificar: github.com/Josexato/navaja/tree/main/docs/ssjf"};
+        r.lines = new String[]{"Firmado 25/10/2026 · SSJF v1", "Verificar: github.com/Josexato/SSJF"};
         r.unix = 1761400000L;
         r.btc = new TimeAnchors.Block(921345, "000000000000000000017a81affd38193f5d776267ad294b7dd941aef5c1488b");
         return r;

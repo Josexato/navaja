@@ -1,3 +1,6 @@
+> **El estándar SSJF vive ahora en su propio repositorio: <https://github.com/Josexato/SSJF>.**
+> Esta carpeta es una copia para las firmas hechas con versiones anteriores de Navaja.
+
 # ¿Qué es el QR junto a esta firma?
 
 *English summary below.*

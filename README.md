@@ -78,7 +78,7 @@ Monitor de campo celular con las APIs públicas de Android, sin servicios extern
 ## ✍️ Firma verificable (botón «Firma verificable»)
 
 Firma un PDF con el S Pen y agrega un **QR que prueba qué documento firmaste,
-cuándo y con qué clave** (formato abierto [SSJF v1](docs/ssjf/SSJF_v1.md)).
+cuándo y con qué clave** (formato abierto [SSJF v1](https://github.com/Josexato/SSJF)).
 
 - El PDF original queda **intacto byte a byte** al inicio del firmado
   (actualización incremental): `head -c N firmado.pdf | sha256sum` da el resumen del QR.
@@ -93,8 +93,8 @@ cuándo y con qué clave** (formato abierto [SSJF v1](docs/ssjf/SSJF_v1.md)).
 - **Verificar**: abre un PDF (o comparte el texto de un QR escaneado) y te dice
   si la firma es tuya, falsa, de otro documento o si se agregaron cambios
   después, y extrae la versión que realmente firmaste.
-- Verificador independiente para cualquiera: [`docs/ssjf/verificar_ssjf.py`](docs/ssjf/verificar_ssjf.py)
-  · guía pública (lo que abre el QR): [`docs/ssjf/`](docs/ssjf/README.md).
+- Estándar, guía pública (lo que abre el QR) y verificador independiente en su
+  propio repositorio: **[Josexato/SSJF](https://github.com/Josexato/SSJF)** (copia en [`docs/ssjf/`](docs/ssjf/)).
 
 ## 🎨 Pantonera (botón «Pantonera»)
 
