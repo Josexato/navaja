@@ -59,6 +59,8 @@ public final class Verifier {
         public Annex annex;
         public boolean prefixOk, stampOk, sigOk, mine;
         public Ledger.Entry entry;
+        /** Entrada "sello" del historial con el OpenTimestamps ya anclado en Bitcoin, si existe. */
+        public Ledger.Entry otsProof;
         /** Bytes agregados después de esta firma que NO son otra firma SSJF (cambios sin firmar). */
         public long unsignedBytesAfter;
         /** Bytes agregados después de esta firma (incluye firmas SSJF posteriores). */
@@ -172,6 +174,7 @@ public final class Verifier {
         }
         c.mine = keys != null && keys.isMine(c.claim.kid);
         if (ledger != null) c.entry = ledger.findSignature(c.claim.h0, Ledger.coreOf(c.claim.qrText()));
+        if (c.entry != null) c.otsProof = OtsUpdater.completedProof(ledger, c.entry.seq());
         c.verdict = !c.mine ? Verdict.OTHER_KEY : c.entry != null ? Verdict.MINE : Verdict.MINE_NOT_IN_LEDGER;
         if (!c.mine && keys != null && keys.owner(c.claim.kid) != null) c.detail = "Clave de " + keys.owner(c.claim.kid);
     }
