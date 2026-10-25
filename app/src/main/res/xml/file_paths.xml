@@ -2,4 +2,6 @@
 <paths>
     <!-- PDF del escenario, escaneos (fotos, siluetas, modelos) y diagnósticos. -->
     <external-files-path name="files" path="." />
+    <!-- Copias de los PDF firmados (almacenamiento interno), para compartirlos. -->
+    <files-path name="firmas" path="firmas/pdf/" />
 </paths>

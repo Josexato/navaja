@@ -22,6 +22,7 @@ import com.josexato.navaja.lan.LanActivity;
 import com.josexato.navaja.marker.MarkerActivity;
 import com.josexato.navaja.pantonera.PantoneraActivity;
 import com.josexato.navaja.pulse.PulseActivity;
+import com.josexato.navaja.sign.SignActivity;
 import com.josexato.navaja.tuner.TunerActivity;
 
 import java.io.File;
@@ -99,6 +100,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openMarker() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, MarkerActivity.class)));
+        }
+
+        @JavascriptInterface
+        public void openSign() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, SignActivity.class)));
         }
 
         @JavascriptInterface
