@@ -26,6 +26,8 @@ public final class Annex {
     public long n0, n1;
     /** Clave pública comprimida (33 bytes) en base64url. */
     public String pk;
+    /** Firma del sello (r‖s base64url) sobre {@link Ssjf#sealMessage}: el firmante avala D1, no sólo D0. */
+    public String seal;
     public long btcHeight = -1;
     public String btcHash;
     /** Respuesta RFC 3161 (TimeStampResp DER) en base64, sobre h1. */
@@ -42,6 +44,7 @@ public final class Annex {
         m.put("h1", h1);
         m.put("n1", n1);
         m.put("pk", pk);
+        if (seal != null) m.put("seal_sig", seal);
         if (btcHeight >= 0) {
             Map<String, Object> b = new LinkedHashMap<>();
             b.put("height", btcHeight);
@@ -74,6 +77,7 @@ public final class Annex {
         a.n0 = lng(m.get("n0"));
         a.n1 = lng(m.get("n1"));
         a.pk = str(m.get("pk"));
+        a.seal = str(m.get("seal_sig"));
         if (m.get("btc") instanceof Map) {
             Map<String, Object> b = (Map<String, Object>) m.get("btc");
             a.btcHeight = lng(b.get("height"));

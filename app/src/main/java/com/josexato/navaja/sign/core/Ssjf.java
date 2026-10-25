@@ -35,12 +35,15 @@ public final class Ssjf {
         public long t;              // segundos Unix (UTC), declarado por el firmante
         public long btcHeight = -1; // bloque Bitcoin más reciente al firmar (prueba "no antes de")
         public String btcHash;      // primeros 32 hex del hash de ese bloque
+        /** Revisión del formato: 2 = el anexo DEBE llevar la firma del sello (seal_sig) sobre h1. */
+        public int rev = 1;
         public String kid;          // identificador de la clave pública
         public byte[] sig;          // r‖s, 64 bytes
 
         public String signedPart() {
             StringBuilder sb = new StringBuilder(MAGIC).append(";h=").append(h0).append(";n=").append(n0).append(";t=").append(t);
             if (btcHeight >= 0 && btcHash != null) sb.append(";b=").append(btcHeight).append('-').append(btcHash);
+            if (rev >= 2) sb.append(";r=").append(rev);
             return sb.append(";k=").append(kid).toString();
         }
 
@@ -110,6 +113,15 @@ public final class Ssjf {
         } catch (NumberFormatException e) {
             throw new FormatException("Número inválido en el QR");
         }
+        String rv = f.get("r");
+        if (rv != null) {
+            try {
+                c.rev = Integer.parseInt(rv);
+            } catch (NumberFormatException e) {
+                throw new FormatException("Revisión r inválida");
+            }
+            if (c.rev < 2) throw new FormatException("Revisión r inválida");
+        }
         c.kid = req(f, "k");
         try {
             c.sig = Bytes.unb64url(req(f, "s"));
@@ -127,6 +139,15 @@ public final class Ssjf {
         String v = f.get(k);
         if (v == null || v.isEmpty()) throw new FormatException("Falta el campo " + k);
         return v;
+    }
+
+    /**
+     * Mensaje de la firma del sello (revisión 2): vincula al firmante con la
+     * versión ya sellada D1 (h1), que no puede ir en el QR porque el QR es
+     * parte de D1. Se firma después de crear D1 y se guarda en el anexo.
+     */
+    public static String sealMessage(String h0, String h1, long n1, String kid) {
+        return "SSJF1-SEAL;h0=" + h0 + ";h1=" + h1 + ";n1=" + n1 + ";k=" + kid;
     }
 
     /** Fecha UTC legible (ISO 8601) de un instante Unix. */

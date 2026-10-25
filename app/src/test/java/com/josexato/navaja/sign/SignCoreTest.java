@@ -430,4 +430,97 @@ public class SignCoreTest {
         dump("prueba.ots", ots);
         dump("prueba.h1", h);
     }
+
+    /** D1 hecho por un atacante con el mismo QR legítimo (otra apariencia y otro contenido) y su anexo. */
+    static byte[] forgedD1(byte[] orig, String qrText) throws Exception {
+        Stamper.Spec s = new Stamper.Spec();
+        s.page = 0;
+        s.u = 0.1;
+        s.v = 0.1;
+        s.w = 0.6;
+        s.ink = ink();
+        s.qrText = qrText;
+        s.lines = new String[]{"PAGARE POR 100000 USD", "Verificar"};
+        return Stamper.stamp(new PdfFile(orig), s);
+    }
+
+    static byte[] withAnnex(byte[] d1, Annex base, String seal) throws Exception {
+        Annex a = Annex.fromJson(base.toJson());
+        a.h1 = Bytes.hex(Bytes.sha256(d1));
+        a.n1 = d1.length;
+        a.seal = seal;
+        return Stamper.addAnnex(new PdfFile(d1), a.toJson());
+    }
+
+    @Test
+    public void elSelloFirmadoImpideReutilizarElQr() throws Exception {
+        KeyPair kp = keys();
+        byte[] pk = Ecdsa.compress(kp.getPublic());
+        Verifier.KeyRing ring = new Verifier.KeyRing().add(pk, "yo");
+        byte[] orig = classicPdf();
+        Signer.Result res = Signer.sign(request(orig, 0), pk, jcaSigner(kp), null);
+        assertEquals(2, res.claim.rev);
+        assertTrue(res.annex.qr.contains(";r=2;k="));
+        Verifier.Check ok = Verifier.verifyPdf(res.pdf, ring, null).checks.get(0);
+        assertEquals(Boolean.TRUE, ok.sealOk);
+        assertEquals(Verifier.Verdict.MINE_NOT_IN_LEDGER, ok.verdict);
+
+        byte[] d1x = forgedD1(orig, res.annex.qr);
+        // 1) Copia la firma del sello legítima: no corresponde a la nueva h1.
+        Verifier.Check c1 = Verifier.verifyPdf(withAnnex(d1x, res.annex, res.annex.seal), ring, null).checks.get(0);
+        assertEquals(Verifier.Verdict.STAMP_ALTERED, c1.verdict);
+        // 2) Quita la firma del sello para hacerse pasar por formato antiguo: el QR (firmado) la exige.
+        Verifier.Check c2 = Verifier.verifyPdf(withAnnex(d1x, res.annex, null), ring, null).checks.get(0);
+        assertEquals(Verifier.Verdict.STAMP_ALTERED, c2.verdict);
+        // 3) La clave del firmante sí podría hacer otra D1: con la clave del atacante, no.
+        String fakeSeal = Bytes.b64url(Ecdsa.derToRaw(jcaSigner(keys()).sign(
+                Ssjf.sealMessage(res.annex.h0, Bytes.hex(Bytes.sha256(d1x)), d1x.length, res.claim.kid).getBytes(StandardCharsets.UTF_8))));
+        assertEquals(Verifier.Verdict.STAMP_ALTERED, Verifier.verifyPdf(withAnnex(d1x, res.annex, fakeSeal), ring, null).checks.get(0).verdict);
+    }
+
+    @Test
+    public void firmasAntiguasSinSelloSeAvisanYElHistorialLasProtege() throws Exception {
+        KeyPair kp = keys();
+        byte[] pk = Ecdsa.compress(kp.getPublic());
+        Verifier.KeyRing ring = new Verifier.KeyRing().add(pk, "yo");
+        byte[] orig = classicPdf();
+        // Firma "v1.0": QR sin r=2 y anexo sin seal_sig.
+        Ssjf.Claim c = new Ssjf.Claim();
+        c.url = Ssjf.DEFAULT_URL;
+        c.h0 = Bytes.hex(Bytes.sha256(orig));
+        c.n0 = orig.length;
+        c.t = 1761400000L;
+        c.kid = Ecdsa.keyId(pk);
+        c.sig = Ecdsa.derToRaw(jcaSigner(kp).sign(c.signedBytes()));
+        Stamper.Spec s = new Stamper.Spec();
+        s.page = 0;
+        s.u = 0.45;
+        s.v = 0.8;
+        s.w = 0.5;
+        s.ink = ink();
+        s.qrText = c.qrText();
+        byte[] d1 = Stamper.stamp(new PdfFile(orig), s);
+        Annex a = new Annex();
+        a.qr = c.qrText();
+        a.h0 = c.h0;
+        a.n0 = c.n0;
+        a.pk = Bytes.b64url(pk);
+        byte[] legit = withAnnex(d1, a, null);
+        Verifier.Check old = Verifier.verifyPdf(legit, ring, null).checks.get(0);
+        assertEquals(Verifier.Verdict.MINE_NOT_IN_LEDGER, old.verdict);
+        assertTrue(old.sealUnattested());
+
+        // Mi historial guarda h1: confirma la D1 legítima y delata una D1 falsa con el mismo QR.
+        Ledger l = new Ledger();
+        java.util.Map<String, Object> pub = new java.util.LinkedHashMap<>();
+        pub.put("h0", c.h0);
+        pub.put("h1", Bytes.hex(Bytes.sha256(d1)));
+        pub.put("qr", c.qrText());
+        l.append(Ledger.TYPE_SIGN, 1L, pub, null);
+        Verifier.Check mine = Verifier.verifyPdf(legit, ring, l).checks.get(0);
+        assertEquals(Verifier.Verdict.MINE, mine.verdict);
+        assertFalse(mine.sealUnattested());
+        byte[] fake = withAnnex(forgedD1(orig, c.qrText()), a, null);
+        assertEquals(Verifier.Verdict.STAMP_ALTERED, Verifier.verifyPdf(fake, ring, l).checks.get(0).verdict);
+    }
 }

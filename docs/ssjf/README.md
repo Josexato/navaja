@@ -18,6 +18,7 @@ El QR contiene:
 | `n` | Tamaño en bytes de ese documento |
 | `t` | Hora de la firma (segundos Unix, UTC), declarada por quien firma |
 | `b` | Altura y hash del último bloque de Bitcoin al firmar: prueba de que la firma **no se hizo antes** de ese momento |
+| `r` | Revisión del formato: `2` exige una segunda firma sobre el PDF ya sellado (ver abajo) |
 | `k` | Identificador de la clave pública de quien firmó |
 | `s` | Firma digital ECDSA P-256 de todo lo anterior |
 
@@ -27,6 +28,8 @@ a ningún servidor al abrir el enlace.
 ## Qué prueba y qué no
 
 - ✓ **Integridad**: si cambia un solo bit del documento firmado, el resumen no coincide.
+- ✓ **Lo que se ve**: una segunda firma (en el anexo) avala el PDF ya sellado,
+  así nadie puede reutilizar este QR con otra apariencia u otro contenido.
 - ✓ **Autoría**: sólo quien tiene la clave privada (guardada en el chip seguro de su teléfono, no exportable) puede producir una firma válida para esa clave.
 - ✓ **Tiempo**: no antes del bloque Bitcoin `b`; no después del sello RFC 3161 y de OpenTimestamps que van en el anexo del PDF.
 - ✗ No identifica a la persona por sí sola: hay que saber que la clave `k` es suya (que te la haya compartido, o que la publique).
@@ -47,6 +50,10 @@ head -c <n> firmado.pdf | sha256sum      # debe dar h
 pip install cryptography
 python3 verificar_ssjf.py firmado.pdf --extraer salida/
 ```
+
+Código de salida: `0` verificada, `1` inválida, `2` válida con advertencias o
+sin poder comprobarla (por ejemplo, sin `cryptography`). Para automatizar,
+acepta sólo `0`.
 
 [`verificar_ssjf.py`](verificar_ssjf.py) es un script de un solo archivo, sin
 dependencias de Navaja. También detecta si **alguien agregó cambios después de
