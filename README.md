@@ -86,6 +86,8 @@ cuándo y con qué clave** (formato abierto [SSJF v1](https://github.com/Josexat
   (StrongBox/TEE), no exportable, y pide huella o PIN en cada firma.
 - Anclas de tiempo opcionales (sólo viajan resúmenes): último bloque de
   Bitcoin (*no antes de*), sello **RFC 3161** y **OpenTimestamps** (*no después de*).
+  El sello OpenTimestamps queda pendiente unas horas; la app lo completa sola al abrirla
+  (o con «Actualizar sellos») y comprueba el bloque contra un explorador público.
 - **Historial encadenado** con nombre de archivo, ubicación y comentario — sólo en
   el teléfono, nunca en el PDF ni en el respaldo de Google. Respaldo a donde
   elijas: archivo (Drive, OneDrive, USB, apps FTP/SFTP/SMB), WebDAV/NAS,

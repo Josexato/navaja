@@ -48,6 +48,8 @@ import com.josexato.navaja.sign.core.Bytes;
 import com.josexato.navaja.sign.core.Ecdsa;
 import com.josexato.navaja.sign.core.Http;
 import com.josexato.navaja.sign.core.Ledger;
+import com.josexato.navaja.sign.core.Ots;
+import com.josexato.navaja.sign.core.OtsUpdater;
 import com.josexato.navaja.sign.core.PdfFile;
 import com.josexato.navaja.sign.core.Signer;
 import com.josexato.navaja.sign.core.Ssjf;
@@ -125,6 +127,7 @@ public class SignActivity extends Activity {
         showHome();
         ensureKey();
         handleIntent(getIntent());
+        maybeAutoUpgradeOts();
     }
 
     @Override
@@ -820,7 +823,7 @@ public class SignActivity extends Activity {
                 NavajaUi.secondary(this, "Compartir PDF", v -> sharePdf(store.pdfCopy(e.seq()), pdfName))));
         c.addView(NavajaUi.buttonRow(this,
                 NavajaUi.secondary(this, "Constancia", v -> saveAs(baseName(pdfName) + "_constancia_ssjf.json", "application/json",
-                        constancia(e).getBytes(StandardCharsets.UTF_8), REQ_EXPORT)),
+                        constancia(null, e).getBytes(StandardCharsets.UTF_8), REQ_EXPORT)),
                 NavajaUi.secondary(this, "Enviarme por correo", v -> emailWitness(e))));
         TextView t = NavajaUi.text(this, "«Enviarme por correo» deja un testigo independiente con fecha (firmado por tu proveedor de "
                 + "correo con DKIM). Sólo lleva resúmenes, nunca el documento.", NavajaUi.Style.MUTED);
@@ -839,8 +842,8 @@ public class SignActivity extends Activity {
         }
     }
 
-    /** Constancia: la entrada pública del historial (sin datos privados), autocontenida. */
-    private String constancia(Ledger.Entry e) {
+    /** Constancia: la entrada pública del historial (sin datos privados) y sus sellos posteriores, autocontenida. */
+    private String constancia(Ledger l, Ledger.Entry e) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("ssjf_constancia", 1L);
         m.put("guia", Ssjf.DEFAULT_URL);
@@ -849,6 +852,15 @@ public class SignActivity extends Activity {
         } catch (com.josexato.navaja.pantonera.core.Json.ParseException ex) {
             m.put("entrada", e.publicJson());
         }
+        List<Object> proofs = new ArrayList<>();
+        for (Ledger.Entry p : l == null ? new ArrayList<Ledger.Entry>() : l.proofsFor(e.seq())) {
+            try {
+                proofs.add(com.josexato.navaja.pantonera.core.Json.parse(p.publicJson()));
+            } catch (com.josexato.navaja.pantonera.core.Json.ParseException ex) {
+                proofs.add(p.publicJson());
+            }
+        }
+        if (!proofs.isEmpty()) m.put("sellos", proofs);
         return com.josexato.navaja.pantonera.core.Json.write(m);
     }
 
@@ -980,8 +992,17 @@ public class SignActivity extends Activity {
             StringBuilder sb = new StringBuilder("Hora declarada: " + local(ck.claim.t));
             if (ck.claim.btcHeight >= 0) sb.append("\nNo antes del bloque Bitcoin ").append(ck.claim.btcHeight);
             if (ck.annex != null && ck.annex.tsr != null) sb.append("\nSello RFC 3161: ").append(tsaTime(ck.annex.tsr));
-            if (ck.annex != null && ck.annex.ots != null) sb.append("\nOpenTimestamps: sí (verificable con «ots verify»)");
             card.addView(NavajaUi.text(this, sb.toString(), NavajaUi.Style.SECONDARY));
+            if (ck.otsProof != null) {
+                TextView o = NavajaUi.text(this, "OpenTimestamps: ✓ existía antes del bloque Bitcoin " + ck.otsProof.l("btc_height")
+                        + (ck.otsProof.l("btc_time") > 0 ? " (" + local(ck.otsProof.l("btc_time")) + ")" : ""), NavajaUi.Style.SECONDARY);
+                o.setTextColor(Palette.OK);
+                card.addView(o);
+            } else if (ck.annex != null && ck.annex.ots != null && ck.stampOk) {
+                TextView o = NavajaUi.text(this, "OpenTimestamps: sin comprobar todavía", NavajaUi.Style.SECONDARY);
+                card.addView(o);
+                card.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Consultar OpenTimestamps", v -> checkAnnexOts(ck, o))));
+            }
         }
         if (ck.unsignedBytesAfter > 0 && ck.valid()) {
             TextView w = body("⚠ Se agregaron cambios DESPUÉS de esta firma (" + ck.unsignedBytesAfter + " bytes sin firmar). "
@@ -1090,13 +1111,15 @@ public class SignActivity extends Activity {
                         l.toJsonl(true).getBytes(StandardCharsets.UTF_8), REQ_EXPORT)),
                 NavajaUi.secondary(this, "Exportar público", v -> saveAs("ssjf-historial-publico.jsonl", "application/x-ndjson",
                         l.toJsonl(false).getBytes(StandardCharsets.UTF_8), REQ_EXPORT))));
-        c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Respaldar ahora", v -> {
-            busy("Respaldando…");
-            work.execute(() -> {
-                autoBackup(l);
-                ui.post(this::dismissBusy);
-            });
-        })));
+        c.addView(NavajaUi.buttonRow(this,
+                NavajaUi.secondary(this, "Actualizar sellos", v -> upgradeOts(false)),
+                NavajaUi.secondary(this, "Respaldar ahora", v -> {
+                    busy("Respaldando…");
+                    work.execute(() -> {
+                        autoBackup(l);
+                        ui.post(this::dismissBusy);
+                    });
+                })));
         List<Ledger.Entry> list = new ArrayList<>(l.entries());
         Collections.reverse(list);
         for (Ledger.Entry e : list) {
@@ -1108,36 +1131,56 @@ public class SignActivity extends Activity {
             card.addView(NavajaUi.text(this, file == null ? "(sin nombre)" : file, NavajaUi.Style.BODY));
             if (e.privS("comment") != null) card.addView(NavajaUi.text(this, e.privS("comment"), NavajaUi.Style.SECONDARY));
             String stamps = (e.m.get("btc") != null ? "Bitcoin ✓  " : "") + (e.s("rfc3161") != null ? "RFC 3161 ✓  " : "")
-                    + (e.s("ots") != null ? "OTS ✓  " : "") + (e.privS("lat") != null ? "📍 ubicación" : "");
+                    + otsLabel(l, e) + (e.privS("lat") != null ? "📍 ubicación" : "");
             if (!stamps.isEmpty()) card.addView(NavajaUi.text(this, stamps, NavajaUi.Style.MUTED));
-            card.setOnClickListener(v -> entryDialog(e));
+            card.setOnClickListener(v -> entryDialog(l, e));
             c.addView(card);
         }
         setContentView(scr.root);
     }
 
-    private void entryDialog(Ledger.Entry e) {
+    private static String otsLabel(Ledger l, Ledger.Entry e) {
+        if (e.s("ots") == null) return "";
+        Ledger.Entry p = OtsUpdater.completedProof(l, e.seq());
+        return p != null ? "OTS ✓ bloque " + p.l("btc_height") + "  " : "OTS ⏳ pendiente  ";
+    }
+
+    private void entryDialog(Ledger l, Ledger.Entry e) {
+        Ledger.Entry proof = OtsUpdater.completedProof(l, e.seq());
+        String ots = e.s("ots") == null ? "no se pidió"
+                : proof != null ? "anclado en el bloque Bitcoin " + proof.l("btc_height")
+                + (proof.l("btc_time") > 0 ? " (" + local(proof.l("btc_time")) + ")" : "") + " ✓"
+                : "pendiente: se completa solo en unas horas, o con «Actualizar sellos»";
         String msg = "Fecha: " + local(e.l("t")) + describePriv(e)
                 + (e.privS("acc_m") != null ? " (±" + e.privS("acc_m") + " m)" : "")
+                + "\nOpenTimestamps: " + ots
                 + "\n\nh0 (antes): " + e.s("h0") + "\nh1 (sellado): " + e.s("h1") + "\nh2 (archivo): " + e.s("h2")
                 + "\n\nQR: " + e.s("qr");
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int p = NavajaUi.dp(this, 20);
+        box.setPadding(p, p / 2, p, p / 2);
         TextView tv = new TextView(this);
         tv.setText(msg);
         tv.setTextIsSelectable(true);
         tv.setTypeface(Typeface.MONOSPACE);
         tv.setTextSize(12);
-        int p = NavajaUi.dp(this, 20);
-        tv.setPadding(p, p / 2, p, 0);
-        ScrollView sv = new ScrollView(this);
-        sv.addView(tv);
-        AlertDialog.Builder b = new AlertDialog.Builder(this).setTitle("Firma #" + e.seq()).setView(sv)
-                .setPositiveButton("Compartir PDF", (d, w) -> sharePdf(store.pdfCopy(e.seq()), e.privS("file")))
-                .setNeutralButton("Copiar QR", (d, w) -> {
-                    ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("QR SSJF", e.s("qr")));
-                    toast("QR copiado");
-                });
-        if (e.privS("lat") != null) b.setNegativeButton("Ver en mapa", (d, w) -> {
+        box.addView(tv);
+        List<View> row1 = new ArrayList<>(), row2 = new ArrayList<>();
+        row1.add(NavajaUi.secondary(this, "Compartir PDF", v -> sharePdf(store.pdfCopy(e.seq()), e.privS("file"))));
+        row1.add(NavajaUi.secondary(this, "Copiar QR", v -> {
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("QR SSJF", e.s("qr")));
+            toast("QR copiado");
+        }));
+        if (e.s("ots") != null) row2.add(NavajaUi.secondary(this, "Exportar .ots", v -> {
+            String b64 = OtsUpdater.latestOts(l, e);
+            saveAs(baseName(e.privS("file") == null ? "firma" + e.seq() : e.privS("file")) + "_firma" + e.seq() + ".ots",
+                    "application/octet-stream", Bytes.unb64(b64), REQ_EXPORT);
+        }));
+        row2.add(NavajaUi.secondary(this, "Constancia", v -> saveAs("constancia_ssjf_" + e.seq() + ".json", "application/json",
+                constancia(l, e).getBytes(StandardCharsets.UTF_8), REQ_EXPORT)));
+        if (e.privS("lat") != null) row2.add(NavajaUi.secondary(this, "Mapa", v -> {
             Uri geo = Uri.parse("geo:" + e.privS("lat") + "," + e.privS("lon") + "?q=" + e.privS("lat") + "," + e.privS("lon")
                     + "(Firma " + e.seq() + ")");
             try {
@@ -1145,8 +1188,97 @@ public class SignActivity extends Activity {
             } catch (ActivityNotFoundException ex) {
                 toast("No hay app de mapas");
             }
+        }));
+        box.addView(NavajaUi.buttonRow(this, row1.toArray(new View[0])));
+        box.addView(NavajaUi.buttonRow(this, row2.toArray(new View[0])));
+        ScrollView sv = new ScrollView(this);
+        sv.addView(box);
+        new AlertDialog.Builder(this).setTitle("Firma #" + e.seq()).setView(sv).setPositiveButton("Cerrar", null).show();
+    }
+
+    // ===================================================== OpenTimestamps
+
+    /** Al abrir: si hay sellos pendientes, el usuario usa internet para firmar y pasó 1 h desde el último intento. */
+    private void maybeAutoUpgradeOts() {
+        if (!"1".equals(store.pref("online", "1"))) return;
+        long last;
+        try {
+            last = Long.parseLong(store.pref("otsLast", "0"));
+        } catch (NumberFormatException e) {
+            last = 0;
+        }
+        if (System.currentTimeMillis() / 1000 - last < 3600) return;
+        upgradeOts(true);
+    }
+
+    /** Consulta los calendarios de los sellos pendientes y registra los que ya están en un bloque. */
+    private void upgradeOts(boolean auto) {
+        if (!auto) busy("Consultando los calendarios OpenTimestamps…");
+        work.execute(() -> {
+            OtsUpdater.Summary sum;
+            Ledger l;
+            try {
+                l = store.loadLedger();
+                long now = System.currentTimeMillis() / 1000;
+                sum = OtsUpdater.run(l, Ots.HTTPS, TimeAnchors.EXPLORERS, now);
+                store.setPref("otsLast", Long.toString(now));
+                if (sum.completed > 0) store.saveLedger(l);
+            } catch (IOException | RuntimeException e) {
+                if (!auto) ui.post(() -> error("No se pudo actualizar: " + e.getMessage()));
+                return;
+            }
+            if (sum.completed > 0) autoBackup(l);
+            OtsUpdater.Summary fs = sum;
+            Ledger fl = l;
+            ui.post(() -> {
+                if (auto) {
+                    if (fs.completed > 0) toast(fs.completed + (fs.completed == 1 ? " firma quedó anclada" : " firmas quedaron ancladas")
+                            + " en Bitcoin (OpenTimestamps)");
+                    return;
+                }
+                dismissBusy();
+                String msg = fs.nothingToDo() ? "No hay sellos pendientes." : android.text.TextUtils.join("\n", fs.lines);
+                new AlertDialog.Builder(this).setTitle(fs.completed > 0 ? "✓ Sellos actualizados" : "Sellos OpenTimestamps")
+                        .setMessage(msg).setPositiveButton("OK", (d, w) -> renderHistory(fl)).show();
+            });
         });
-        b.show();
+    }
+
+    /** Desde la verificación: completa el .ots del anexo (de cualquier firmante) y lo comprueba contra el bloque real. */
+    private void checkAnnexOts(Verifier.Check ck, TextView out) {
+        out.setText("OpenTimestamps: consultando…");
+        work.execute(() -> {
+            String text;
+            int color;
+            try {
+                Ots.Proof p = Ots.Proof.parse(Bytes.unb64(ck.annex.ots));
+                if (!p.complete()) Ots.upgrade(p, Ots.HTTPS);
+                Ots.Status st = Ots.check(p, Bytes.unhex(ck.annex.h1), TimeAnchors.EXPLORERS);
+                if (st.verified) {
+                    text = "OpenTimestamps: ✓ existía antes del bloque Bitcoin " + st.height + " (" + local(st.blockTime) + ")";
+                    color = Palette.OK;
+                    if (ck.entry != null) {
+                        Ledger l = store.loadLedger();
+                        if (OtsUpdater.completedProof(l, ck.entry.seq()) == null) {
+                            OtsUpdater.record(l, ck.entry.seq(), ck.annex.h1, p, st, System.currentTimeMillis() / 1000);
+                            store.saveLedger(l);
+                        }
+                    }
+                } else {
+                    text = "OpenTimestamps: " + st.message;
+                    color = st.complete ? Palette.BAD : Palette.WARN;
+                }
+            } catch (IOException | RuntimeException e) {
+                text = "OpenTimestamps: no se pudo consultar (" + e.getMessage() + ")";
+                color = Palette.WARN;
+            }
+            String ft = text;
+            int fc = color;
+            ui.post(() -> {
+                out.setText(ft);
+                out.setTextColor(fc);
+            });
+        });
     }
 
     // ============================================================= respaldo

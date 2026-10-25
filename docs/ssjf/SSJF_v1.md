@@ -133,7 +133,12 @@ v, type ("firma" | "sello"), seq (1, 2, …), prev, t, <campos públicos>, [comm
   `page`), sin caracteres de control salvo `\n`.
 - `salt` = 16 bytes aleatorios en base64url.
   `commit` = SHA-256 hex de (`salt` ‖ JSON compacto de `priv`).
-- Una entrada `sello` (`ref` = seq de la firma) agrega sellos de tiempo obtenidos después.
+- Una entrada `sello` agrega pruebas obtenidas después, sin tocar la firma:
+  `ref` (seq de la firma), `h1`, `ots` (archivo .ots ya anclado, base64),
+  `btc_height`, `btc_hash` y `btc_time` (bloque comprobado). Se agrega cuando el
+  calendario OpenTimestamps incluyó el compromiso en un bloque y la raíz Merkle
+  que resulta de la prueba coincide con la del bloque real (en el orden de bytes
+  interno; los exploradores la muestran invertida).
 
 La copia **pública** (sin `priv` ni `salt`) verifica su cadena sola; quien
 tenga la copia completa puede demostrar los datos privados revelando `priv` y

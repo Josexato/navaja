@@ -56,6 +56,48 @@ public final class TimeAnchors {
         throw last;
     }
 
+    /** Datos de un bloque por altura, desde el primer explorador que responda. */
+    public static final class BlockInfo {
+        public final long height, time;
+        public final String hash, merkleRoot;
+
+        public BlockInfo(long height, String hash, String merkleRoot, long time) {
+            this.height = height;
+            this.hash = hash;
+            this.merkleRoot = merkleRoot;
+            this.time = time;
+        }
+    }
+
+    public interface BlockSource {
+        BlockInfo at(long height) throws IOException;
+    }
+
+    public static final BlockSource EXPLORERS = height -> {
+        IOException last = null;
+        for (String api : BTC_APIS) {
+            try {
+                String hash = Http.request("GET", api + "/block-height/" + height, null, null).text().trim();
+                if (!Bytes.isHex(hash, 64)) throw new IOException("bloque " + height + " no encontrado");
+                String json = Http.request("GET", api + "/block/" + hash, null, null).text();
+                String root = jsonString(json, "merkle_root");
+                if (!Bytes.isHex(root, 64)) throw new IOException("raíz Merkle ilegible");
+                return new BlockInfo(height, hash, root, jsonLong(json, "timestamp"));
+            } catch (IOException e) {
+                last = e;
+            }
+        }
+        throw last;
+    };
+
+    static String jsonString(String json, String key) throws IOException {
+        int i = json.indexOf("\"" + key + "\"");
+        if (i < 0) throw new IOException("falta " + key);
+        int a = json.indexOf('"', json.indexOf(':', i) + 1), b = json.indexOf('"', a + 1);
+        if (a < 0 || b < 0) throw new IOException("valor ilegible en " + key);
+        return json.substring(a + 1, b);
+    }
+
     static long jsonLong(String json, String key) throws IOException {
         int i = json.indexOf("\"" + key + "\"");
         if (i < 0) throw new IOException("falta " + key);
