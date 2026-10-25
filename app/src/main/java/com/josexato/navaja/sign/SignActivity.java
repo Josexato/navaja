@@ -47,6 +47,7 @@ import com.josexato.navaja.sign.core.Annex;
 import com.josexato.navaja.sign.core.Bytes;
 import com.josexato.navaja.sign.core.Ecdsa;
 import com.josexato.navaja.sign.core.Http;
+import com.josexato.navaja.sign.core.KeyChange;
 import com.josexato.navaja.sign.core.Ledger;
 import com.josexato.navaja.sign.core.Ots;
 import com.josexato.navaja.sign.core.OtsUpdater;
@@ -90,7 +91,7 @@ public class SignActivity extends Activity {
 
     private static final String TAG = "Firma";
     private static final int REQ_PICK_SIGN = 1, REQ_PICK_VERIFY = 2, REQ_SAVE = 3, REQ_AUTH = 4, REQ_BACKUP_FILE = 5,
-            REQ_LOC = 6, REQ_EXPORT = 7;
+            REQ_LOC = 6, REQ_EXPORT = 7, REQ_IMPORT = 8;
     private static final int MAX_PDF = 200 << 20;
     private static final int[] INKS = {0xFF14307A, 0xFF111111};
 
@@ -123,6 +124,7 @@ public class SignActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         store = new Store(this);
+        Keys.alias = store.pref("keyAlias", Keys.FIRST);
         inkColor = (int) Long.parseLong(store.pref("ink", Long.toString(INKS[0] & 0xFFFFFFFFL)));
         showHome();
         ensureKey();
@@ -179,7 +181,9 @@ public class SignActivity extends Activity {
         key.addView(keyInfo);
         TextView keyProt = NavajaUi.text(this, "", NavajaUi.Style.SECONDARY);
         key.addView(keyProt);
-        key.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Compartir clave pública", v -> sharePublicKey())));
+        key.addView(NavajaUi.buttonRow(this,
+                NavajaUi.secondary(this, "Compartir clave pública", v -> sharePublicKey()),
+                NavajaUi.secondary(this, "Cambiar clave…", v -> keyChangeMenu())));
         c.addView(key);
         work.execute(() -> {
             String id, prot;
@@ -187,6 +191,7 @@ public class SignActivity extends Activity {
                 byte[] pk = Keys.exists() ? Keys.publicKey() : null;
                 id = pk == null ? "Se crea al firmar por primera vez" : "Identificador " + Ecdsa.keyId(pk);
                 prot = pk == null ? "" : "Guardada en " + Keys.protection() + ". No se puede copiar ni exportar.";
+                if (retired()) prot = "⚠ Reemplazada por la clave de tu teléfono nuevo: este teléfono ya no firma.\n" + prot;
             } catch (Exception e) {
                 id = "Clave no disponible: " + e.getMessage();
                 prot = "";
@@ -315,6 +320,7 @@ public class SignActivity extends Activity {
                 pendingSave = null;
                 if (bytes != null) writeTo(uri, bytes);
                 break;
+            case REQ_IMPORT: importLedger(uri); break;
             case REQ_BACKUP_FILE:
                 try {
                     getContentResolver().takePersistableUriPermission(uri,
@@ -374,6 +380,10 @@ public class SignActivity extends Activity {
     // ======================================================== ubicar la firma
 
     private void loadForSigning(Uri uri) {
+        if (retired()) {
+            error("Este teléfono autorizó la clave de tu teléfono nuevo y ya no firma. Firma desde el teléfono nuevo.");
+            return;
+        }
         busy("Abriendo PDF…");
         work.execute(() -> {
             try {
@@ -895,7 +905,8 @@ public class SignActivity extends Activity {
             try {
                 byte[] b = readUri(uri);
                 String name = displayName(uri);
-                Verifier.Report rep = Verifier.verifyPdf(b, keyRing(), store.loadLedger());
+                Ledger led = store.loadLedger();
+                Verifier.Report rep = Verifier.verifyPdf(b, keyRing(led), led);
                 ui.post(() -> showReport(rep, b, name));
             } catch (IOException | RuntimeException e) {
                 ui.post(() -> error("No se pudo verificar: " + e.getMessage()));
@@ -903,14 +914,15 @@ public class SignActivity extends Activity {
         });
     }
 
-    private Verifier.KeyRing keyRing() {
-        Verifier.KeyRing r = new Verifier.KeyRing();
+    /** Mis claves: la actual y las enlazadas por cambios de clave válidos del historial. */
+    private Verifier.KeyRing keyRing(Ledger l) {
+        byte[] pk = null;
         try {
-            if (Keys.exists()) r.add(Keys.publicKey(), "yo");
+            if (Keys.exists()) pk = Keys.publicKey();
         } catch (Exception e) {
             Log.w(TAG, "clave", e);
         }
-        return r;
+        return Verifier.KeyRing.mine(pk, l);
     }
 
     private void showReport(Verifier.Report rep, byte[] file, String name) {
@@ -1004,6 +1016,13 @@ public class SignActivity extends Activity {
                 card.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Consultar OpenTimestamps", v -> checkAnnexOts(ck, o))));
             }
         }
+        if (ck.keyRetiredAt >= 0 && ck.sigOk) {
+            TextView w = body("⚠ Firmado con una clave que ya habías reemplazado el " + local(ck.keyRetiredAt)
+                    + ". Si no fuiste tú, alguien está usando tu teléfono anterior.");
+            w.setTextColor(Palette.WARN);
+            NavajaUi.topMargin(w, 6);
+            card.addView(w);
+        }
         if (ck.unsignedBytesAfter > 0 && ck.valid()) {
             TextView w = body("⚠ Se agregaron cambios DESPUÉS de esta firma (" + ck.unsignedBytesAfter + " bytes sin firmar). "
                     + "Lo que se firmó es la versión que puedes extraer abajo; lo demás no está cubierto por la firma.");
@@ -1062,7 +1081,7 @@ public class SignActivity extends Activity {
             } catch (IOException e) {
                 l = new Ledger();
             }
-            Verifier.Check ck = Verifier.verifyQr(text, keyRing(), l);
+            Verifier.Check ck = Verifier.verifyQr(text, keyRing(l), l);
             ui.post(() -> {
                 onHome = false;
                 scr = NavajaUi.screen(this, "Verificación de QR", "Sin el PDF: firma y registro", NavajaUi.headerAction(this, "Inicio",
@@ -1112,6 +1131,7 @@ public class SignActivity extends Activity {
                 NavajaUi.secondary(this, "Exportar público", v -> saveAs("ssjf-historial-publico.jsonl", "application/x-ndjson",
                         l.toJsonl(false).getBytes(StandardCharsets.UTF_8), REQ_EXPORT))));
         c.addView(NavajaUi.buttonRow(this,
+                NavajaUi.secondary(this, "Importar", v -> pickImport()),
                 NavajaUi.secondary(this, "Actualizar sellos", v -> upgradeOts(false)),
                 NavajaUi.secondary(this, "Respaldar ahora", v -> {
                     busy("Respaldando…");
@@ -1123,6 +1143,10 @@ public class SignActivity extends Activity {
         List<Ledger.Entry> list = new ArrayList<>(l.entries());
         Collections.reverse(list);
         for (Ledger.Entry e : list) {
+            if (Ledger.TYPE_KEY.equals(e.type())) {
+                c.addView(keyChangeCard(e));
+                continue;
+            }
             if (!Ledger.TYPE_SIGN.equals(e.type())) continue;
             LinearLayout card = NavajaUi.card(this);
             card.setBackground(NavajaUi.cardBackground(this));
@@ -1279,6 +1303,261 @@ public class SignActivity extends Activity {
                 out.setTextColor(fc);
             });
         });
+    }
+
+    // ======================================================= cambio de clave
+
+    private boolean retired() { return "1".equals(store.pref("keyRetired", "0")); }
+
+    private void keyChangeMenu() {
+        String[] items = {
+            "Nueva clave en este teléfono",
+            "Soy el teléfono nuevo: pedir autorización",
+            "Autorizar a mi teléfono nuevo",
+            "Importar historial (de otro teléfono o respaldo)",
+        };
+        new AlertDialog.Builder(this).setTitle("Cambiar clave")
+                .setItems(items, (d, which) -> {
+                    switch (which) {
+                        case 0: confirmRotate(); break;
+                        case 1: requestFromOldPhone(); break;
+                        case 2: askAuthorize(); break;
+                        default: pickImport();
+                    }
+                }).setNegativeButton("Cancelar", null).show();
+    }
+
+    private void confirmRotate() {
+        if (retired()) {
+            error("Este teléfono ya cedió su clave a otro teléfono.");
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Nueva clave en este teléfono")
+                .setMessage("Se crea una clave nueva en el chip seguro y la actual la autoriza con su firma. "
+                        + "Tus firmas anteriores siguen siendo tuyas y verificables; las nuevas usarán la clave nueva.\n\n"
+                        + "Úsalo si sospechas que alguien usó tu teléfono o cada cierto tiempo. Para cambiar de teléfono usa "
+                        + "«Soy el teléfono nuevo».")
+                .setPositiveButton("Crear y autorizar", (d, w) -> authenticate(() -> rotateLocal(null, true)))
+                .setNegativeButton("Cancelar", null).show();
+    }
+
+    /** Rotación local. {@code newAlias} se conserva entre reintentos para no crear dos claves. */
+    private void rotateLocal(String newAlias, boolean retryAuth) {
+        busy("Creando la clave nueva…");
+        work.execute(() -> {
+            String na = newAlias;
+            try {
+                String old = Keys.alias;
+                if (na == null) {
+                    na = Keys.nextAlias();
+                    Keys.create(this, na);
+                }
+                byte[] newPk = Keys.publicKey(na), oldPk = Keys.publicKey(old);
+                KeyChange k = new KeyChange();
+                k.newPk = Bytes.b64url(newPk);
+                k.oldPk = Bytes.b64url(oldPk);
+                k.popT = k.t = System.currentTimeMillis() / 1000;
+                k.reason = KeyChange.REASON_ROTATION;
+                k.sigNew = Ecdsa.derToRaw(Keys.sign(na, KeyChange.popMessage(k.newPk, k.popT).getBytes(StandardCharsets.UTF_8)));
+                k.sigOld = Ecdsa.derToRaw(Keys.sign(old, k.rotMessage().getBytes(StandardCharsets.UTF_8)));
+                if (!k.verify()) throw new IllegalStateException("La declaración no verifica");
+                Ledger l = store.loadLedger();
+                k.record(l, k.t);
+                store.saveLedger(l);
+                store.setPref("keyAlias", na);
+                Keys.alias = na;
+                autoBackup(l);
+                ui.post(() -> keyChangeDone(k, "Clave nueva " + k.newKid() + " autorizada por " + k.oldKid() + "."));
+            } catch (Exception e) {
+                String fna = na;
+                if (Keys.needsAuth(e) && retryAuth) {
+                    ui.post(() -> authenticate(() -> rotateLocal(fna, false)));
+                    return;
+                }
+                ui.post(() -> error("No se pudo cambiar la clave: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void keyChangeDone(KeyChange k, String msg) {
+        dismissBusy();
+        new AlertDialog.Builder(this).setTitle("✓ Cambio de clave registrado")
+                .setMessage(msg + "\n\nComparte la declaración con quien verifica tus firmas (o publícala): prueba que la "
+                        + "clave nueva es tuya, firmada con la anterior.")
+                .setPositiveButton("Compartir declaración", (d, w) -> shareText("Cambio de clave SSJF", k.toJson()))
+                .setNegativeButton("Cerrar", (d, w) -> showHome()).show();
+    }
+
+    /** Teléfono nuevo: genera la solicitud (clave nueva + prueba de posesión) para que la autorice el anterior. */
+    private void requestFromOldPhone() {
+        authenticate(() -> work.execute(() -> {
+            try {
+                if (!Keys.exists()) Keys.create(this);
+                String pk = Bytes.b64url(Keys.publicKey());
+                long t = System.currentTimeMillis() / 1000;
+                byte[] sig = Ecdsa.derToRaw(Keys.sign(KeyChange.popMessage(pk, t).getBytes(StandardCharsets.UTF_8)));
+                String req = KeyChange.requestText(pk, t, sig);
+                ui.post(() -> new AlertDialog.Builder(this).setTitle("Solicitud para tu teléfono anterior")
+                        .setMessage("1. Envía este texto a tu teléfono anterior (correo, WhatsApp, Quick Share…).\n"
+                                + "2. Allí: Firma verificable → Cambiar clave → «Autorizar a mi teléfono nuevo» y pégalo.\n"
+                                + "3. Exporta su historial completo e impórtalo aquí (Cambiar clave → Importar historial).\n\n"
+                                + "Clave de este teléfono: " + Ecdsa.keyId(Bytes.unb64url(pk)))
+                        .setPositiveButton("Compartir solicitud", (d, w) -> shareText("Solicitud de cambio de clave SSJF", req))
+                        .setNegativeButton("Cerrar", null).show());
+            } catch (Exception e) {
+                ui.post(() -> error(Keys.needsAuth(e) ? "Vuelve a intentarlo y confirma con tu huella o PIN."
+                        : "No se pudo crear la solicitud: " + e.getMessage()));
+            }
+        }));
+    }
+
+    private void askAuthorize() {
+        if (retired()) {
+            error("Este teléfono ya cedió su clave a otro teléfono.");
+            return;
+        }
+        EditText t = new EditText(this);
+        t.setHint("Pega la solicitud (empieza con SSJF1-POP;)");
+        t.setMinLines(3);
+        ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip() != null && cm.getPrimaryClip().getItemCount() > 0) {
+            CharSequence clip = cm.getPrimaryClip().getItemAt(0).coerceToText(this);
+            if (clip != null && clip.toString().contains("SSJF1-POP;")) t.setText(clip);
+        }
+        LinearLayout box = new LinearLayout(this);
+        int p = NavajaUi.dp(this, 20);
+        box.setPadding(p, NavajaUi.dp(this, 8), p, 0);
+        box.addView(t, new LinearLayout.LayoutParams(-1, -2));
+        new AlertDialog.Builder(this).setTitle("Autorizar a mi teléfono nuevo").setView(box)
+                .setPositiveButton("Revisar", (d, w) -> {
+                    KeyChange req;
+                    try {
+                        req = KeyChange.parseRequest(t.getText().toString());
+                    } catch (Ssjf.FormatException e) {
+                        error(e.getMessage());
+                        return;
+                    }
+                    new AlertDialog.Builder(this).setTitle("¿Autorizar la clave " + req.newKid() + "?")
+                            .setMessage("Comprueba que ese identificador es el que muestra tu teléfono nuevo.\n\n"
+                                    + "Después de autorizar, ESTE teléfono deja de firmar: las firmas nuevas se hacen en el otro. "
+                                    + "Tus firmas anteriores siguen siendo verificables.")
+                            .setPositiveButton("Autorizar", (d2, w2) -> authenticate(() -> authorize(req, true)))
+                            .setNegativeButton("Cancelar", null).show();
+                })
+                .setNegativeButton("Cancelar", null).show();
+    }
+
+    private void authorize(KeyChange k, boolean retryAuth) {
+        busy("Firmando la autorización…");
+        work.execute(() -> {
+            try {
+                k.oldPk = Bytes.b64url(Keys.publicKey());
+                k.t = System.currentTimeMillis() / 1000;
+                k.reason = KeyChange.REASON_NEW_PHONE;
+                k.sigOld = Ecdsa.derToRaw(Keys.sign(k.rotMessage().getBytes(StandardCharsets.UTF_8)));
+                if (!k.verify()) throw new IllegalStateException("La declaración no verifica");
+                Ledger l = store.loadLedger();
+                k.record(l, k.t);
+                store.saveLedger(l);
+                store.setPref("keyRetired", "1");
+                autoBackup(l);
+                ui.post(() -> {
+                    dismissBusy();
+                    new AlertDialog.Builder(this).setTitle("✓ Teléfono nuevo autorizado")
+                            .setMessage("Ahora exporta el historial COMPLETO e impórtalo en el teléfono nuevo "
+                                    + "(Cambiar clave → Importar historial). Desde allí seguirás firmando.")
+                            .setPositiveButton("Exportar historial", (d, w) -> saveAs("ssjf-historial-completo.jsonl",
+                                    "application/x-ndjson", l.toJsonl(true).getBytes(StandardCharsets.UTF_8), REQ_EXPORT))
+                            .setNeutralButton("Compartir declaración", (d, w) -> shareText("Cambio de clave SSJF", k.toJson()))
+                            .setNegativeButton("Cerrar", (d, w) -> showHome()).show();
+                });
+            } catch (Exception e) {
+                if (Keys.needsAuth(e) && retryAuth) {
+                    ui.post(() -> authenticate(() -> authorize(k, false)));
+                    return;
+                }
+                ui.post(() -> error("No se pudo autorizar: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void pickImport() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+        try {
+            startActivityForResult(i, REQ_IMPORT);
+        } catch (ActivityNotFoundException e) {
+            toast("No hay selector de archivos");
+        }
+    }
+
+    /** Restaura un historial exportado (completo o público) si continúa el local. */
+    private void importLedger(Uri uri) {
+        busy("Leyendo historial…");
+        work.execute(() -> {
+            try {
+                Ledger imported = Ledger.parse(new String(readUri(uri), StandardCharsets.UTF_8));
+                String chain = imported.verifyChain();
+                if (chain != null) throw new IOException("El historial importado está dañado: " + chain);
+                Ledger local = store.loadLedger();
+                Ledger keep = Ledger.adopt(local, imported);
+                if (keep == null) throw new IOException("Los historiales no coinciden: este teléfono ya tiene firmas que el "
+                        + "importado no tiene. No se mezclan para no romper la cadena.");
+                ui.post(() -> {
+                    dismissBusy();
+                    if (keep == local) {
+                        toast("Tu historial ya contiene todo lo importado");
+                        return;
+                    }
+                    new AlertDialog.Builder(this).setTitle("Importar historial")
+                            .setMessage("Se reemplaza el historial local (" + local.entries().size() + " entradas) por el importado ("
+                                    + imported.entries().size() + " entradas, cadena íntegra).")
+                            .setPositiveButton("Importar", (d, w) -> work.execute(() -> {
+                                try {
+                                    store.saveLedger(imported);
+                                    String link = linkStatus(imported);
+                                    ui.post(() -> new AlertDialog.Builder(this).setTitle("✓ Historial importado").setMessage(link)
+                                            .setPositiveButton("OK", (d2, w2) -> showHome()).show());
+                                } catch (IOException e) {
+                                    ui.post(() -> error(e.getMessage()));
+                                }
+                            }))
+                            .setNegativeButton("Cancelar", null).show();
+                });
+            } catch (Exception e) {
+                ui.post(() -> error("No se pudo importar: " + e.getMessage()));
+            }
+        });
+    }
+
+    /** ¿La clave de este teléfono está enlazada con las del historial? */
+    private String linkStatus(Ledger l) {
+        try {
+            if (!Keys.exists()) return "Historial restaurado.";
+            String pk = Bytes.b64url(Keys.publicKey());
+            List<KeyChange> ch = KeyChange.fromLedger(l);
+            if (ch.isEmpty()) return "Historial restaurado. No hay cambios de clave registrados.";
+            if (KeyChange.myKeys(ch, pk).size() > 1)
+                return "Tu clave actual (" + Ecdsa.keyId(Bytes.unb64url(pk)) + ") está enlazada con las anteriores: "
+                        + "tus firmas viejas se reconocen como tuyas.";
+            return "Historial restaurado, pero la clave de este teléfono aún no está autorizada por la anterior: "
+                    + "usa «Soy el teléfono nuevo».";
+        } catch (Exception e) {
+            return "Historial restaurado.";
+        }
+    }
+
+    private View keyChangeCard(Ledger.Entry e) {
+        LinearLayout card = NavajaUi.card(this);
+        card.setBackground(NavajaUi.cardBackground(this));
+        KeyChange k = KeyChange.fromMap(e.m);
+        boolean ok = k.verify();
+        card.addView(NavajaUi.text(this, "#" + e.seq() + " · " + local(e.l("t")) + " · cambio de clave", NavajaUi.Style.SUBTITLE));
+        TextView t = NavajaUi.text(this, (ok ? "✓ " : "✗ ") + e.s("old_kid") + " → " + e.s("new_kid")
+                + (KeyChange.REASON_NEW_PHONE.equals(k.reason) ? " (teléfono nuevo)" : ""), NavajaUi.Style.BODY);
+        t.setTextColor(ok ? Palette.TEXT : Palette.BAD);
+        card.addView(t);
+        card.setOnClickListener(v -> shareText("Cambio de clave SSJF", k.toJson()));
+        return card;
     }
 
     // ============================================================= respaldo

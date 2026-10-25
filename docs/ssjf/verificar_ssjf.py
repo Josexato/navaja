@@ -12,6 +12,7 @@ Uso:
   python3 verificar_ssjf.py --qr "https://...#SSJF1;h=...;s=..." --clave clave.json
   python3 verificar_ssjf.py --historial historial.jsonl # verifica la cadena del historial
   python3 verificar_ssjf.py original.pdf --qr "..."     # ¿este archivo es el que dice el QR?
+  python3 verificar_ssjf.py firmado.pdf --clave vieja.json --cambio cambio.json   # confiar en la clave nueva
 
 Especificación: SSJF_v1.md (misma carpeta).
 """
@@ -64,6 +65,47 @@ def parse_qr(text):
     if len(raw) != 64:
         raise ValueError("la firma debe tener 64 bytes")
     return {"core": core, "signed": signed.encode("utf-8"), "sig": raw, **fields}
+
+
+def ecdsa_ok(pk_compressed, msg, raw):
+    """True/False, o None si falta la librería cryptography."""
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+    except ImportError:
+        return None
+    try:
+        pub = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), pk_compressed)
+        pub.verify(encode_dss_signature(int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big")),
+                   msg, ec.ECDSA(hashes.SHA256()))
+        return True
+    except (InvalidSignature, ValueError):
+        return False
+
+
+def check_key_change(path, keys):
+    """Cambio de clave: la vieja autoriza a la nueva y la nueva prueba posesión. Si la vieja es de confianza, la nueva también."""
+    k = json.load(open(path, encoding="utf-8"))
+    old, new = b64url_dec(k["old_pk"]), b64url_dec(k["new_pk"])
+    pop = f"SSJF1-POP;newpk={k['new_pk']};t={k['pop_t']}".encode()
+    rot = f"SSJF1-ROT;oldpk={k['old_pk']};newpk={k['new_pk']};t={k['ct']};pop={k['pop_t']};r={k['reason']}".encode()
+    a = ecdsa_ok(old, rot, b64url_dec(k["sig_old"]))
+    b = ecdsa_ok(new, pop, b64url_dec(k["sig_new"]))
+    if a is None:
+        print("? cambio de clave sin comprobar (pip install cryptography)")
+        return 1
+    print(f"Cambio de clave {key_id(old)} → {key_id(new)} ({k['reason']}, t={k['ct']}): "
+          f"{ok(a)} autorizado por la anterior · {ok(b)} posesión de la nueva")
+    if not (a and b):
+        return 1
+    if key_id(old) in keys:
+        keys[key_id(new)] = new
+        print(f"  → la clave {key_id(new)} queda como de confianza")
+    else:
+        print(f"  ? la clave anterior {key_id(old)} no está en tus claves de confianza (--clave)")
+    return 0
 
 
 def verify_sig(qr, pk_compressed):
@@ -218,19 +260,22 @@ def main():
     ap.add_argument("--clave", action="append", default=[], help="clave pública del firmante (JSON exportado por Navaja)")
     ap.add_argument("--extraer", metavar="DIR", help="guardar original, versión firmada y sellos en DIR")
     ap.add_argument("--historial", help="verificar la cadena de un historial .jsonl")
+    ap.add_argument("--cambio", action="append", default=[], help="declaración de cambio de clave (JSON), en orden")
     a = ap.parse_args()
     keys = {}
     for k in a.clave:
         pk = load_key(k)
         keys[key_id(pk)] = pk
     rc = 0
+    for c in a.cambio:
+        rc |= check_key_change(c, keys)
     if a.historial:
         rc |= check_ledger(a.historial)
     if a.qr:
         rc |= check_qr(a.qr, keys, a.pdf)
     elif a.pdf:
         rc |= check_pdf(a.pdf, keys, a.extraer)
-    if not (a.pdf or a.qr or a.historial):
+    if not (a.pdf or a.qr or a.historial or a.cambio):
         ap.print_help()
         return 2
     return rc

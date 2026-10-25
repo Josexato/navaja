@@ -61,6 +61,16 @@ python3 verificar_ssjf.py --qr "<texto del QR>" --clave clave_del_firmante.json
 python3 verificar_ssjf.py documento.pdf --qr "<texto del QR>"   # ¿este archivo es el que se firmó?
 ```
 
+### Si quien firma cambió de clave
+
+Cuando alguien cambia de clave (o de teléfono), publica una **declaración de
+cambio de clave** firmada con la clave anterior. Si confías en la anterior,
+puedes confiar en la nueva:
+
+```sh
+python3 verificar_ssjf.py firmado.pdf --clave clave_anterior.json --cambio cambio_clave.json
+```
+
 ### Los sellos de tiempo del anexo
 
 ```sh

@@ -26,7 +26,7 @@ import java.util.Map;
 public final class Ledger {
 
     public static final String GENESIS = "0000000000000000000000000000000000000000000000000000000000000000";
-    public static final String TYPE_SIGN = "firma", TYPE_PROOF = "sello";
+    public static final String TYPE_SIGN = "firma", TYPE_PROOF = "sello", TYPE_KEY = "clave";
     static final String PRIV = "priv", SALT = "salt";
 
     public static final class Entry {
@@ -134,6 +134,18 @@ public final class Ledger {
         StringBuilder sb = new StringBuilder();
         for (char c : s.toCharArray()) if (c >= 0x20 || c == '\n') sb.append(c);
         return sb.toString().trim();
+    }
+
+    /**
+     * Restaurar en otro teléfono: si un historial es continuación del otro
+     * (mismas entradas al inicio), devuelve el más largo; si divergen, null.
+     */
+    public static Ledger adopt(Ledger local, Ledger imported) {
+        if (imported.verifyChain() != null) return null;
+        int n = Math.min(local.entries.size(), imported.entries.size());
+        for (int i = 0; i < n; i++)
+            if (!local.entries.get(i).hash().equals(imported.entries.get(i).hash())) return null;
+        return imported.entries.size() >= local.entries.size() ? imported : local;
     }
 
     /** Verifica la cadena; devuelve null si está íntegra o la descripción del primer problema. */

@@ -92,6 +92,9 @@ cuándo y con qué clave** (formato abierto [SSJF v1](https://github.com/Josexat
   el teléfono, nunca en el PDF ni en el respaldo de Google. Respaldo a donde
   elijas: archivo (Drive, OneDrive, USB, apps FTP/SFTP/SMB), WebDAV/NAS,
   S3/Huawei OBS/MinIO o FTP.
+- **Cambio de clave** firmado con la clave anterior: rotar en el mismo teléfono o pasar a un
+  teléfono nuevo (el nuevo pide, el anterior autoriza y deja de firmar, y se importa el
+  historial). Tus firmas viejas se siguen reconociendo como tuyas.
 - **Verificar**: abre un PDF (o comparte el texto de un QR escaneado) y te dice
   si la firma es tuya, falsa, de otro documento o si se agregaron cambios
   después, y extrae la versión que realmente firmaste.
