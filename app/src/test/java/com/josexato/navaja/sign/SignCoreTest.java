@@ -523,4 +523,22 @@ public class SignCoreTest {
         byte[] fake = withAnnex(forgedD1(orig, c.qrText()), a, null);
         assertEquals(Verifier.Verdict.STAMP_ALTERED, Verifier.verifyPdf(fake, ring, l).checks.get(0).verdict);
     }
+
+    @Test
+    public void elSelloRespetaElMargenDeImpresion() throws Exception {
+        KeyPair kp = keys();
+        byte[] pk = Ecdsa.compress(kp.getPublic());
+        Signer.Request r = request(classicPdf(), 0);
+        r.u = 0.99;  // pegado a la esquina inferior derecha
+        r.v = 0.99;
+        Signer.Result res = Signer.sign(r, pk, jcaSigner(kp), null);
+        com.josexato.navaja.sign.core.Pdf.Dict page = new PdfFile(res.pdf).pages().get(0).dict;
+        java.util.List<?> annots = (java.util.List<?>) new PdfFile(res.pdf).resolve(page.get("Annots"));
+        com.josexato.navaja.sign.core.Pdf.Dict link = new PdfFile(res.pdf).dict(annots.get(annots.size() - 1));
+        java.util.List<?> rect = (java.util.List<?>) link.get("Rect");
+        double bottom = ((Number) rect.get(1)).doubleValue();
+        assertTrue("el enlace queda a " + bottom + " pt del borde", bottom >= Stamper.PRINT_MARGIN - 2);
+        assertEquals(17, Stamper.margin(612, 300), 0);
+        assertEquals(5, Stamper.margin(100, 90), 0);  // página diminuta: el sello cabe igual
+    }
 }

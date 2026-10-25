@@ -55,9 +55,13 @@ final class PageView extends View {
     private double hFrac() { return w * pageWpt / Stamper.ASPECT / pageHpt; }
 
     private void clampBox() {
-        w = Math.max(minW(), Math.min(1, w));
-        u = Math.max(0, Math.min(1 - w, u));
-        v = Math.max(0, Math.min(1 - hFrac(), v));
+        double maxW = Math.max(minW(), 1 - 2 * Stamper.PRINT_MARGIN / pageWpt);
+        w = Math.max(minW(), Math.min(maxW, w));
+        // Igual que Stamper: margen de impresión, para que lo que ves sea exactamente lo que queda en el PDF.
+        double mx = Stamper.margin(pageWpt, w * pageWpt) / pageWpt;
+        double my = Stamper.margin(pageHpt, hFrac() * pageHpt) / pageHpt;
+        u = Math.max(mx, Math.min(1 - w - mx, u));
+        v = Math.max(my, Math.min(1 - hFrac() - my, v));
     }
 
     @Override
