@@ -1,0 +1,154 @@
+{
+  "_": "SSJF 1.1 · proceso de firma. Fuente editable de diagramas/01-firma.svg",
+  "elements": [
+    {
+      "id": "d0",
+      "type": "document",
+      "label": "D0\nPDF recibido",
+      "color": "#1F3864"
+    },
+    {
+      "id": "h0",
+      "type": "engranaje",
+      "label": "h0 = SHA-256(D0)"
+    },
+    {
+      "id": "btc",
+      "type": "mundo",
+      "label": "Último bloque\nBitcoin"
+    },
+    {
+      "id": "key",
+      "type": "candado",
+      "label": "Clave privada\n(chip seguro)"
+    },
+    {
+      "id": "qr",
+      "type": "escudo",
+      "label": "QR SSJF1\nfirma 1: D0"
+    },
+    {
+      "id": "d1",
+      "type": "document",
+      "label": "D1 = D0 +\nsello visible",
+      "color": "#2E75B6"
+    },
+    {
+      "id": "h1",
+      "type": "engranaje",
+      "label": "h1 = SHA-256(D1)"
+    },
+    {
+      "id": "seal",
+      "type": "escudo",
+      "label": "seal_sig\nfirma 2: D1"
+    },
+    {
+      "id": "tsa",
+      "type": "server",
+      "label": "Sello RFC 3161",
+      "color": "#548B54"
+    },
+    {
+      "id": "ots",
+      "type": "cloud",
+      "label": "OpenTimestamps",
+      "color": "#548B54"
+    },
+    {
+      "id": "d2",
+      "type": "document",
+      "label": "D2 = D1 +\nanexo JSON",
+      "color": "#1F3864"
+    },
+    {
+      "id": "led",
+      "type": "database",
+      "label": "Historial\nencadenado",
+      "color": "#7030A0"
+    }
+  ],
+  "connections": [
+    {
+      "from": "d0",
+      "to": "h0",
+      "direction": "forward"
+    },
+    {
+      "from": "h0",
+      "to": "qr",
+      "direction": "forward",
+      "label": "h, n"
+    },
+    {
+      "from": "btc",
+      "to": "qr",
+      "direction": "forward",
+      "label": "no antes de"
+    },
+    {
+      "from": "key",
+      "to": "qr",
+      "direction": "forward",
+      "label": "firma"
+    },
+    {
+      "from": "qr",
+      "to": "d1",
+      "direction": "forward"
+    },
+    {
+      "from": "d1",
+      "to": "h1",
+      "direction": "forward"
+    },
+    {
+      "from": "h1",
+      "to": "seal",
+      "direction": "forward"
+    },
+    {
+      "from": "key",
+      "to": "seal",
+      "direction": "forward",
+      "label": "firma"
+    },
+    {
+      "from": "h1",
+      "to": "tsa",
+      "direction": "forward",
+      "label": "no después de"
+    },
+    {
+      "from": "h1",
+      "to": "ots",
+      "direction": "forward"
+    },
+    {
+      "from": "seal",
+      "to": "d2",
+      "direction": "forward"
+    },
+    {
+      "from": "tsa",
+      "to": "d2",
+      "direction": "forward"
+    },
+    {
+      "from": "ots",
+      "to": "d2",
+      "direction": "forward"
+    },
+    {
+      "from": "d2",
+      "to": "led",
+      "direction": "forward"
+    }
+  ],
+  "icons": {
+    "engranaje": "<svg viewBox='0 0 80 50'><g transform='translate(40,25)'><path d='M-3 -21 h6 l1.5 5 a16 16 0 0 1 4.5 1.9 l4.6-2.6 4.2 4.2 -2.6 4.6 a16 16 0 0 1 1.9 4.5 l5 1.5 v6 l-5 1.5 a16 16 0 0 1 -1.9 4.5 l2.6 4.6 -4.2 4.2 -4.6-2.6 a16 16 0 0 1 -4.5 1.9 l-1.5 5 h-6 l-1.5-5 a16 16 0 0 1 -4.5-1.9 l-4.6 2.6 -4.2-4.2 2.6-4.6 a16 16 0 0 1 -1.9-4.5 l-5-1.5 v-6 l5-1.5 a16 16 0 0 1 1.9-4.5 l-2.6-4.6 4.2-4.2 4.6 2.6 a16 16 0 0 1 4.5-1.9 Z' fill='#2E75B6' stroke='#173d5e' stroke-width='2'/><circle r='7' fill='#F6C445' stroke='#173d5e' stroke-width='2'/></g></svg>",
+    "mundo": "<svg viewBox='0 0 80 50'><circle cx='40' cy='25' r='19' fill='#2E75B6' stroke='#173d5e' stroke-width='2.5'/><ellipse cx='40' cy='25' rx='7.5' ry='19' fill='none' stroke='#cfe3f5' stroke-width='1.6'/><line x1='21' y1='25' x2='59' y2='25' stroke='#cfe3f5' stroke-width='1.6'/><path d='M24 16 H56 M24 34 H56' fill='none' stroke='#cfe3f5' stroke-width='1.3'/></svg>",
+    "candado": "<svg viewBox='0 0 80 50'><rect x='26' y='22' width='28' height='22' rx='3' fill='#F6C445' stroke='#173d5e' stroke-width='2.5'/><path d='M31 22 V15 a9 9 0 0 1 18 0 V22' fill='none' stroke='#173d5e' stroke-width='3'/><circle cx='40' cy='31' r='3' fill='#173d5e'/><rect x='38.6' y='31' width='2.8' height='7' fill='#173d5e'/></svg>",
+    "escudo": "<svg viewBox='0 0 80 50'><path d='M40 4 L64 12 V26 C64 38 53 45 40 48 C27 45 16 38 16 26 V12 Z' fill='#2E75B6' stroke='#173d5e' stroke-width='2.5' stroke-linejoin='round'/><rect x='33' y='25' width='14' height='12' rx='2' fill='#F6C445' stroke='#173d5e' stroke-width='1.6'/><path d='M35 25 V21 a5 5 0 0 1 10 0 V25' fill='none' stroke='#173d5e' stroke-width='2'/><circle cx='40' cy='30' r='1.8' fill='#173d5e'/></svg>"
+  }
+}
