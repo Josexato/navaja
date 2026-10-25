@@ -145,12 +145,34 @@ tenga la copia completa puede demostrar los datos privados revelando `priv` y
 `salt`. Los respaldos PUEDEN ir a cualquier almacenamiento (archivo local,
 WebDAV, S3/OBS, FTP, correo…): el formato no depende del destino.
 
-## 7. Seguridad y límites
+## 7. Cambio de clave
+
+La clave anterior autoriza a la nueva y la nueva prueba que existe:
+
+```
+posesión     SSJF1-POP;newpk=<pk nueva>;t=<unix>                                  firmado con la NUEVA
+autorización SSJF1-ROT;oldpk=<pk vieja>;newpk=<pk nueva>;t=<unix>;pop=<t posesión>;r=<motivo>
+                                                                                  firmado con la VIEJA
+```
+
+Claves comprimidas y firmas r‖s en base64url (§2); `r` = `[a-z0-9-]{1,32}`
+(`rotacion`, `telefono-nuevo`…). La declaración JSON (`ssjf_cambio_clave: 1`) y
+la entrada `clave` del historial llevan: `old_kid, old_pk, new_kid, new_pk, ct
+(= t), pop_t, reason, sig_old, sig_new`.
+
+- Quien confía en la clave vieja PUEDE confiar en la nueva si ambas firmas son válidas.
+- Las firmas hechas con la clave vieja siguen siendo del mismo firmante.
+- Una firma con la clave vieja cuyo `t` es posterior al cambio DEBERÍA
+  marcarse como sospechosa (alguien podría estar usando el dispositivo anterior).
+- Para pasar a otro dispositivo (claves no exportables): el nuevo envía la
+  línea de posesión con `;s=<firma>` añadido (una *solicitud*), el anterior la
+  autoriza y deja de firmar, y el historial completo se importa en el nuevo.
+
+## 8. Seguridad y límites
 
 - La clave privada DEBERÍA vivir en hardware (Android Keystore / StrongBox,
   Secure Enclave) y exigir autenticación del usuario por firma.
-- Perder la clave no invalida firmas pasadas; para cambiarla, la clave nueva
-  DEBERÍA anunciarse firmada por la antigua.
+- Perder la clave no invalida firmas pasadas; para cambiarla, ver §7.
 - `t` lo declara el firmante; las anclas `b`, RFC 3161 y OpenTimestamps lo acotan.
 - Lectores PDF que reescriben el archivo completo ("Guardar como") destruyen
   la propiedad de prefijo: verifica siempre el archivo recibido, no una copia
@@ -158,7 +180,7 @@ WebDAV, S3/OBS, FTP, correo…): el formato no depende del destino.
 - SSJF no reemplaza a PAdES/firma electrónica calificada; es una prueba
   técnica abierta y autoverificable.
 
-## 8. Trabajos relacionados
+## 9. Trabajos relacionados
 
 PAdES / firmas PDF (ISO 32000 §12.8), RFC 3161, OpenTimestamps, Certificate
 Transparency (RFC 9162), Sigstore/Rekor, certificados QR firmados (EU DCC).

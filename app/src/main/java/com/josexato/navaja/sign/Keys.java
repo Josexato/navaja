@@ -30,7 +30,9 @@ final class Keys {
 
     private Keys() { }
 
-    static final String ALIAS = "navaja_ssjf_1";
+    static final String PREFIX = "navaja_ssjf_", FIRST = PREFIX + "1";
+    /** Clave activa (las anteriores quedan en el Keystore para reconocer tus firmas viejas). */
+    static volatile String alias = FIRST;
     static final int AUTH_SECONDS = 30;
 
     static KeyStore store() throws GeneralSecurityException {
@@ -45,7 +47,7 @@ final class Keys {
 
     static boolean exists() {
         try {
-            return store().containsAlias(ALIAS);
+            return store().containsAlias(alias);
         } catch (GeneralSecurityException e) {
             return false;
         }
@@ -59,22 +61,34 @@ final class Keys {
     /** Crea la clave (si ya existe no hace nada). Devuelve true si quedó en StrongBox. */
     static boolean create(Context c) throws GeneralSecurityException {
         if (exists()) return false;
+        return create(c, alias);
+    }
+
+    static boolean create(Context c, String name) throws GeneralSecurityException {
         boolean auth = deviceSecure(c);
         if (Build.VERSION.SDK_INT >= 28) {
             try {
-                generate(auth, true);
+                generate(name, auth, true);
                 return true;
             } catch (GeneralSecurityException | RuntimeException noStrongBox) {
                 // StrongBoxUnavailableException u otra: se usa el TEE
             }
         }
-        generate(auth, false);
+        generate(name, auth, false);
         return false;
     }
 
+    /** Siguiente nombre libre: navaja_ssjf_2, _3… */
+    static String nextAlias() throws GeneralSecurityException {
+        KeyStore ks = store();
+        int n = 1;
+        while (ks.containsAlias(PREFIX + n)) n++;
+        return PREFIX + n;
+    }
+
     @SuppressWarnings("deprecation") // setUserAuthenticationValidityDurationSeconds: la vía en API < 30
-    private static void generate(boolean auth, boolean strongBox) throws GeneralSecurityException {
-        KeyGenParameterSpec.Builder b = new KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_SIGN)
+    private static void generate(String name, boolean auth, boolean strongBox) throws GeneralSecurityException {
+        KeyGenParameterSpec.Builder b = new KeyGenParameterSpec.Builder(name, KeyProperties.PURPOSE_SIGN)
                 .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
                 .setDigests(KeyProperties.DIGEST_SHA256);
         if (auth) {
@@ -94,16 +108,20 @@ final class Keys {
         g.generateKeyPair();
     }
 
-    static byte[] publicKey() throws GeneralSecurityException {
-        Certificate cert = store().getCertificate(ALIAS);
+    static byte[] publicKey() throws GeneralSecurityException { return publicKey(alias); }
+
+    static byte[] publicKey(String name) throws GeneralSecurityException {
+        Certificate cert = store().getCertificate(name);
         if (cert == null) throw new GeneralSecurityException("No hay clave de firma");
         PublicKey pk = cert.getPublicKey();
         return Ecdsa.compress(pk);
     }
 
     /** Firma SHA256withECDSA (DER). Lanza UserNotAuthenticatedException si hace falta autenticar. */
-    static byte[] sign(byte[] msg) throws GeneralSecurityException {
-        PrivateKey sk = (PrivateKey) store().getKey(ALIAS, null);
+    static byte[] sign(byte[] msg) throws GeneralSecurityException { return sign(alias, msg); }
+
+    static byte[] sign(String name, byte[] msg) throws GeneralSecurityException {
+        PrivateKey sk = (PrivateKey) store().getKey(name, null);
         if (sk == null) throw new GeneralSecurityException("No hay clave de firma");
         Signature s = Signature.getInstance("SHA256withECDSA");
         s.initSign(sk);
@@ -120,7 +138,7 @@ final class Keys {
     @SuppressWarnings("deprecation") // isInsideSecureHardware: única vía en API < 31
     static String protection() {
         try {
-            PrivateKey sk = (PrivateKey) store().getKey(ALIAS, null);
+            PrivateKey sk = (PrivateKey) store().getKey(alias, null);
             KeyInfo info = KeyFactory.getInstance(sk.getAlgorithm(), "AndroidKeyStore").getKeySpec(sk, KeyInfo.class);
             String where;
             if (Build.VERSION.SDK_INT >= 31) {

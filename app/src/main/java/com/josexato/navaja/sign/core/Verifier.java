@@ -38,6 +38,22 @@ public final class Verifier {
     public static final class KeyRing {
         final Map<String, byte[]> keys = new HashMap<>();
         final Map<String, String> owners = new HashMap<>();
+        final Map<String, Long> retired = new HashMap<>();
+
+        /** La clave {@code kid} fue reemplazada en el instante {@code t} (las firmas posteriores con ella son sospechosas). */
+        public KeyRing retire(String kid, long t) {
+            retired.put(kid, t);
+            return this;
+        }
+
+        /** Llavero "yo" a partir de la clave actual y los cambios de clave válidos del historial. */
+        public static KeyRing mine(byte[] current, Ledger ledger) {
+            KeyRing r = new KeyRing();
+            java.util.List<KeyChange> ch = ledger == null ? new java.util.ArrayList<>() : KeyChange.fromLedger(ledger);
+            for (String pk : KeyChange.myKeys(ch, current == null ? null : Bytes.b64url(current))) r.add(Bytes.unb64url(pk), "yo");
+            for (Map.Entry<String, Long> e : KeyChange.retired(ch).entrySet()) r.retire(e.getKey(), e.getValue());
+            return r;
+        }
 
         public KeyRing add(byte[] compressed, String owner) {
             String kid = Ecdsa.keyId(compressed);
@@ -61,6 +77,8 @@ public final class Verifier {
         public Ledger.Entry entry;
         /** Entrada "sello" del historial con el OpenTimestamps ya anclado en Bitcoin, si existe. */
         public Ledger.Entry otsProof;
+        /** Firmado con una clave que ya había sido reemplazada (instante del reemplazo), o -1. */
+        public long keyRetiredAt = -1;
         /** Bytes agregados después de esta firma que NO son otra firma SSJF (cambios sin firmar). */
         public long unsignedBytesAfter;
         /** Bytes agregados después de esta firma (incluye firmas SSJF posteriores). */
@@ -173,6 +191,8 @@ public final class Verifier {
             return;
         }
         c.mine = keys != null && keys.isMine(c.claim.kid);
+        Long ret = keys == null ? null : keys.retired.get(c.claim.kid);
+        if (ret != null && c.claim.t > ret) c.keyRetiredAt = ret;
         if (ledger != null) c.entry = ledger.findSignature(c.claim.h0, Ledger.coreOf(c.claim.qrText()));
         if (c.entry != null) c.otsProof = OtsUpdater.completedProof(ledger, c.entry.seq());
         c.verdict = !c.mine ? Verdict.OTHER_KEY : c.entry != null ? Verdict.MINE : Verdict.MINE_NOT_IN_LEDGER;
