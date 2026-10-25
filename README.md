@@ -75,6 +75,27 @@ Monitor de campo celular con las APIs públicas de Android, sin servicios extern
 - Probado con señales sintéticas (pulso de 0,3 % en la piel, ruido, brillo que oscila 5 %, cuadros irregulares): error < 2,5 lpm entre 58 y 128 lpm.
 - **Límites declarados en pantalla**: no es un dispositivo médico; no mide oxígeno en sangre (la cámara no ve infrarrojo); el pulso no indica si alguien miente; medir sólo a quien sepa y acepte. No guarda video.
 
+## ✍️ Firma verificable (botón «Firma verificable»)
+
+Firma un PDF con el S Pen y agrega un **QR que prueba qué documento firmaste,
+cuándo y con qué clave** (formato abierto [SSJF v1](docs/ssjf/SSJF_v1.md)).
+
+- El PDF original queda **intacto byte a byte** al inicio del firmado
+  (actualización incremental): `head -c N firmado.pdf | sha256sum` da el resumen del QR.
+- La firma usa una clave EC P-256 que vive en el **chip seguro** del teléfono
+  (StrongBox/TEE), no exportable, y pide huella o PIN en cada firma.
+- Anclas de tiempo opcionales (sólo viajan resúmenes): último bloque de
+  Bitcoin (*no antes de*), sello **RFC 3161** y **OpenTimestamps** (*no después de*).
+- **Historial encadenado** con nombre de archivo, ubicación y comentario — sólo en
+  el teléfono, nunca en el PDF ni en el respaldo de Google. Respaldo a donde
+  elijas: archivo (Drive, OneDrive, USB, apps FTP/SFTP/SMB), WebDAV/NAS,
+  S3/Huawei OBS/MinIO o FTP.
+- **Verificar**: abre un PDF (o comparte el texto de un QR escaneado) y te dice
+  si la firma es tuya, falsa, de otro documento o si se agregaron cambios
+  después, y extrae la versión que realmente firmaste.
+- Verificador independiente para cualquiera: [`docs/ssjf/verificar_ssjf.py`](docs/ssjf/verificar_ssjf.py)
+  · guía pública (lo que abre el QR): [`docs/ssjf/`](docs/ssjf/README.md).
+
 ## 🎨 Pantonera (botón «Pantonera»)
 
 Mide el color de una muestra (pintura, cerámica, tela) y también **materiales compuestos como el terrazzo**: color del fondo, color de cada tipo de piedra, qué % del área ocupa y su tamaño en mm. Después la busca en **«mi pantonera»** y la guarda o exporta.
@@ -165,6 +186,7 @@ app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono);
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación
 app/src/main/java/.../cellular/          ← red móvil (celdas, GPS, exportar); cellular/core = bandas 3GPP, IDs, señal, recorrido, torres
 app/src/main/java/.../ui/                ← sistema de diseño: Palette (colores, contraste probado) y NavajaUi (cabecera, tarjetas, métricas, botones, chips)
+app/src/main/java/.../sign/              ← firma (lápiz, página, Keystore, historial, respaldo); sign/core = QR, PDF incremental, SSJF, verificador, sellos de tiempo, S3/WebDAV/FTP
 app/src/main/java/.../pulse/             ← pulso (Camera2, vista); pulse/core = magnificación euleriana, POS, espectro, RMSSD
 app/src/main/java/.../compass/           ← brújula y nivel (sensores, vistas); compass/core = ángulos, rumbo, inclinación, calibración
 app/src/main/java/.../marker/            ← marcador (GPS, cámara, exportar); marker/core = waypoints, EXIF GPS, KMZ/GPX

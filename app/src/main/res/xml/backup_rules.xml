@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android ≤ 11: el historial de firmas (nombres de archivo, ubicaciones,
+     comentarios, PDFs firmados) y la configuración de respaldo NUNCA van al
+     respaldo automático en la nube de Google. El respaldo lo decide el usuario. -->
+<full-backup-content>
+    <exclude domain="file" path="firmas/" />
+    <exclude domain="sharedpref" path="ssjf.xml" />
+</full-backup-content>

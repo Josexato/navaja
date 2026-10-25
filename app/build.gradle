@@ -43,4 +43,6 @@ dependencies {
     // Escáner 3D: FileProvider para compartir PDF/modelos y @RequiresApi.
     implementation 'androidx.core:core:1.13.1'
     testImplementation 'junit:junit:4.13.2'
+    // Sólo en tests: decodifica los QR que genera Navaja para comprobar que son legibles.
+    testImplementation 'com.google.zxing:core:3.5.3'
 }

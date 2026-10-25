@@ -214,6 +214,7 @@
   .ico.comp { background: linear-gradient(135deg, #5AA9E6, #2F6FB3); }
   .ico.puls { background: linear-gradient(135deg, #F06B7E, #C7364D); }
   .ico.pant { background: linear-gradient(135deg, #C86FD8, #8E3FB0); }
+  .ico.sign { background: linear-gradient(135deg, #8A9BB5, #4E5F7A); }
   .card h3 { margin: 0; font-size: 1.05rem; }
   .card p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
   .card .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
@@ -333,6 +334,14 @@
           <div class="chips"><span class="chip">magnificación</span><span class="chip">lpm</span><span class="chip">RMSSD</span></div>
           <span class="go">Medir pulso →</span>
         </div>
+        <div class="card" id="cardSign" role="button" tabindex="0">
+          <span class="badge" hidden>Sólo en la app Android</span>
+          <div class="ico sign"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M3 17c3-4 5-10 7-10s-1 9 1 9 2-4 4-4 1 3 3 3"/><path d="M3 21h18"/><rect x="16" y="3" width="5" height="5" rx="0.5"/></svg></div>
+          <h3>Firma verificable</h3>
+          <p>Firma un PDF con el lápiz y agrega un QR que prueba qué firmaste y cuándo. Verifica si una firma es tuya.</p>
+          <div class="chips"><span class="chip">S Pen</span><span class="chip">QR</span><span class="chip">SHA-256</span><span class="chip">Bitcoin</span></div>
+          <span class="go">Firmar →</span>
+        </div>
         <div class="card" id="cardPant" role="button" tabindex="0">
           <span class="badge" hidden>Sólo en la app Android</span>
           <div class="ico pant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg></div>
@@ -342,7 +351,7 @@
           <span class="go">Medir color →</span>
         </div>
       </div>
-      <p class="home-foot">Los archivos se procesan en tu teléfono; nada se sube a internet.<br>La cámara, el micrófono y la ubicación sólo se piden al entrar en la función que los usa.</p>
+      <p class="home-foot">Los archivos se procesan en tu teléfono y nunca se suben a internet (la firma sólo envía resúmenes, si lo autorizas).<br>La cámara, el micrófono y la ubicación sólo se piden al entrar en la función que los usa.</p>
     </div>
   </section>
   <div id="view3d" class="view"></div>
@@ -1052,6 +1061,7 @@
     ['cardMark', () => window.NavajaNative.openMarker && window.NavajaNative.openMarker()],
     ['cardComp', () => window.NavajaNative.openCompass && window.NavajaNative.openCompass()],
     ['cardPulse', () => window.NavajaNative.openPulse && window.NavajaNative.openPulse()],
+    ['cardSign', () => window.NavajaNative.openSign && window.NavajaNative.openSign()],
     ['cardPant', () => window.NavajaNative.openPantonera && window.NavajaNative.openPantonera()],
   ];
   for (const [id, open] of nativeCards) {
