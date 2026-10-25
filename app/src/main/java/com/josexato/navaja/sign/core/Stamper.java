@@ -24,6 +24,17 @@ public final class Stamper {
 
     /** Ancho/alto del sello: firma a la izquierda (con el texto debajo) y QR cuadrado a la derecha. */
     public static final double ASPECT = 3.3;
+    /**
+     * Margen mínimo al borde de la página (~6 mm): casi ninguna impresora
+     * imprime más cerca, y un QR o un enlace cortado no se puede verificar.
+     */
+    public static final double PRINT_MARGIN = 17;
+
+    /** Margen efectivo: el de impresión, salvo en páginas tan chicas que el sello no cabría. */
+    public static double margin(double pageSide, double stampSide) {
+        return Math.max(0, Math.min(PRINT_MARGIN, (pageSide - stampSide) / 2));
+    }
+
     /** Proporción del área de firma dentro del sello. */
     static final double SIG_W = 2.2, GAP = 0.1, TEXT_H = 0.24;
 
@@ -78,7 +89,8 @@ public final class Stamper {
         double[] vs = visualSize(p);
         double bw = s.w * vs[0], bh = bw / ASPECT;
         // El sello siempre queda completo dentro de la página.
-        double bx = clamp(s.u * vs[0], 0, vs[0] - bw), by = clamp(vs[1] - s.v * vs[1] - bh, 0, vs[1] - bh);
+        double mx = margin(vs[0], bw), my = margin(vs[1], bh);
+        double bx = clamp(s.u * vs[0], mx, vs[0] - bw - mx), by = clamp(vs[1] - s.v * vs[1] - bh, my, vs[1] - bh - my);
         double[] m = visualToUser(p);
 
         PdfUpdate up = new PdfUpdate(f);
