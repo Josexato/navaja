@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara**, una **pantonera** para medir colores y texturas y **medición de objetos desde un video**. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso** y **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso**, **Pantonera** y **Medir desde video** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -131,6 +131,27 @@ Exporta a formatos abiertos: **glTF 2.0 `.glb`** (material PBR con la textura a 
 Probado con fotos sintéticas de color, tamaños y fracciones conocidos (luz cálida/fría, desenfoque, viñeteo, perspectiva, ruido): ΔE < 1,3 en el color, tamaño de piedra con error < 6 % y escala con error de 0,1 %. Con 12 terrazzos reales (fotos de catálogo usadas como pantonera y luego «fotografiadas» en simulación con hoja, luz cálida o fría, desenfoque y ruido): **22 de 24 reconocidos en primer lugar**; los 2 restantes son dos baldosas casi iguales, que la app marca como empate. Archivos en `Android/data/com.josexato.navaja/files/pantonera/` (incluye `log.txt` de diagnóstico).
 
 Límites: la cámara procesa la foto (tono, nitidez), así que el Lab es una buena aproximación, no un espectrofotómetro; las piedras minoritarias de colores parecidos (p. ej. azul y azul grisáceo) pueden quedar en un mismo grupo; granos de 1–2 px se promedian con la matriz (acerca el teléfono).
+
+## 📐 Medir desde video (botón «Medir desde video»)
+
+Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escenario impreso ni base giratoria. Sirve para objetos colgados en una pared (una máscara, un cuadro con relieve) o apoyados en una mesa.
+
+1. **Grabar video** (o **Elegir un video** ya grabado). Rodea el objeto despacio, en arco de 60–180°, sin saltos y con buena luz; que se vea bastante pared o mesa alrededor.
+2. La app sigue cientos de puntos de un cuadro al siguiente (el mismo teléfono y la continuidad del video hacen el resto), reconstruye la posición de la cámara y una **nube de puntos 3D**, separa el objeto de la pared/mesa y calcula su caja.
+3. Sin referencia, el resultado son **proporciones** (alto/ancho/profundidad). Escribe **una medida conocida** (por ejemplo «alto = 25 cm») y **Calcular en cm** escala las otras.
+4. Arrastra la nube para girarla. **Exportar nube (PLY)** guarda los puntos del objeto (en cm si hay escala) en `Android/data/com.josexato.navaja/files/medidas/`.
+
+| Paso | Técnica |
+|---|---|
+| Cuadros | MediaCodec, 15 fps, lado largo 960 px, respeta la rotación del video |
+| Seguimiento | esquinas de Shi–Tomasi + Lucas–Kanade piramidal (4 niveles) con chequeo ida y vuelta |
+| Cámaras | matriz esencial (8 puntos + RANSAC), triangulación, pose por Gauss–Newton con Huber, **ajuste de haces** (Levenberg–Marquardt + complemento de Schur) con focal autocalibrada |
+| Si se pierde el hilo | reubicación con descriptores BRIEF orientados (pose plana con 4 puntos o DLT); si no, el video se parte en tramos y se usa el mejor |
+| Objeto | plano de la pared/mesa por RANSAC → puntos delante del plano → agrupación por vóxeles → relleno por casco convexo → caja con percentiles 1–99 |
+
+Probado con una escena sintética (caja de 20×15×10 cm contra una pared, ruido de 0,5 px): ancho ±4 %, profundidad ±8 %. Con un video real de una máscara de 25 cm de alto: 19,3 × 15,4 cm (ancho × profundidad), coherente con COLMAP sobre los mismos cuadros.
+
+Límites: hace falta una medida conocida para tener centímetros; movimientos bruscos o borrosos cortan el hilo (se mide con el tramo más largo); objetos lisos, brillantes o transparentes dan pocos puntos; la profundidad es la medida menos precisa (~±10 %).
 
 ## 🌐 Escáner de red local (botón «Red local», Android 11+)
 
