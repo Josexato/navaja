@@ -215,6 +215,7 @@
   .ico.puls { background: linear-gradient(135deg, #F06B7E, #C7364D); }
   .ico.pant { background: linear-gradient(135deg, #C86FD8, #8E3FB0); }
   .ico.sign { background: linear-gradient(135deg, #8A9BB5, #4E5F7A); }
+  .ico.meas { background: linear-gradient(135deg, #E8C547, #B8901E); }
   .card h3 { margin: 0; font-size: 1.05rem; }
   .card p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
   .card .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
@@ -266,7 +267,7 @@
         <svg class="logo-big" viewBox="18 18 72 72" aria-hidden="true"><defs><radialGradient id="lgHome" cx="54" cy="46" r="76" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#34496A"/><stop offset="1" stop-color="#161F2C"/></radialGradient></defs><rect x="18" y="18" width="72" height="72" rx="16" fill="url(#lgHome)"/><g transform="translate(55 58) scale(0.8) rotate(-28) translate(-56 -63)"><path transform="rotate(-70 36 64)" fill="#3DD6C6" d="M34,66 L34,62 L52,62 L52,59 L66,59 Q68,59 68,61 L54,61 L54,63 L68,63 Q68,65 66,65 L52,65 L52,66 Z"/><path transform="rotate(-52 74 64)" fill="#F2B544" d="M73,66.5 L73,61.5 L94,61.5 L97,64 L94,66.5 Z"/><g transform="rotate(-24 32 64)"><path fill="#EEF2F6" d="M28,66 L28,56 L70,56 C79,56 87,59.5 93,66 Z"/><path fill="#B7C3CF" d="M28,66 L28,62.5 L86,62.5 C88.6,63.4 91,64.6 93,66 Z"/></g><rect x="20" y="59" width="68" height="18" rx="9" fill="#E2413B"/><rect x="26" y="60.6" width="56" height="4.2" rx="2.1" fill="#FF8A7E" opacity="0.55"/><circle cx="29" cy="68" r="2.4" fill="#F8D7D3"/><circle cx="79" cy="68" r="2.4" fill="#F8D7D3"/><path fill="#FFF" d="M54,62 L60,68 L54,74 L48,68 Z"/></g></svg>
         <div>
           <h2>Navaja <span>◆</span></h2>
-          <p>Tu navaja suiza en el bolsillo: visor de archivos, escáner 3D, afinador, red local, red móvil, marcador, brújula, nivel, pulso y pantonera. Todo funciona sin internet.</p>
+          <p>Tu navaja suiza en el bolsillo: visor de archivos, escáner 3D, afinador, red local, red móvil, marcador, brújula, nivel, pulso, pantonera y medición desde video. Todo funciona sin internet.</p>
         </div>
       </div>
       <div class="cards">
@@ -349,6 +350,13 @@
           <p>Mide el color de una muestra sobre una hoja blanca, incluso terrazzos (piedras, % y tamaño), y búscala en tu pantonera.</p>
           <div class="chips"><span class="chip">color Lab</span><span class="chip">terrazzo</span><span class="chip">STJF</span><span class="chip">glTF</span></div>
           <span class="go">Medir color →</span>
+        <div class="card" id="cardMeasure" role="button" tabindex="0">
+          <span class="badge" hidden>Sólo en la app Android</span>
+          <div class="ico meas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></div>
+          <h3>Medir desde video</h3>
+          <p>Graba un video rodeando un objeto (contra una pared o sobre una mesa) y obtén su alto, ancho y profundidad. Con una medida conocida, en centímetros.</p>
+          <div class="chips"><span class="chip">video</span><span class="chip">nube 3D</span><span class="chip">PLY</span></div>
+          <span class="go">Medir →</span>
         </div>
       </div>
       <p class="home-foot">Los archivos se procesan en tu teléfono y nunca se suben a internet (la firma sólo envía resúmenes, si lo autorizas).<br>La cámara, el micrófono y la ubicación sólo se piden al entrar en la función que los usa.</p>
@@ -1063,6 +1071,7 @@
     ['cardPulse', () => window.NavajaNative.openPulse && window.NavajaNative.openPulse()],
     ['cardSign', () => window.NavajaNative.openSign && window.NavajaNative.openSign()],
     ['cardPant', () => window.NavajaNative.openPantonera && window.NavajaNative.openPantonera()],
+    ['cardMeasure', () => window.NavajaNative.openMeasure && window.NavajaNative.openMeasure()],
   ];
   for (const [id, open] of nativeCards) {
     const card = $(id);

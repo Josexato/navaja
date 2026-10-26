@@ -112,6 +112,14 @@
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Medir un objeto desde un video: seguimiento de puntos + estructura desde movimiento. -->
+        <activity
+            android:name=".measure.MeasureActivity"
+            android:exported="false"
+            android:label="Navaja · Medir"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- Firma de PDF verificable (SSJF): lápiz + QR + clave del Keystore + historial. También
              recibe "Abrir con" de un PDF y el texto de un QR compartido desde la cámara o Lens. -->
         <activity

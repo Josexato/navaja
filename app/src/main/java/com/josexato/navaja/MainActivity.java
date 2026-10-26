@@ -20,6 +20,7 @@ import com.josexato.navaja.cellular.CellularActivity;
 import com.josexato.navaja.compass.CompassActivity;
 import com.josexato.navaja.lan.LanActivity;
 import com.josexato.navaja.marker.MarkerActivity;
+import com.josexato.navaja.measure.MeasureActivity;
 import com.josexato.navaja.pantonera.PantoneraActivity;
 import com.josexato.navaja.pulse.PulseActivity;
 import com.josexato.navaja.sign.SignActivity;
@@ -110,6 +111,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openPantonera() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, PantoneraActivity.class)));
+        }
+
+        @JavascriptInterface
+        public void openMeasure() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, MeasureActivity.class)));
         }
     }
 
