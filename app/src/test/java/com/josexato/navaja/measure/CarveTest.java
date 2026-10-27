@@ -89,6 +89,8 @@ public class CarveTest {
         r.points = pts.toArray(new double[0][]);
         r.colors = new int[r.points.length];
         r.nObs = new int[r.points.length];
+        for (int i = 0; i < r.points.length; i++)
+            for (int fr : r.camFrames) if (r.pointTracks.get(i).get(0).visible(fr)) r.nObs[i]++;
         Measure.Box box = Measure.measure(r);
         assertNotNull(box);
         assertTrue(box.onWall);
@@ -104,6 +106,54 @@ public class CarveTest {
         assertEquals("alto", 20, hull.alto, 1.5);
         assertEquals("de la pared al frente", 15, hull.front, 1.0);
         assertTrue("diferencia " + Carve.disagreement(box, hull), Carve.disagreement(box, hull) < 0.08);
+        // Puntos clave: arriba (−y), abajo (+y), izquierda/derecha (x = ∓7,5) y frente (z = 15)
+        int[] lm = Measure.landmarks(r, box);
+        for (int l : lm) assertTrue(l >= 0);
+        assertEquals("arriba", -10, r.points[lm[0]][1], 1.0);
+        assertEquals("abajo", 10, r.points[lm[1]][1], 1.0);
+        assertEquals("izquierda y derecha en lados opuestos", 15, Math.abs(r.points[lm[2]][0] - r.points[lm[3]][0]), 1.5);
+        assertEquals("frente", 15, r.points[lm[4]][2], 1.0);
+        // El ZIP de "Guardar" (sin depuración: sin gráficos de Android)
+        MeasureReport.Data d = new MeasureReport.Data();
+        d.choice = new Measure.Choice();
+        d.choice.result = r;
+        d.choice.box = box;
+        d.hull = hull;
+        d.scaleCm = 1; // el modelo ya está en cm
+        d.hullCmPerUnit = 1;
+        d.knownName = "el alto";
+        d.videoSeconds = 4;
+        d.fps = 15;
+        d.tracks = r.pointTracks.size();
+        d.segments.add(new double[]{0, 3.9, r.poses.size(), r.points.length});
+        d.masks = masks;
+        d.maskW = mw;
+        d.maskH = mh;
+        java.io.ByteArrayOutputStream zipped = new java.io.ByteArrayOutputStream();
+        try {
+            MeasureReport.write(zipped, d, false);
+            java.util.Map<String, byte[]> files = new java.util.HashMap<>();
+            try (java.util.zip.ZipInputStream zin = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zipped.toByteArray()))) {
+                for (java.util.zip.ZipEntry e; (e = zin.getNextEntry()) != null; ) {
+                    java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[8192];
+                    for (int n; (n = zin.read(buf)) > 0; ) bo.write(buf, 0, n);
+                    files.put(e.getName(), bo.toByteArray());
+                }
+            }
+            assertTrue(files.keySet().toString(), files.keySet().containsAll(java.util.Arrays.asList("informe.md", "nube_objeto.ply", "nube_completa.ply", "volumen.stl")));
+            String informe = new String(files.get("informe.md"), java.nio.charset.StandardCharsets.UTF_8);
+            assertTrue(informe.contains("## 6. Puntos clave") && informe.contains("| arriba |") && informe.contains("**usado**"));
+            String ply = new String(files.get("nube_objeto.ply"), java.nio.charset.StandardCharsets.US_ASCII);
+            assertTrue(ply.contains("element vertex " + box.objectPoints.length + "\n"));
+            // STL binario: 80 de cabecera + cantidad + 50 por triángulo
+            byte[] stl = files.get("volumen.stl");
+            int tris = java.nio.ByteBuffer.wrap(stl, 80, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+            assertTrue(tris > 100);
+            assertEquals(84 + 50 * tris, stl.length);
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
         // Sin siluetas suficientes no hay casco
         byte[][] few = new byte[masks.length][];
         System.arraycopy(masks, 0, few, 0, 5);

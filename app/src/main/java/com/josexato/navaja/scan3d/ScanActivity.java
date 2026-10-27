@@ -121,6 +121,8 @@ public class ScanActivity extends Activity implements CameraRig.Listener {
         statusCard.addView(status);
         panel.addView(statusCard);
         add(panel, "Imprimir escenario (PDF)", v -> printSheets());
+        add(panel, "¿Sin escenario ni trípode? Escanear desde un video →",
+                v -> startActivity(new android.content.Intent(this, com.josexato.navaja.measure.MeasureActivity.class)));
         bMode = add(panel, "", v -> { mode = mode == ScanSession.Mode.DISCO ? ScanSession.Mode.LIBRE : ScanSession.Mode.DISCO; newSession(); refresh(); });
         bCams = add(panel, "Cámaras…", v -> chooseCameras());
         bCalib = add(panel, "", v -> calibrate());
