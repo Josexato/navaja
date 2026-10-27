@@ -139,7 +139,9 @@ Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escen
 1. **Grabar video** (o **Elegir un video** ya grabado). Rodea el objeto despacio, en arco de 60–180°, sin saltos y con buena luz; que se vea bastante pared o mesa alrededor.
 2. La app sigue cientos de puntos de un cuadro al siguiente (el mismo teléfono y la continuidad del video hacen el resto), reconstruye la posición de la cámara y una **nube de puntos 3D**, separa el objeto de la pared/mesa y calcula su caja.
 3. Sin referencia, el resultado son **proporciones** (alto/ancho/profundidad). Escribe **una medida conocida** (por ejemplo «alto = 25 cm») y **Calcular en cm** escala las otras.
-4. Arrastra la nube para girarla. **Exportar nube (PLY)** guarda los puntos del objeto (en cm si hay escala) en `Android/data/com.josexato.navaja/files/medidas/`.
+4. **Más puntos en una zona:** toca el objeto en la nube (el círculo blanco es la zona; chica, mediana o grande) y **Reprocesar la zona**: se vuelve a leer el tramo siguiendo puntos sólo ahí, con una grilla más fina (5–8× más puntos en esa zona si tiene textura; la medida no cambia).
+5. Arrastra la nube para girarla. **Exportar nube (PLY)** guarda los puntos del objeto (en cm si hay escala) en `Android/data/com.josexato.navaja/files/medidas/`.
+6. **Segunda opinión: siluetas.** En la misma pasada, una IA que corre en el teléfono recorta la silueta del objeto en cada cuadro clave y con ellas se talla su volumen. Si las dos medidas coinciden (✓, diferencia ≤ 8 %) la medida es confiable; si no (⚠), probablemente el video vino mal. **Exportar volumen (STL)** guarda ese volumen cerrado, listo para imprimir (en mm si hay medida conocida).
 
 | Paso | Técnica |
 |---|---|
@@ -149,10 +151,14 @@ Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escen
 | Si se pierde el hilo | reubicación con descriptores BRIEF orientados (pose plana con 4 puntos o DLT); si no, el video se parte en tramos y se usa el mejor |
 | Más puntos | segunda pasada sólo por el tramo usado: ~2000 puntos seguidos a la vez, triangulados con las poses ya conocidas (duplica los puntos del objeto; la medida sale de la nube rala, que es la más estable) |
 | Objeto | plano de la pared/mesa por RANSAC → puntos delante del plano → agrupación por vóxeles → relleno por casco convexo → caja con percentiles 1–99 |
+| Siluetas | modelo **MagicTouch** de MediaPipe (TensorFlow Lite, en el teléfono, sin internet): el «toque» lo ponen los puntos del objeto vistos en ese cuadro; se descartan las manchas sin puntos |
+| Volumen | casco visual en una grilla de ~100 vóxeles (cada silueta recorta; se toleran 2 cuadros en desacuerdo) + espacio libre (delante del punto más cercano que vio cada cámara no hay nada) → la región conexa mayor → Surface Nets + suavizado de Taubin para el STL |
 
 Probado con una escena sintética (caja de 20×15×10 cm contra una pared, ruido de 0,5 px): ancho ±4 %, profundidad ±8 %. Con un video real de una máscara de 25 cm de alto: 19,3 × 15,4 cm (ancho × profundidad), coherente con COLMAP sobre los mismos cuadros.
 
-Límites: hace falta una medida conocida para tener centímetros; movimientos bruscos o borrosos cortan el hilo (se mide con el tramo más largo); objetos lisos, brillantes o transparentes dan pocos puntos; la profundidad es la medida menos precisa (~±10 %).
+Con el video de la máscara las dos medidas coinciden: ancho 19,3 cm por puntos y 17,5–18,9 cm por siluetas, y 16,3–17,2 cm de la pared al frente contra 17,1 cm (diferencia 2–5 %).
+
+Límites: hace falta una medida conocida para tener centímetros; movimientos bruscos o borrosos cortan el hilo (se mide con el tramo más largo); objetos lisos, brillantes o transparentes dan pocos puntos; la profundidad es la medida menos precisa (~±10 %). Las siluetas no ven concavidades (el hueco de atrás de una máscara) y, si todo el video se hace a la misma altura, el volumen sale algo más alto de la cuenta. El modelo MagicTouch (6 MB, Apache 2.0, licencia en `assets/modelos/`) y TensorFlow Lite agregan ~12 MB al APK.
 
 ## 🌐 Escáner de red local (botón «Red local», Android 11+)
 

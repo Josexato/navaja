@@ -12,6 +12,10 @@ android {
         targetSdk 34
         versionCode 1
         versionName '1.0'
+        // Sólo ARM (los celulares): las librerías de TFLite para emuladores x86 agregaban 9 MB
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
 
     buildTypes {
@@ -28,6 +32,11 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    // El modelo de siluetas se lee mapeado en memoria: no comprimirlo dentro del APK
+    androidResources {
+        noCompress 'tflite'
+    }
+
     testOptions {
         unitTests.all {
             maxHeapSize = '2g'
@@ -42,6 +51,8 @@ android {
 dependencies {
     // Escáner 3D: FileProvider para compartir PDF/modelos y @RequiresApi.
     implementation 'androidx.core:core:1.13.1'
+    // Medir desde video: siluetas del objeto con el modelo MagicTouch (Apache 2.0), en el teléfono y sin internet.
+    implementation 'org.tensorflow:tensorflow-lite:2.16.1'
     testImplementation 'junit:junit:4.13.2'
     // Sólo en tests: decodifica los QR que genera Navaja para comprobar que son legibles.
     testImplementation 'com.google.zxing:core:3.5.3'

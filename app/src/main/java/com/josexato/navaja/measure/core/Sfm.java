@@ -88,9 +88,24 @@ public final class Sfm {
 
         public Tracker(int maxPoints) { this(maxPoints, true); }
 
+        /** Zona a la que se limita el seguimiento (null = toda la imagen) y tamaño de celda para sembrar. */
+        private Zone zone;
+        private int cell;
+
         public Tracker(int maxPoints, boolean descriptors) {
             this.maxPoints = maxPoints;
             this.descriptors = descriptors;
+        }
+
+        /**
+         * Sigue puntos sólo dentro de la zona, sembrados en celdas de
+         * {@code cellPx} píxeles (más chicas que lo normal: más puntos por
+         * área). Los que salen de la zona se sueltan para no gastar tiempo.
+         */
+        public Tracker(int maxPoints, Zone zone, int cellPx) {
+            this(maxPoints, false);
+            this.zone = zone;
+            this.cell = cellPx;
         }
 
         public int frames() { return frame + 1; }
@@ -120,11 +135,23 @@ public final class Sfm {
                 active.clear();
                 active.addAll(keep);
             }
-            if (active.size() < maxPoints * 0.8) {
+            int[] rect = zone == null ? null : zone.rect(frame);
+            if (rect != null) {
+                List<Track> in = new ArrayList<>();
+                for (Track t : active) {
+                    float x = t.x[t.n - 1], y = t.y[t.n - 1];
+                    if (x >= rect[0] && y >= rect[1] && x < rect[2] && y < rect[3]) in.add(t);
+                }
+                active.clear();
+                active.addAll(in);
+            } else if (zone != null) {
+                active.clear(); // la zona no se ve en este cuadro
+            }
+            if (active.size() < maxPoints * 0.8 && (zone == null || rect != null)) {
                 List<float[]> taken = new ArrayList<>();
                 for (Track t : active) taken.add(new float[]{t.x[t.n - 1], t.y[t.n - 1]});
-                int cell = Math.max(8, (int) Math.sqrt((double) w * h / maxPoints));
-                for (float[] c : Klt.corners(pyr.img[0], w, h, cell, maxPoints - active.size(), taken)) {
+                int cell = zone != null ? this.cell : Math.max(8, (int) Math.sqrt((double) w * h / maxPoints));
+                for (float[] c : Klt.corners(pyr.img[0], w, h, cell, maxPoints - active.size(), taken, rect)) {
                     int ix = (int) c[0], iy = (int) c[1];
                     Track t = new Track(frame, c[0], c[1], argb[iy * w + ix]);
                     if (descriptors) t.addDesc(frame, Brief.describe(sm, w, h, c[0], c[1]));
@@ -137,6 +164,41 @@ public final class Sfm {
         }
     }
 
+    /**
+     * Una esfera del modelo (centro y radio) vista en cada cuadro del video:
+     * el rectángulo que la contiene, con la pose del cuadro clave más cercano.
+     * {@code offset} es el cuadro del video que corresponde al cuadro 0 del
+     * seguimiento.
+     */
+    public static final class Zone {
+        private final Result r;
+        private final double[] center;
+        private final double radius;
+        private final int offset;
+
+        public Zone(Result r, double[] center, double radius, int offset) {
+            this.r = r;
+            this.center = center;
+            this.radius = radius;
+            this.offset = offset;
+        }
+
+        /** {x0, y0, x1, y1} en píxeles, o null si la zona no se ve en ese cuadro. */
+        public int[] rect(int frame) {
+            int fr = frame + offset, best = 0;
+            for (int c = 1; c < r.camFrames.size(); c++)
+                if (Math.abs(r.camFrames.get(c) - fr) < Math.abs(r.camFrames.get(best) - fr)) best = c;
+            double[] xc = r.poses.get(best).apply(center);
+            if (xc[2] <= radius) return null;
+            double u = r.focal * xc[0] / xc[2] + r.width / 2.0, v = r.focal * xc[1] / xc[2] + r.height / 2.0;
+            // 25 % de margen: la pose es la del cuadro clave vecino, no la del cuadro mismo
+            double rp = 1.25 * r.focal * radius / xc[2];
+            int[] rect = {(int) (u - rp), (int) (v - rp), (int) Math.ceil(u + rp), (int) Math.ceil(v + rp)};
+            if (rect[2] <= 0 || rect[3] <= 0 || rect[0] >= r.width || rect[1] >= r.height) return null;
+            return rect;
+        }
+    }
+
     // ================================================================ reconstrucción
 
     public static final class Result {
@@ -145,6 +207,8 @@ public final class Sfm {
         public double[][] points;
         public int[] colors;
         public int[] nObs;
+        /** Pistas de cada punto ralo (de ahí, desde qué cámaras se vio); los puntos densos no tienen. */
+        public List<List<Track>> pointTracks = new ArrayList<>();
         public double focal, rms;
         public int width, height, frames, keyframes;
         /** Tramo del video usado (cuadros) y su índice de cuadro clave final. */
@@ -339,6 +403,7 @@ public final class Sfm {
         }
         double rms = bundle(camKf, kf, poses, goodPts, goodTr, f, cx, cy, 20, camKf.size() >= 8);
         out.points = goodPts.toArray(new double[0][]);
+        out.pointTracks = goodTr;
         out.colors = new int[goodTr.size()];
         out.nObs = new int[goodTr.size()];
         for (int i = 0; i < goodTr.size(); i++) {
