@@ -61,6 +61,40 @@ public class MeasureTest {
         for (int k = 0; k < c.size(); k++)
             if (t[k] != null && Math.abs(t[k][0] - c.get(k)[0] - dx) < 0.3 && Math.abs(t[k][1] - c.get(k)[1] - dy) < 0.3) ok++;
         assertTrue(ok + " de " + c.size(), ok > 0.8 * c.size());
+        // Limitadas a un rectángulo: sólo ahí, y más densas con celdas chicas
+        int[] rect = {100, 60, 180, 140};
+        List<float[]> z = Klt.corners(pa.img[0], w, h, 4, 1000, null, rect);
+        assertTrue("esquinas en la zona " + z.size(), z.size() > 60);
+        for (float[] q : z) assertTrue(q[0] >= rect[0] && q[1] >= rect[1] && q[0] < rect[2] && q[1] < rect[3]);
+        assertTrue(Klt.corners(pa.img[0], w, h, 4, 1000, null, new int[]{330, 250, 400, 300}).isEmpty()); // fuera de la imagen
+    }
+
+    /** La zona (esfera del modelo) se ve en cada cuadro dentro de su rectángulo, con el radio proyectado. */
+    @Test
+    public void zonaSeProyectaEnCadaCuadro() {
+        Sfm.Result r = new Sfm.Result();
+        r.width = 720;
+        r.height = 1280;
+        r.focal = 980;
+        for (int k = 0; k < 10; k++) {
+            double ang = Math.toRadians(-40 + 8 * k);
+            r.camFrames.add(3 * k + 5);
+            r.poses.add(lookAt(new double[]{50 * Math.sin(ang), 0, 50 * Math.cos(ang)}, new double[]{0, 0, 0}));
+        }
+        double[] c = {2, -3, 4};
+        double rad = 3;
+        Sfm.Zone zone = new Sfm.Zone(r, c, rad, 5);
+        for (int k = 0; k < 10; k++) {
+            int[] rect = zone.rect(3 * k); // cuadro del seguimiento = cuadro del video − 5
+            assertNotNull(rect);
+            double[] xc = r.poses.get(k).apply(c);
+            double u = r.focal * xc[0] / xc[2] + r.width / 2.0, v = r.focal * xc[1] / xc[2] + r.height / 2.0;
+            assertTrue(u > rect[0] && u < rect[2] && v > rect[1] && v < rect[3]);
+            // Radio proyectado ×1,25 de margen
+            assertEquals(2 * 1.25 * r.focal * rad / xc[2], rect[2] - rect[0], 2);
+        }
+        // Detrás de la cámara: no se ve
+        assertEquals(null, new Sfm.Zone(r, new double[]{0, 0, 80}, rad, 5).rect(0));
     }
 
     static int gray(float v) {

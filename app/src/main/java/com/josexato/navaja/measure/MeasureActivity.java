@@ -19,6 +19,7 @@ import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
+import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Sfm;
 import com.josexato.navaja.ui.NavajaUi;
@@ -48,6 +49,10 @@ public class MeasureActivity extends Activity {
     private static final int LONG_SIDE = 960, MAX_POINTS = 600;
     /** Segunda pasada, sólo por el tramo elegido: más puntos para el objeto (no cambia la medida). */
     private static final int DENSE_POINTS = 2000;
+    /** Reproceso de una zona: puntos a la vez y celda de siembra (px), más fina que la normal. */
+    private static final int ZONE_POINTS = 1500, ZONE_CELL = 4;
+    /** Radio de la zona como fracción del lado mayor de la caja: chica, mediana, grande. */
+    private static final double[] ZONE_SIZES = {0.10, 0.15, 0.25};
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newSingleThreadExecutor();
@@ -57,6 +62,12 @@ public class MeasureActivity extends Activity {
     private double videoSeconds;
     private int known = 0;     // 0 alto, 1 ancho, 2 profundidad
     private double scaleCm = 0; // cm por unidad del modelo (0 = sin escala)
+    /** Video medido y tamaño de sus cuadros, para reprocesar una zona. */
+    private Uri videoUri;
+    private int[] videoDims;
+    private int zoneSize = 1;
+    /** Centro de la zona elegida (índice en la nube), se conserva al volver del reproceso. */
+    private int zonePoint = -1;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -176,6 +187,8 @@ public class MeasureActivity extends Activity {
                 Measure.Choice ch = Measure.best(segs);
                 if (ch == null) throw new IOException("No pude reconstruir el objeto. Prueba moviéndote más alrededor de él, "
                         + "más despacio, y con algo de textura detrás.");
+                videoUri = uri;
+                videoDims = dims;
                 try {
                     densify(uri, ch, dims);
                 } catch (IOException | RuntimeException e) {
@@ -186,11 +199,73 @@ public class MeasureActivity extends Activity {
                 ui.post(() -> {
                     choice = ch;
                     scaleCm = 0;
+                    zonePoint = -1;
                     showResult();
                 });
             } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "medir", e);
                 if (!cancel.get()) ui.post(() -> error(e.getMessage()));
+            }
+        });
+    }
+
+    /**
+     * Reprocesa una zona: vuelve a leer el tramo usado siguiendo puntos sólo
+     * dentro de la esfera (centro = punto {@code center} de la nube) vista en
+     * cada cuadro, con celdas más finas. Los puntos nuevos se suman al objeto
+     * como los de la segunda pasada; la caja no cambia.
+     */
+    private void refine(int center, double radius) {
+        if (center < 0 || videoUri == null) return;
+        Measure.Choice ch = choice;
+        Sfm.Result r = ch.result;
+        double[] c0 = r.points[center];
+        cancel.set(false);
+        NavajaUi.Screen scr = NavajaUi.screen(this, "Más puntos en la zona…", "Leyendo el tramo de nuevo", null, true);
+        progress = NavajaUi.text(this, "Leyendo el video…", NavajaUi.Style.BODY);
+        scr.content.addView(progress);
+        scr.content.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Cancelar", v -> {
+            cancel.set(true);
+            showResult();
+        })));
+        setContentView(scr.root);
+        Uri uri = videoUri;
+        int[] dims = videoDims;
+        work.execute(() -> {
+            try {
+                Sfm.Tracker zt = new Sfm.Tracker(ZONE_POINTS, new Sfm.Zone(r, c0, radius, r.startFrame), ZONE_CELL);
+                int[] idx = {-1};
+                int span = r.endFrame - r.startFrame + 1;
+                VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                    if (cancel.get()) return false;
+                    if (w != dims[0] || h != dims[1]) return true;
+                    if (++idx[0] < r.startFrame) return true;
+                    zt.feed(argb, w, h);
+                    post(String.format(Locale.getDefault(), "Siguiendo puntos en la zona: %d %%  (%d activos)",
+                            100 * (idx[0] - r.startFrame + 1) / span, zt.activeCount()));
+                    return idx[0] < r.endFrame;
+                });
+                if (cancel.get()) return;
+                // Se aplica en el hilo de la interfaz: si justo se canceló, la nube que se ve no cambia a medias
+                ui.post(() -> {
+                    if (cancel.get()) return;
+                    int first = r.points.length, objBefore = ch.box.objectPoints.length;
+                    int added = Sfm.densify(r, zt.tracks, r.startFrame);
+                    Measure.include(r, ch.box, first);
+                    int inZone = 0;
+                    for (int i = first; i < r.points.length; i++) if (Lin.norm(Lin.sub(r.points[i], c0)) <= radius) inZone++;
+                    int toObj = ch.box.objectPoints.length - objBefore;
+                    Log.i(TAG, "zona: " + zt.tracks.size() + " pistas, +" + added + " puntos, " + inZone + " en la zona, +" + toObj + " al objeto");
+                    showResult();
+                    toast(toObj == 0 ? "No se encontraron puntos nuevos: la zona tiene poca textura o se ve poco en el tramo."
+                            : "+" + toObj + " puntos del objeto (" + inZone + " dentro del círculo)");
+                });
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "zona", e);
+                if (!cancel.get()) ui.post(() -> {
+                    showResult();
+                    toast("No se pudo reprocesar la zona: " + e.getMessage());
+                });
             }
         });
     }
@@ -238,7 +313,8 @@ public class MeasureActivity extends Activity {
         cloud.set(r.points, r.colors, b);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, NavajaUi.dp(this, 320));
         c.addView(cloud, lp);
-        c.addView(NavajaUi.text(this, "Arrastra para girar. En color, lo que se midió; la caja naranja es la medida.", NavajaUi.Style.MUTED));
+        c.addView(NavajaUi.text(this, "Arrastra para girar. En color, lo que se midió; la caja naranja es la medida. "
+                + "Toca el objeto para elegir una zona.", NavajaUi.Style.MUTED));
         mAlto = NavajaUi.metric(this, "Alto");
         mAncho = NavajaUi.metric(this, "Ancho");
         mProf = NavajaUi.metric(this, b.onWall ? "Profundidad" : "Largo");
@@ -269,6 +345,37 @@ public class MeasureActivity extends Activity {
         })));
         c.addView(card);
         if (tabs.length > 0) NavajaUi.setChip(tabs[known], true);
+        // Más puntos en una zona: se vuelve a leer el tramo siguiendo puntos sólo ahí
+        LinearLayout zc = NavajaUi.card(this);
+        zc.addView(NavajaUi.text(this, "Más puntos en una zona", NavajaUi.Style.LABEL));
+        TextView zHint = NavajaUi.text(this, "", NavajaUi.Style.SECONDARY);
+        zc.addView(zHint);
+        LinearLayout zChips = new LinearLayout(this);
+        double side = Math.max(b.alto, Math.max(b.ancho, b.prof));
+        TextView[] zTabs = NavajaUi.tabs(zChips, new String[]{"Chica", "Mediana", "Grande"}, zoneSize, i -> {
+            zoneSize = i;
+            cloud.setZoneRadius(ZONE_SIZES[i] * side);
+        });
+        zc.addView(zChips);
+        Button zBtn = NavajaUi.primary(this, "Reprocesar la zona", v -> refine(cloud.picked(), ZONE_SIZES[zoneSize] * side));
+        zc.addView(NavajaUi.buttonRow(this, zBtn));
+        c.addView(zc);
+        if (zTabs.length > 0) NavajaUi.setChip(zTabs[zoneSize], true);
+        cloud.setZoneRadius(ZONE_SIZES[zoneSize] * side);
+        Runnable zState = () -> {
+            boolean ok = cloud.picked() >= 0 && videoUri != null;
+            zBtn.setEnabled(ok);
+            zBtn.setAlpha(ok ? 1f : 0.5f);
+            zHint.setText(videoUri == null ? "No se puede volver a leer el video."
+                    : cloud.picked() < 0 ? "Toca un punto del objeto en la nube; el círculo blanco es la zona."
+                    : "Vuelve a leer el tramo usado siguiendo puntos sólo en el círculo (unos segundos). La medida no cambia.");
+        };
+        cloud.setOnPick(() -> {
+            zonePoint = cloud.picked();
+            zState.run();
+        });
+        if (zonePoint >= 0) cloud.select(zonePoint);
+        zState.run();
         extra = NavajaUi.text(this, "", NavajaUi.Style.SECONDARY);
         NavajaUi.topMargin(extra, 8);
         c.addView(extra);

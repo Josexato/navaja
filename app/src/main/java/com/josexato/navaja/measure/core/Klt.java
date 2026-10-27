@@ -96,6 +96,24 @@ public final class Klt {
      * ya existentes ({@code taken}), y sólo si superan el 1 % de la mejor.
      */
     public static List<float[]> corners(float[] g, int w, int h, int cell, int max, List<float[]> taken) {
+        return corners(g, w, h, cell, max, taken, null);
+    }
+
+    /**
+     * Igual que {@link #corners(float[], int, int, int, int, List)}, pero sólo
+     * dentro de {@code rect} = {x0, y0, x1, y1} (null = toda la imagen). La
+     * calidad mínima es relativa a la mejor esquina del rectángulo, así que
+     * una zona de poco contraste también recibe puntos.
+     */
+    public static List<float[]> corners(float[] g, int w, int h, int cell, int max, List<float[]> taken, int[] rect) {
+        int rx0 = 0, ry0 = 0, rx1 = w, ry1 = h;
+        if (rect != null) {
+            rx0 = Math.max(0, rect[0]);
+            ry0 = Math.max(0, rect[1]);
+            rx1 = Math.min(w, rect[2]);
+            ry1 = Math.min(h, rect[3]);
+            if (rx1 - rx0 < 2 * HALF + 10 || ry1 - ry0 < 2 * HALF + 10) return new ArrayList<>();
+        }
         float[] gx = new float[w * h], gy = new float[w * h];
         for (int y = 1; y < h - 1; y++)
             for (int x = 1; x < w - 1; x++) {
@@ -121,8 +139,8 @@ public final class Klt {
         int r = 3, margin = HALF + 4;
         float[] score = new float[w * h];
         float best = 0;
-        for (int y = margin; y < h - margin; y++)
-            for (int x = margin; x < w - margin; x++) {
+        for (int y = Math.max(margin, ry0); y < Math.min(h - margin, ry1); y++)
+            for (int x = Math.max(margin, rx0); x < Math.min(w - margin, rx1); x++) {
                 int a = (y - r) * (w + 1) + (x - r), b = (y - r) * (w + 1) + (x + r + 1), c = (y + r + 1) * (w + 1) + (x - r),
                     d = (y + r + 1) * (w + 1) + (x + r + 1);
                 double xx = sxx[d] - sxx[b] - sxx[c] + sxx[a], xy = sxy[d] - sxy[b] - sxy[c] + sxy[a], yy = syy[d] - syy[b] - syy[c] + syy[a];
@@ -138,8 +156,8 @@ public final class Klt {
         }
         List<float[]> out = new ArrayList<>();
         float thr = best * 0.01f;
-        for (int cy = 0; cy * cell < h; cy++)
-            for (int cx = 0; cx * cell < w; cx++) {
+        for (int cy = ry0 / cell; cy * cell < ry1; cy++)
+            for (int cx = rx0 / cell; cx * cell < rx1; cx++) {
                 if (occupied[cy * cw + cx]) continue;
                 float m = thr;
                 int bx = -1, by = -1;

@@ -139,7 +139,8 @@ Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escen
 1. **Grabar video** (o **Elegir un video** ya grabado). Rodea el objeto despacio, en arco de 60–180°, sin saltos y con buena luz; que se vea bastante pared o mesa alrededor.
 2. La app sigue cientos de puntos de un cuadro al siguiente (el mismo teléfono y la continuidad del video hacen el resto), reconstruye la posición de la cámara y una **nube de puntos 3D**, separa el objeto de la pared/mesa y calcula su caja.
 3. Sin referencia, el resultado son **proporciones** (alto/ancho/profundidad). Escribe **una medida conocida** (por ejemplo «alto = 25 cm») y **Calcular en cm** escala las otras.
-4. Arrastra la nube para girarla. **Exportar nube (PLY)** guarda los puntos del objeto (en cm si hay escala) en `Android/data/com.josexato.navaja/files/medidas/`.
+4. **Más puntos en una zona:** toca el objeto en la nube (el círculo blanco es la zona; chica, mediana o grande) y **Reprocesar la zona**: se vuelve a leer el tramo siguiendo puntos sólo ahí, con una grilla más fina (5–8× más puntos en esa zona si tiene textura; la medida no cambia).
+5. Arrastra la nube para girarla. **Exportar nube (PLY)** guarda los puntos del objeto (en cm si hay escala) en `Android/data/com.josexato.navaja/files/medidas/`.
 
 | Paso | Técnica |
 |---|---|
