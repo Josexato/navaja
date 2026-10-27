@@ -111,27 +111,7 @@ public class MeasureTest {
             double[] c = {dist * Math.sin(ang), 4 * Math.sin(k * 0.07), 8 + dist * Math.cos(ang)};
             cams.add(lookAt(c, new double[]{0, 0, 8}));
         }
-        // Pistas: cada punto se ve mientras cae en la imagen y está delante; ruido 0,5 px
-        List<Sfm.Track> tracks = new ArrayList<>();
-        for (int i = 0; i < world.size(); i++) {
-            Sfm.Track t = null;
-            for (int k = 0; k < frames; k++) {
-                double[] xc = cams.get(k).apply(world.get(i));
-                boolean vis = xc[2] > 1;
-                double u = 0, v = 0;
-                if (vis) {
-                    u = f * xc[0] / xc[2] + w / 2.0 + r.nextGaussian() * 0.5;
-                    v = f * xc[1] / xc[2] + h / 2.0 + r.nextGaussian() * 0.5;
-                    vis = u > 5 && v > 5 && u < w - 5 && v < h - 5;
-                }
-                if (vis) {
-                    if (t == null) t = new Sfm.Track(k, (float) u, (float) v, col.get(i));
-                    else if (t.end() == k - 1) t.add((float) u, (float) v);
-                    else break;
-                } else if (t != null) break;
-            }
-            if (t != null && t.end() > t.start) tracks.add(t);
-        }
+        List<Sfm.Track> tracks = tracks(world, col, cams, w, h, f, r);
         List<Sfm.Result> segs = Sfm.reconstruct(tracks, frames, w, h, 0.8 * h, null);
         assertEquals("un solo tramo (el video es continuo)", 1, segs.size());
         Sfm.Result res = segs.get(0);
@@ -149,6 +129,56 @@ public class MeasureTest {
         assertEquals("ancho", 15, box.ancho * s, 15 * 0.04);
         assertEquals("profundidad", 10, box.prof * s, 10 * 0.08);
         assertEquals("separación", 5, box.separation * s, 1.0);
+
+        // Segunda pasada densa: otros puntos de la misma escena, con las poses ya conocidas
+        List<double[]> extra = new ArrayList<>();
+        List<Integer> extraCol = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            extra.add(new double[]{-7.5 + 15 * r.nextDouble(), -10 + 20 * r.nextDouble(), 15});
+            extraCol.add(0xFFE0A060);
+        }
+        for (int i = 0; i < 1000; i++) {
+            extra.add(new double[]{r.nextDouble() * 120 - 60, r.nextDouble() * 120 - 60, 0});
+            extraCol.add(0xFFCCCCCC);
+        }
+        int before = res.points.length, objBefore = box.objectPoints.length;
+        double alto = box.alto, ancho = box.ancho;
+        int added = Sfm.densify(res, tracks(extra, extraCol, cams, w, h, f, r), 0);
+        assertTrue("agregados " + added, added > 1200);
+        assertEquals(before + added, res.points.length);
+        Measure.include(res, box, before);
+        int obj = box.objectPoints.length - objBefore;
+        // Los 1000 del frente de la caja entran (casi todos); los de la pared no
+        assertTrue("al objeto " + obj, obj > 700 && obj < 1050);
+        for (int k = objBefore; k < box.objectPoints.length; k++)
+            assertEquals("frente de la caja (5 de separación + 10 de prof.)", 15, Lin.dot(Lin.sub(res.points[box.objectPoints[k]], box.planeP), box.planeN) * s, 1.0);
+        assertEquals("la medida no cambia", alto, box.alto, 0);
+        assertEquals(ancho, box.ancho, 0);
+    }
+
+    /** Pistas: cada punto se ve mientras cae en la imagen y está delante; ruido 0,5 px. */
+    static List<Sfm.Track> tracks(List<double[]> world, List<Integer> col, List<Geometry.Pose> cams, int w, int h, double f, Random r) {
+        List<Sfm.Track> tracks = new ArrayList<>();
+        for (int i = 0; i < world.size(); i++) {
+            Sfm.Track t = null;
+            for (int k = 0; k < cams.size(); k++) {
+                double[] xc = cams.get(k).apply(world.get(i));
+                boolean vis = xc[2] > 1;
+                double u = 0, v = 0;
+                if (vis) {
+                    u = f * xc[0] / xc[2] + w / 2.0 + r.nextGaussian() * 0.5;
+                    v = f * xc[1] / xc[2] + h / 2.0 + r.nextGaussian() * 0.5;
+                    vis = u > 5 && v > 5 && u < w - 5 && v < h - 5;
+                }
+                if (vis) {
+                    if (t == null) t = new Sfm.Track(k, (float) u, (float) v, col.get(i));
+                    else if (t.end() == k - 1) t.add((float) u, (float) v);
+                    else break;
+                } else if (t != null) break;
+            }
+            if (t != null && t.end() > t.start) tracks.add(t);
+        }
+        return tracks;
     }
 
     /** Cámara en {@code c} mirando a {@code target}, con y de la imagen hacia abajo (−y del mundo es "arriba"). */

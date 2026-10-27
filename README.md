@@ -147,6 +147,7 @@ Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escen
 | Seguimiento | esquinas de Shi–Tomasi + Lucas–Kanade piramidal (4 niveles) con chequeo ida y vuelta |
 | Cámaras | matriz esencial (8 puntos + RANSAC), triangulación, pose por Gauss–Newton con Huber, **ajuste de haces** (Levenberg–Marquardt + complemento de Schur) con focal autocalibrada |
 | Si se pierde el hilo | reubicación con descriptores BRIEF orientados (pose plana con 4 puntos o DLT); si no, el video se parte en tramos y se usa el mejor |
+| Más puntos | segunda pasada sólo por el tramo usado: ~2000 puntos seguidos a la vez, triangulados con las poses ya conocidas (duplica los puntos del objeto; la medida sale de la nube rala, que es la más estable) |
 | Objeto | plano de la pared/mesa por RANSAC → puntos delante del plano → agrupación por vóxeles → relleno por casco convexo → caja con percentiles 1–99 |
 
 Probado con una escena sintética (caja de 20×15×10 cm contra una pared, ruido de 0,5 px): ancho ±4 %, profundidad ±8 %. Con un video real de una máscara de 25 cm de alto: 19,3 × 15,4 cm (ancho × profundidad), coherente con COLMAP sobre los mismos cuadros.

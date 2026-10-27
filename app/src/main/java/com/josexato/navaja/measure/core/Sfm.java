@@ -83,8 +83,15 @@ public final class Sfm {
         private float[] prevSmooth;
         private int frame = -1;
         public final int maxPoints;
+        /** Huellas BRIEF para reubicar; el seguimiento denso no las necesita. */
+        private final boolean descriptors;
 
-        public Tracker(int maxPoints) { this.maxPoints = maxPoints; }
+        public Tracker(int maxPoints) { this(maxPoints, true); }
+
+        public Tracker(int maxPoints, boolean descriptors) {
+            this.maxPoints = maxPoints;
+            this.descriptors = descriptors;
+        }
 
         public int frames() { return frame + 1; }
 
@@ -93,7 +100,7 @@ public final class Sfm {
         public void feed(int[] argb, int w, int h) {
             frame++;
             Klt.Pyramid pyr = new Klt.Pyramid(Klt.gray(argb), w, h);
-            float[] sm = Brief.smooth(pyr.img[0], w, h);
+            float[] sm = descriptors ? Brief.smooth(pyr.img[0], w, h) : null;
             if (prev != null && !active.isEmpty()) {
                 List<float[]> pts = new ArrayList<>();
                 for (Track t : active) pts.add(new float[]{t.x[t.n - 1], t.y[t.n - 1]});
@@ -104,8 +111,8 @@ public final class Sfm {
                     if (nx[k] != null) {
                         t.add(nx[k][0], nx[k][1]);
                         keep.add(t);
-                        if (frame % 5 == 0) t.addDesc(frame, Brief.describe(sm, w, h, nx[k][0], nx[k][1]));
-                    } else {
+                        if (descriptors && frame % 5 == 0) t.addDesc(frame, Brief.describe(sm, w, h, nx[k][0], nx[k][1]));
+                    } else if (descriptors) {
                         // Se perdió: huella de su última posición, para reconocerlo después
                         t.addDesc(frame - 1, Brief.describe(prevSmooth, w, h, t.x[t.n - 1], t.y[t.n - 1]));
                     }
@@ -120,7 +127,7 @@ public final class Sfm {
                 for (float[] c : Klt.corners(pyr.img[0], w, h, cell, maxPoints - active.size(), taken)) {
                     int ix = (int) c[0], iy = (int) c[1];
                     Track t = new Track(frame, c[0], c[1], argb[iy * w + ix]);
-                    t.addDesc(frame, Brief.describe(sm, w, h, c[0], c[1]));
+                    if (descriptors) t.addDesc(frame, Brief.describe(sm, w, h, c[0], c[1]));
                     tracks.add(t);
                     active.add(t);
                 }
@@ -183,6 +190,52 @@ public final class Sfm {
             from = seg.endKf + 1;
         }
         return out;
+    }
+
+    /**
+     * Agrega puntos con un segundo seguimiento, mucho más denso, del mismo
+     * tramo: las poses del celular ya se conocen, así que cada pista sólo se
+     * triangula (sin volver a ajustar nada). {@code offset} es el cuadro del
+     * video que corresponde al cuadro 0 de {@code dense}. Devuelve cuántos
+     * puntos agregó.
+     */
+    public static int densify(Result r, List<Track> dense, int offset) {
+        double cx = r.width / 2.0, cy = r.height / 2.0, f = r.focal;
+        List<double[]> pts = new ArrayList<>(Arrays.asList(r.points));
+        List<Integer> cols = new ArrayList<>(), obsN = new ArrayList<>();
+        for (int i = 0; i < r.points.length; i++) { cols.add(r.colors[i]); obsN.add(r.nObs[i]); }
+        int added = 0;
+        List<Geometry.Pose> ps = new ArrayList<>();
+        List<double[]> ob = new ArrayList<>();
+        for (Track t : dense) {
+            ps.clear();
+            ob.clear();
+            for (int c = 0; c < r.camFrames.size(); c++) {
+                int fr = r.camFrames.get(c) - offset;
+                if (fr < 0 || !t.visible(fr)) continue;
+                ps.add(r.poses.get(c));
+                ob.add(new double[]{(t.x(fr) - cx) / f, (t.y(fr) - cy) / f});
+            }
+            if (ps.size() < 3) continue;
+            double[] x = Geometry.triangulate(ps.toArray(new Geometry.Pose[0]), ob.toArray(new double[0][]));
+            if (x == null) continue;
+            boolean ok = true;
+            for (int i = 0; i < ps.size() && ok; i++) {
+                double[] xc = ps.get(i).apply(x);
+                ok = xc[2] > 0 && f * Math.hypot(xc[0] / xc[2] - ob.get(i)[0], xc[1] / xc[2] - ob.get(i)[1]) < 2;
+            }
+            // Paralaje: entre la primera y la última cámara que lo ven
+            if (!ok || Geometry.angleDeg(x, ps.get(0).center(), ps.get(ps.size() - 1).center()) < 2) continue;
+            pts.add(x);
+            cols.add(t.color);
+            obsN.add(ps.size());
+            added++;
+        }
+        r.points = pts.toArray(new double[0][]);
+        r.colors = new int[cols.size()];
+        r.nObs = new int[cols.size()];
+        for (int i = 0; i < cols.size(); i++) { r.colors[i] = cols.get(i); r.nObs[i] = obsN.get(i); }
+        return added;
     }
 
     private static Result segment(List<Track> tracks, List<Integer> kf, int from, int frames, int w, int h, double f0,

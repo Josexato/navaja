@@ -54,6 +54,30 @@ public final class Klt {
             int i = y0 * ww + x0;
             return (float) ((im[i] * (1 - fx) + im[i + 1] * fx) * (1 - fy) + (im[i + ww] * (1 - fx) + im[i + ww + 1] * fx) * fy);
         }
+
+        /**
+         * Ventana de {@code size}×{@code size} desde (x0, y0) con interpolación
+         * bilineal. Todos sus píxeles comparten la parte fraccionaria, así que
+         * los pesos se calculan una vez (igual que {@link #at} punto a punto).
+         */
+        void patch(int l, double x0, double y0, int size, float[] out) {
+            int ww = w[l], hh = h[l];
+            if (x0 < 0 || y0 < 0 || x0 + size - 1 > ww - 1.001 || y0 + size - 1 > hh - 1.001) {
+                // Toca el borde: punto a punto, con el mismo recorte que at()
+                for (int dy = 0, k = 0; dy < size; dy++)
+                    for (int dx = 0; dx < size; dx++, k++) out[k] = at(l, x0 + dx, y0 + dy);
+                return;
+            }
+            int ix = (int) x0, iy = (int) y0;
+            double fx = x0 - ix, fy = y0 - iy;
+            double w00 = (1 - fx) * (1 - fy), w01 = fx * (1 - fy), w10 = (1 - fx) * fy, w11 = fx * fy;
+            float[] im = img[l];
+            for (int dy = 0, k = 0; dy < size; dy++) {
+                int i = (iy + dy) * ww + ix;
+                for (int dx = 0; dx < size; dx++, k++, i++)
+                    out[k] = (float) (im[i] * w00 + im[i + 1] * w01 + im[i + ww] * w10 + im[i + ww + 1] * w11);
+            }
+        }
     }
 
     /** Gris (0..255) desde ARGB. */
@@ -145,8 +169,8 @@ public final class Klt {
     }
 
     private static float[] lk(Pyramid a, Pyramid b, double px, double py, double gx0, double gy0) {
-        int n = (2 * HALF + 1) * (2 * HALF + 1);
-        float[] tI = new float[n], tx = new float[n], ty = new float[n];
+        final int side = 2 * HALF + 1, n = side * side, big = side + 2;
+        float[] tI = new float[n], tx = new float[n], ty = new float[n], pa = new float[big * big], pb = new float[n];
         double gx = (gx0 - px) / (1 << (LEVELS - 1)), gy = (gy0 - py) / (1 << (LEVELS - 1));
         for (int l = LEVELS - 1; l >= 0; l--) {
             double s = 1.0 / (1 << l), cx = px * s, cy = py * s;
@@ -156,14 +180,16 @@ public final class Klt {
                 gy *= 2;
                 continue;
             }
+            // Ventana con un píxel de borde: de ahí salen la plantilla y sus gradientes
+            a.patch(l, cx - HALF - 1, cy - HALF - 1, big, pa);
             double gxx = 0, gxy = 0, gyy = 0;
             int k = 0;
-            for (int dy = -HALF; dy <= HALF; dy++)
-                for (int dx = -HALF; dx <= HALF; dx++, k++) {
-                    double x = cx + dx, y = cy + dy;
-                    tI[k] = a.at(l, x, y);
-                    tx[k] = (a.at(l, x + 1, y) - a.at(l, x - 1, y)) * 0.5f;
-                    ty[k] = (a.at(l, x, y + 1) - a.at(l, x, y - 1)) * 0.5f;
+            for (int dy = 0; dy < side; dy++)
+                for (int dx = 0; dx < side; dx++, k++) {
+                    int i = (dy + 1) * big + dx + 1;
+                    tI[k] = pa[i];
+                    tx[k] = (pa[i + 1] - pa[i - 1]) * 0.5f;
+                    ty[k] = (pa[i + big] - pa[i - big]) * 0.5f;
                     gxx += tx[k] * tx[k];
                     gxy += tx[k] * ty[k];
                     gyy += ty[k] * ty[k];
@@ -172,14 +198,13 @@ public final class Klt {
             if (det < 1e-6 * n * n) return null; // zona sin textura
             double vx = 0, vy = 0;
             for (int it = 0; it < 12; it++) {
+                b.patch(l, cx + gx + vx - HALF, cy + gy + vy - HALF, side, pb);
                 double bx = 0, by = 0;
-                k = 0;
-                for (int dy = -HALF; dy <= HALF; dy++)
-                    for (int dx = -HALF; dx <= HALF; dx++, k++) {
-                        double e = tI[k] - b.at(l, cx + gx + vx + dx, cy + gy + vy + dy);
-                        bx += e * tx[k];
-                        by += e * ty[k];
-                    }
+                for (k = 0; k < n; k++) {
+                    double e = tI[k] - pb[k];
+                    bx += e * tx[k];
+                    by += e * ty[k];
+                }
                 double ux = (gyy * bx - gxy * by) / det, uy = (gxx * by - gxy * bx) / det;
                 vx += ux;
                 vy += uy;
@@ -196,15 +221,14 @@ public final class Klt {
         // Fuera de la imagen (o tan al borde que la ventana se sale): el punto se perdió
         if (nx < HALF + 1 || ny < HALF + 1 || nx > a.w[0] - HALF - 2 || ny > a.h[0] - HALF - 2) return null;
         // La ventana final debe parecerse a la original (descarta oclusiones y deslizamientos)
-        double err = 0, mean = 0, mad = 0;
         float[] ta = new float[n];
-        int k = 0;
-        for (int dy = -HALF; dy <= HALF; dy++)
-            for (int dx = -HALF; dx <= HALF; dx++, k++) {
-                ta[k] = a.at(0, px + dx, py + dy);
-                err += Math.abs(ta[k] - b.at(0, nx + dx, ny + dy));
-                mean += ta[k];
-            }
+        a.patch(0, px - HALF, py - HALF, side, ta);
+        b.patch(0, nx - HALF, ny - HALF, side, pb);
+        double err = 0, mean = 0, mad = 0;
+        for (int k = 0; k < n; k++) {
+            err += Math.abs(ta[k] - pb[k]);
+            mean += ta[k];
+        }
         mean /= n;
         for (float v : ta) mad += Math.abs(v - mean);
         // Diferencia media relativa al contraste propio de la ventana
