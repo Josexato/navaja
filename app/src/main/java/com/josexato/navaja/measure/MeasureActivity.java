@@ -46,6 +46,8 @@ public class MeasureActivity extends Activity {
     /** Cuadros por segundo analizados y lado mayor de cada cuadro (validado con un video real de 19 s). */
     private static final double FPS = 15;
     private static final int LONG_SIDE = 960, MAX_POINTS = 600;
+    /** Segunda pasada, sólo por el tramo elegido: más puntos para el objeto (no cambia la medida). */
+    private static final int DENSE_POINTS = 2000;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newSingleThreadExecutor();
@@ -163,17 +165,24 @@ public class MeasureActivity extends Activity {
                     dur[0] = d;
                     tr.feed(argb, w, h);
                     int pct = d > 0 ? (int) Math.min(100, 100 * t / d) : 0;
-                    post(String.format(Locale.getDefault(), "1/2 · Siguiendo puntos cuadro a cuadro: %d %%  (%d puntos activos)", pct, tr.activeCount()));
+                    post(String.format(Locale.getDefault(), "1/3 · Siguiendo puntos cuadro a cuadro: %d %%  (%d puntos activos)", pct, tr.activeCount()));
                     return true;
                 });
                 if (cancel.get()) return;
                 videoSeconds = dur[0] / 1e6;
                 if (tr.frames() < 20) throw new IOException("El video es muy corto: filma al menos 10 segundos");
                 List<Sfm.Result> segs = Sfm.reconstruct(tr.tracks, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
-                        (what, done, total) -> post("2/2 · " + what + ": " + done + " de ~" + total));
+                        (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
                 Measure.Choice ch = Measure.best(segs);
                 if (ch == null) throw new IOException("No pude reconstruir el objeto. Prueba moviéndote más alrededor de él, "
                         + "más despacio, y con algo de textura detrás.");
+                try {
+                    densify(uri, ch, dims);
+                } catch (IOException | RuntimeException e) {
+                    // Sin la segunda pasada la medida sigue valiendo: sólo hay menos puntos
+                    Log.w(TAG, "denso", e);
+                }
+                if (cancel.get()) return;
                 ui.post(() -> {
                     choice = ch;
                     scaleCm = 0;
@@ -184,6 +193,32 @@ public class MeasureActivity extends Activity {
                 if (!cancel.get()) ui.post(() -> error(e.getMessage()));
             }
         });
+    }
+
+    /**
+     * Vuelve a leer el video, sólo el tramo elegido, siguiendo muchos más
+     * puntos; con las poses ya conocidas cada uno sólo se triangula. Los
+     * cuadros se cuentan igual que en la primera pasada (mismo muestreo y
+     * mismos descartes), así que el índice coincide.
+     */
+    private void densify(Uri uri, Measure.Choice ch, int[] dims) throws IOException {
+        Sfm.Result r = ch.result;
+        Sfm.Tracker dt = new Sfm.Tracker(DENSE_POINTS, false);
+        int[] idx = {-1};
+        int span = r.endFrame - r.startFrame + 1;
+        VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+            if (cancel.get()) return false;
+            if (w != dims[0] || h != dims[1]) return true;
+            if (++idx[0] < r.startFrame) return true;
+            dt.feed(argb, w, h);
+            post(String.format(Locale.getDefault(), "3/3 · Agregando puntos al objeto: %d %%", 100 * (idx[0] - r.startFrame + 1) / span));
+            return idx[0] < r.endFrame;
+        });
+        if (cancel.get()) return;
+        int first = r.points.length;
+        int added = Sfm.densify(r, dt.tracks, r.startFrame);
+        Measure.include(r, ch.box, first);
+        Log.i(TAG, "denso: " + dt.tracks.size() + " pistas, +" + added + " puntos, objeto " + ch.box.objectPoints.length);
     }
 
     private void post(String s) { ui.post(() -> { if (progress != null) progress.setText(s); }); }

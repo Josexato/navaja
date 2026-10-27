@@ -1,6 +1,7 @@
 package com.josexato.navaja.measure.core;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -144,15 +145,17 @@ public final class Measure {
         }
         if (front.size() < 20) return null;
         // Separación típica entre vecinos: define qué tan cerca deben estar dos puntos para ser del mismo objeto
-        double[] nnd = new double[front.size()];
-        for (int a = 0; a < front.size(); a++) {
+        // (con una muestra de hasta 500 puntos: la mediana no cambia y con nubes densas evita un cálculo n²)
+        int step = Math.max(1, front.size() / 500);
+        double[] nnd = new double[(front.size() + step - 1) / step];
+        for (int a = 0, k = 0; a < front.size(); a += step, k++) {
             double b2 = Double.MAX_VALUE;
             for (int b = 0; b < front.size(); b++) {
                 if (a == b) continue;
                 double[] d = Lin.sub(p[front.get(a)], p[front.get(b)]);
                 b2 = Math.min(b2, Lin.dot(d, d));
             }
-            nnd[a] = Math.sqrt(b2);
+            nnd[k] = Math.sqrt(b2);
         }
         // 3) Grupos por cercanía (grilla de vóxeles, vecinos de 26)
         double vox = 5 * percentile(nnd, 50);
@@ -260,6 +263,28 @@ public final class Measure {
         box.separation = Math.max(0, percentile(dPlane, 1));
         box.objectPoints = best.stream().mapToInt(Integer::intValue).toArray();
         return box;
+    }
+
+    /**
+     * Suma al objeto los puntos {@code from..} (los del seguimiento denso) que
+     * caen dentro de su caja (con 5 % de margen) y no son de la pared o mesa.
+     * La caja no cambia: la medida sale de la nube rala, que es la más
+     * estable; los puntos densos sólo completan la vista y la exportación.
+     */
+    public static void include(Sfm.Result r, Box b, int from) {
+        double[][] axes = {b.axisH, b.axisW, b.axisD};
+        double[] half = {b.alto / 2 * 1.05, b.ancho / 2 * 1.05, b.prof / 2 * 1.05};
+        double off = 0.02 * Math.max(b.alto, Math.max(b.ancho, b.prof));
+        List<Integer> add = new ArrayList<>();
+        for (int i = from; i < r.points.length; i++) {
+            double[] d = Lin.sub(r.points[i], b.center);
+            boolean in = Lin.dot(Lin.sub(r.points[i], b.planeP), b.planeN) > off;
+            for (int a = 0; a < 3 && in; a++) in = Math.abs(Lin.dot(d, axes[a])) <= half[a];
+            if (in) add.add(i);
+        }
+        int[] all = Arrays.copyOf(b.objectPoints, b.objectPoints.length + add.size());
+        for (int k = 0; k < add.size(); k++) all[b.objectPoints.length + k] = add.get(k);
+        b.objectPoints = all;
     }
 
     // ------------------------------------------------------------------ utilidades
