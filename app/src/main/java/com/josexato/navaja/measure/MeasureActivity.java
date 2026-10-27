@@ -4,14 +4,19 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.text.InputType;
 import android.util.Log;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -30,9 +35,13 @@ import com.josexato.navaja.ui.Palette;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -48,7 +57,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MeasureActivity extends Activity {
 
     private static final String TAG = "Medir";
-    private static final int REQ_PICK = 1, REQ_RECORD = 2;
+    private static final int REQ_PICK = 1, REQ_RECORD = 2, REQ_FOLDER = 3;
     /** Cuadros por segundo analizados y lado mayor de cada cuadro (validado con un video real de 19 s). */
     private static final double FPS = 15;
     private static final int LONG_SIDE = 960, MAX_POINTS = 600;
@@ -77,6 +86,12 @@ public class MeasureActivity extends Activity {
     private int zonePoint = -1;
     /** Segunda opinión: volumen tallado con las siluetas (null si no se pudo). */
     private Carve.Result hull;
+    /** Para el informe: fotos de los cuadros clave, siluetas, tramos y pistas. */
+    private File[] photos;
+    private byte[][] masks;
+    private int maskW, maskH, trackCount;
+    private final List<double[]> segInfo = new ArrayList<>();
+    private boolean debug;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -101,7 +116,7 @@ public class MeasureActivity extends Activity {
     // ============================================================== inicio
 
     private void showIntro() {
-        NavajaUi.Screen scr = NavajaUi.screen(this, "Medir desde video", "Sin base giratoria: te mueves tú", null, true);
+        NavajaUi.Screen scr = NavajaUi.screen(this, "Escáner 3D desde video", "Sin escenario ni base giratoria: te mueves tú", null, true);
         LinearLayout c = scr.content;
         LinearLayout card = NavajaUi.card(this);
         card.addView(NavajaUi.text(this, "Cómo filmar", NavajaUi.Style.LABEL));
@@ -154,6 +169,14 @@ public class MeasureActivity extends Activity {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (res != RESULT_OK) return;
+        if (req == REQ_FOLDER && data != null && data.getData() != null) {
+            Uri tree = data.getData();
+            getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            prefs().edit().putString("carpeta", tree.toString()).apply();
+            updateFolderText();
+            if (pendingSave) save();
+            return;
+        }
         if (req == REQ_PICK && data != null && data.getData() != null) process(data.getData());
         else if (req == REQ_RECORD && recorded != null && recorded.length() > 0) process(Uri.fromFile(recorded));
         else if (req == REQ_RECORD && data != null && data.getData() != null) process(data.getData());
@@ -195,6 +218,9 @@ public class MeasureActivity extends Activity {
                 List<Sfm.Result> segs = Sfm.reconstruct(tr.tracks, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
                         (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
                 Measure.Choice ch = Measure.best(segs);
+                segInfo.clear();
+                for (Sfm.Result g : segs) segInfo.add(new double[]{g.startFrame / FPS, g.endFrame / FPS, g.poses.size(), g.points.length});
+                trackCount = tr.tracks.size();
                 if (ch == null) throw new IOException("No pude reconstruir el objeto. Prueba moviéndote más alrededor de él, "
                         + "más despacio, y con algo de textura detrás.");
                 videoUri = uri;
@@ -294,8 +320,13 @@ public class MeasureActivity extends Activity {
         Map<Integer, Integer> camOf = new HashMap<>();
         for (int c = 0; c < r.camFrames.size(); c++) camOf.put(r.camFrames.get(c), c);
         float[][] seeds = Carve.seeds(r, ch.box);
-        byte[][] masks = new byte[r.poses.size()][];
+        byte[][] cuts = new byte[r.poses.size()][];
         int mw = dims[0] / MASK_DIV, mh = dims[1] / MASK_DIV;
+        File photoDir = new File(getCacheDir(), "medida/fotos");
+        deleteTree(photoDir.getParentFile());
+        //noinspection ResultOfMethodCallIgnored
+        photoDir.mkdirs();
+        File[] shots = new File[r.poses.size()];
         Silhouettes sil = null;
         try {
             sil = new Silhouettes(this);
@@ -312,9 +343,10 @@ public class MeasureActivity extends Activity {
                 if (++idx[0] < r.startFrame) return true;
                 dt.feed(argb, w, h);
                 Integer c = camOf.get(idx[0]);
+                if (c != null) shots[c] = savePhoto(argb, w, h, new File(photoDir, MeasureReport.photoName(idx[0])));
                 if (model != null && c != null) {
                     try {
-                        masks[c] = model.segment(argb, w, h, seeds[c], mw, mh);
+                        cuts[c] = model.segment(argb, w, h, seeds[c], mw, mh);
                     } catch (RuntimeException e) {
                         Log.w(TAG, "silueta del cuadro " + idx[0], e); // se pierde sólo esta silueta
                     }
@@ -327,7 +359,11 @@ public class MeasureActivity extends Activity {
         }
         if (cancel.get()) return;
         // El casco usa sólo los puntos ralos (con sus pistas): se talla antes de sumar los densos
-        hull = model == null ? null : Carve.carve(r, ch.box, masks, mw, mh);
+        hull = model == null ? null : Carve.carve(r, ch.box, cuts, mw, mh);
+        photos = shots;
+        this.masks = cuts;
+        maskW = mw;
+        maskH = mh;
         int first = r.points.length;
         int added = Sfm.densify(r, dt.tracks, r.startFrame);
         Measure.include(r, ch.box, first);
@@ -336,12 +372,33 @@ public class MeasureActivity extends Activity {
                 100 * Carve.disagreement(ch.box, hull))));
     }
 
+    /** Guarda el cuadro como JPEG (para el informe); null si no se pudo. */
+    private static File savePhoto(int[] argb, int w, int h, File f) {
+        Bitmap bmp = Bitmap.createBitmap(argb, w, h, Bitmap.Config.ARGB_8888);
+        try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) {
+            bmp.compress(Bitmap.CompressFormat.JPEG, 88, fo);
+            return f;
+        } catch (IOException e) {
+            return null;
+        } finally {
+            bmp.recycle();
+        }
+    }
+
+    private static void deleteTree(File f) {
+        if (f == null || !f.exists()) return;
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteTree(k);
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+    }
+
     private void post(String s) { ui.post(() -> { if (progress != null) progress.setText(s); }); }
 
     // ============================================================ resultado
 
     private NavajaUi.Metric mAlto, mAncho, mProf;
-    private TextView extra, hullText;
+    private TextView extra, hullText, folderText;
 
     private void showResult() {
         Sfm.Result r = choice.result;
@@ -391,7 +448,7 @@ public class MeasureActivity extends Activity {
             hc.addView(NavajaUi.text(this, "Segunda opinión: siluetas", NavajaUi.Style.LABEL));
             hullText = NavajaUi.text(this, "", NavajaUi.Style.BODY);
             hc.addView(hullText);
-            hc.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Exportar volumen (STL)", v -> exportStl())));
+            hc.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Compartir volumen (STL)", v -> exportStl())));
             c.addView(hc);
         } else {
             hullText = null;
@@ -430,8 +487,25 @@ public class MeasureActivity extends Activity {
         extra = NavajaUi.text(this, "", NavajaUi.Style.SECONDARY);
         NavajaUi.topMargin(extra, 8);
         c.addView(extra);
+        // Guardar todo en una carpeta elegida (también la raíz de Archivos)
+        LinearLayout sc = NavajaUi.card(this);
+        sc.addView(NavajaUi.text(this, "Guardar", NavajaUi.Style.LABEL));
+        sc.addView(NavajaUi.text(this, "Un ZIP con el informe paso a paso, la nube (PLY), el volumen (STL) y las fotos usadas.",
+                NavajaUi.Style.SECONDARY));
+        CheckBox dbg = new CheckBox(this);
+        dbg.setText("Depuración: dibujar la silueta y 5 puntos clave en cada foto");
+        dbg.setTextColor(Palette.TEXT);
+        dbg.setChecked(debug);
+        dbg.setOnCheckedChangeListener((v, on) -> debug = on);
+        sc.addView(dbg);
+        folderText = NavajaUi.text(this, "", NavajaUi.Style.MUTED);
+        sc.addView(folderText);
+        sc.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "Guardar (ZIP)", v -> save()),
+                NavajaUi.secondary(this, "Cambiar carpeta", v -> chooseFolder())));
+        c.addView(sc);
+        updateFolderText();
         c.addView(NavajaUi.buttonRow(this,
-                NavajaUi.secondary(this, "Exportar nube (PLY)", v -> exportPly()),
+                NavajaUi.secondary(this, "Compartir nube (PLY)", v -> exportPly()),
                 NavajaUi.secondary(this, "Otro video", v -> showIntro())));
         setContentView(scr.root);
         updateMetrics();
@@ -503,16 +577,12 @@ public class MeasureActivity extends Activity {
     /** El volumen tallado como STL: en mm si hay medida conocida; si no, con el alto = 100 mm. */
     private void exportStl() {
         if (hull == null) return;
-        double mmPerUnit = scaleCm > 0 ? 10 * hullCmPerUnit() : 100 / hull.alto;
-        Mesh mesh = SurfaceNets.extract(hull.grid);
-        mesh.taubinSmooth(8);
-        for (int i = 0; i < mesh.pos.length; i++) mesh.pos[i] *= (float) mmPerUnit;
         File dir = new File(getExternalFilesDir(null), "medidas");
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
         File f = new File(dir, "volumen_" + System.currentTimeMillis() + ".stl");
-        try {
-            mesh.writeStl(f);
+        try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) {
+            fo.write(MeasureReport.stl(reportData()));
         } catch (IOException e) {
             toast("No se pudo guardar: " + e.getMessage());
             return;
@@ -529,6 +599,99 @@ public class MeasureActivity extends Activity {
     private static String cmOf(double cm) { return String.format(Locale.getDefault(), "%.1f cm", cm); }
 
     private static String ratio(double v) { return String.format(Locale.getDefault(), "%.2f", v); }
+
+    // ============================================================ guardar
+
+    private boolean pendingSave;
+
+    private SharedPreferences prefs() { return getSharedPreferences("medir", MODE_PRIVATE); }
+
+    /** La carpeta elegida, si todavía tenemos permiso para escribir en ella. */
+    private Uri folder() {
+        String t = prefs().getString("carpeta", null);
+        if (t == null) return null;
+        Uri u = Uri.parse(t);
+        for (android.content.UriPermission p : getContentResolver().getPersistedUriPermissions())
+            if (p.getUri().equals(u) && p.isWritePermission()) return u;
+        return null;
+    }
+
+    private void chooseFolder() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(i, REQ_FOLDER);
+        } catch (ActivityNotFoundException e) {
+            toast("Este teléfono no permite elegir carpetas");
+        }
+    }
+
+    private void updateFolderText() {
+        if (folderText == null) return;
+        Uri u = folder();
+        folderText.setText(u == null ? "Carpeta: la eliges la primera vez (puedes crear una, p. ej. «Navaja», en la raíz de Archivos)."
+                : "Carpeta: " + folderName(u));
+    }
+
+    private String folderName(Uri tree) {
+        Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+        try (Cursor cur = getContentResolver().query(doc, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            if (cur != null && cur.moveToFirst()) return cur.getString(0);
+        } catch (RuntimeException ignored) {
+            // sin nombre: se muestra el identificador
+        }
+        return DocumentsContract.getTreeDocumentId(tree);
+    }
+
+    MeasureReport.Data reportData() {
+        MeasureReport.Data d = new MeasureReport.Data();
+        d.choice = choice;
+        d.hull = hull;
+        d.scaleCm = scaleCm;
+        d.hullCmPerUnit = hull != null && scaleCm > 0 ? hullCmPerUnit() : 0;
+        d.knownName = new String[]{"el alto", "el ancho", choice.box.onWall ? "la profundidad" : "el largo"}[known];
+        d.videoSeconds = videoSeconds;
+        d.fps = FPS;
+        d.tracks = trackCount;
+        d.segments.addAll(segInfo);
+        d.photos = photos;
+        d.masks = masks;
+        d.maskW = maskW;
+        d.maskH = maskH;
+        return d;
+    }
+
+    /** ZIP con todo en la carpeta elegida: medida_AAAAMMDD_HHMMSS.zip. */
+    private void save() {
+        Uri tree = folder();
+        if (tree == null) {
+            pendingSave = true;
+            toast("Elige la carpeta donde guardar (la recordaré)");
+            chooseFolder();
+            return;
+        }
+        pendingSave = false;
+        MeasureReport.Data d = reportData();
+        boolean withDebug = debug;
+        String name = "medida_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date()) + ".zip";
+        toast("Guardando…");
+        work.execute(() -> {
+            try {
+                Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+                Uri doc = DocumentsContract.createDocument(getContentResolver(), parent, "application/zip", name);
+                if (doc == null) throw new IOException("no se pudo crear el archivo");
+                try (OutputStream os = getContentResolver().openOutputStream(doc)) {
+                    if (os == null) throw new IOException("no se pudo abrir el archivo");
+                    MeasureReport.write(os, d, withDebug);
+                }
+                String where = folderName(tree) + "/" + name;
+                ui.post(() -> toast("Guardado en " + where));
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "guardar", e);
+                ui.post(() -> toast("No se pudo guardar: " + e.getMessage() + ". Prueba «Cambiar carpeta»."));
+            }
+        });
+    }
 
     private void exportPly() {
         Sfm.Result r = choice.result;
@@ -560,7 +723,7 @@ public class MeasureActivity extends Activity {
     }
 
     private void error(String msg) {
-        new AlertDialog.Builder(this).setTitle("Medir desde video").setMessage(msg)
+        new AlertDialog.Builder(this).setTitle("Escáner 3D desde video").setMessage(msg)
                 .setPositiveButton("OK", (d, w) -> showIntro()).show();
     }
 

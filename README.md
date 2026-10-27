@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara. Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara**, una **pantonera** para medir colores y texturas y **medición de objetos desde un video**. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara (con escenario impreso o desde un video). Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso**, **Pantonera** y **Medir desde video** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Escáner 3D desde video**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso**, **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -132,7 +132,7 @@ Probado con fotos sintéticas de color, tamaños y fracciones conocidos (luz cá
 
 Límites: la cámara procesa la foto (tono, nitidez), así que el Lab es una buena aproximación, no un espectrofotómetro; las piedras minoritarias de colores parecidos (p. ej. azul y azul grisáceo) pueden quedar en un mismo grupo; granos de 1–2 px se promedian con la matriz (acerca el teléfono).
 
-## 📐 Medir desde video (botón «Medir desde video»)
+## 📐 Escáner 3D desde video (botón «Escáner 3D desde video»)
 
 Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escenario impreso ni base giratoria. Sirve para objetos colgados en una pared (una máscara, un cuadro con relieve) o apoyados en una mesa.
 
@@ -140,8 +140,9 @@ Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escen
 2. La app sigue cientos de puntos de un cuadro al siguiente (el mismo teléfono y la continuidad del video hacen el resto), reconstruye la posición de la cámara y una **nube de puntos 3D**, separa el objeto de la pared/mesa y calcula su caja.
 3. Sin referencia, el resultado son **proporciones** (alto/ancho/profundidad). Escribe **una medida conocida** (por ejemplo «alto = 25 cm») y **Calcular en cm** escala las otras.
 4. **Más puntos en una zona:** toca el objeto en la nube (el círculo blanco es la zona; chica, mediana o grande) y **Reprocesar la zona**: se vuelve a leer el tramo siguiendo puntos sólo ahí, con una grilla más fina (5–8× más puntos en esa zona si tiene textura; la medida no cambia).
-5. Arrastra la nube para girarla. **Exportar nube (PLY)** guarda los puntos del objeto (en cm si hay escala) en `Android/data/com.josexato.navaja/files/medidas/`.
-6. **Segunda opinión: siluetas.** En la misma pasada, una IA que corre en el teléfono recorta la silueta del objeto en cada cuadro clave y con ellas se talla su volumen. Si las dos medidas coinciden (✓, diferencia ≤ 8 %) la medida es confiable; si no (⚠), probablemente el video vino mal. **Exportar volumen (STL)** guarda ese volumen cerrado, listo para imprimir (en mm si hay medida conocida).
+5. Arrastra la nube para girarla. **Compartir nube (PLY)** envía los puntos del objeto (en cm si hay escala) en `Android/data/com.josexato.navaja/files/medidas/`.
+6. **Segunda opinión: siluetas.** En la misma pasada, una IA que corre en el teléfono recorta la silueta del objeto en cada cuadro clave y con ellas se talla su volumen. Si las dos medidas coinciden (✓, diferencia ≤ 8 %) la medida es confiable; si no (⚠), probablemente el video vino mal. **Compartir volumen (STL)** envía ese volumen cerrado, listo para imprimir (en mm si hay medida conocida).
+7. **Guardar (ZIP)** en la carpeta que elijas la primera vez (por ejemplo una carpeta «Navaja» en la raíz de Archivos; se recuerda): `informe.md` paso a paso (tramos, fotos usadas con la posición del celular, medidas por los dos métodos y 5 puntos clave: arriba, abajo, izquierda, derecha y frente), `nube_objeto.ply`, `nube_completa.ply`, `volumen.stl` y `fotos/`. Con **Depuración** marcada agrega `depuracion/`: cada foto con la silueta y los puntos clave dibujados.
 
 | Paso | Técnica |
 |---|---|

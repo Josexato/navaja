@@ -287,6 +287,48 @@ public final class Measure {
         b.objectPoints = all;
     }
 
+    /** Nombres de los puntos clave, en el orden de {@link #landmarks}. */
+    public static final String[] LANDMARKS = {"arriba", "abajo", "izquierda", "derecha", "frente"};
+
+    /**
+     * Cinco puntos que marcan la geometría del objeto: el más alto, el más
+     * bajo, el de más a la izquierda, el de más a la derecha y el más
+     * alejado de la pared o mesa. Sólo puntos con pistas vistos desde 3 o
+     * más cámaras; entre el 5 % más extremo, el más visto (el extremo
+     * absoluto suele ser ruido y se ve en pocas fotos). Devuelve índices en
+     * {@code r.points} (−1 si no hay).
+     */
+    public static int[] landmarks(Sfm.Result r, Box b) {
+        List<Integer> good = new ArrayList<>();
+        for (int i : b.objectPoints)
+            if (i < r.pointTracks.size() && r.nObs[i] >= 3) good.add(i);
+        int[] out = new int[LANDMARKS.length];
+        Arrays.fill(out, -1);
+        if (good.isEmpty()) return out;
+        double[][] key = new double[LANDMARKS.length][good.size()];
+        for (int k = 0; k < good.size(); k++) {
+            double[] q = Lin.sub(r.points[good.get(k)], b.center);
+            double hh = Lin.dot(q, b.axisH), ww = Lin.dot(q, b.axisW);
+            double front = Lin.dot(Lin.sub(r.points[good.get(k)], b.planeP), b.planeN);
+            key[0][k] = hh;
+            key[1][k] = -hh;
+            key[2][k] = -ww;
+            key[3][k] = ww;
+            key[4][k] = front;
+        }
+        for (int l = 0; l < LANDMARKS.length; l++) {
+            Integer[] order = new Integer[good.size()];
+            for (int k = 0; k < order.length; k++) order[k] = k;
+            final double[] kv = key[l];
+            Arrays.sort(order, (x, y) -> Double.compare(kv[y], kv[x]));
+            // Entre el 5 % más extremo, el que se vio desde más cámaras (para verlo en más fotos)
+            int best = order[0], top = Math.max(1, (int) Math.ceil(0.05 * order.length));
+            for (int k = 1; k < top; k++) if (r.nObs[good.get(order[k])] > r.nObs[good.get(best)]) best = order[k];
+            out[l] = good.get(best);
+        }
+        return out;
+    }
+
     // ------------------------------------------------------------------ utilidades
 
     /** Eje principal (componentes principales) de los puntos proyectados en el plano de normal {@code n}. */
