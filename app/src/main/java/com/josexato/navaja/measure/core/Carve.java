@@ -1,0 +1,259 @@
+package com.josexato.navaja.measure.core;
+
+import com.josexato.navaja.scan3d.core.Carver;
+
+import java.util.ArrayDeque;
+import java.util.Arrays;
+
+/**
+ * Segunda opinión de la medida: el volumen del objeto tallado con sus
+ * siluetas (una por cuadro clave, de un segmentador) y con el espacio libre
+ * que dejan los puntos 3D (delante del punto más cercano que vio cada cámara
+ * no hay nada). Las siluetas dan el contorno, incluso en zonas lisas sin puntos;
+ * el espacio libre corrige el frente, que con un recorrido sólo horizontal
+ * ninguna silueta recorta. Es independiente de la medida por puntos: si las
+ * dos coinciden, la medida es confiable.
+ */
+public final class Carve {
+
+    private Carve() { }
+
+    /** Vóxeles por lado del eje más largo de la grilla. */
+    static final int N = 100;
+    /** Cuadros en los que un vóxel puede caer fuera de la silueta y aun así quedar (errores de segmentación). */
+    static final int TOL = 2;
+    /** Zonas de la imagen (px) para la profundidad del punto más cercano que vio cada cámara. */
+    static final int CELL = 24;
+    /** Cámaras que deben ver vacío un vóxel para quitarlo (un punto 3D malo no alcanza). */
+    static final int MIN_FREE = 2;
+
+    public static final class Result {
+        /** Ocupación en ejes de la caja: i = ancho, j = alto, k = profundidad (unidades del modelo). */
+        public Carver.Grid grid;
+        /** Medidas (percentiles 1–99) en unidades del modelo; {@code front} = de la pared/mesa al punto más alejado. */
+        public double ancho, alto, prof, front, volume;
+        /** Cuadros con silueta usados. */
+        public int views;
+    }
+
+    /**
+     * @param masks silueta de cada cámara de {@code r} (mismo orden que
+     *              {@code r.poses}), {@code mw}×{@code mh} píxeles, 1 = objeto;
+     *              null si no hay silueta para esa cámara
+     * @return null si hay menos de 8 siluetas o no queda volumen
+     */
+    public static Result carve(Sfm.Result r, Measure.Box b, byte[][] masks, int mw, int mh) {
+        int views = 0;
+        for (byte[] m : masks) if (m != null) views++;
+        if (views < 8) return null;
+        double[][] axes = {b.axisW, b.axisH, b.axisD};
+        double[] ext = {b.ancho, b.alto, b.prof};
+        // Eje de la normal del plano de apoyo: desde el plano hasta bien delante; los otros, ±75 %
+        int na = 0;
+        for (int a = 1; a < 3; a++) if (Math.abs(Lin.dot(axes[a], b.planeN)) > Math.abs(Lin.dot(axes[na], b.planeN))) na = a;
+        double side = Math.max(b.ancho, Math.max(b.alto, b.prof));
+        double[] lo = new double[3], hi = new double[3];
+        for (int a = 0; a < 3; a++) {
+            lo[a] = -0.75 * ext[a];
+            hi[a] = 0.75 * ext[a];
+        }
+        double sgn = Math.signum(Lin.dot(axes[na], b.planeN));
+        double d0 = Lin.dot(Lin.sub(b.center, b.planeP), b.planeN); // centro de la caja → plano
+        double pLo = -d0 - 0.05 * side, pHi = -d0 + 2.0 * ext[na];
+        lo[na] = sgn > 0 ? pLo : -pHi;
+        hi[na] = sgn > 0 ? pHi : -pLo;
+        double step = 1.5 * side / N;
+        Carver.Grid g = new Carver.Grid();
+        g.nx = (int) Math.ceil((hi[0] - lo[0]) / step);
+        g.ny = (int) Math.ceil((hi[1] - lo[1]) / step);
+        g.nz = (int) Math.ceil((hi[2] - lo[2]) / step);
+        g.x0 = lo[0];
+        g.y0 = lo[1];
+        g.z0 = lo[2];
+        g.step = step;
+        int n = g.nx * g.ny * g.nz;
+        short[] bad = new short[n], seen = new short[n], free = new short[n];
+        double sx = (double) mw / r.width, sy = (double) mh / r.height;
+        double cx = r.width / 2.0, cy = r.height / 2.0;
+        int gw = (r.width + CELL - 1) / CELL, gh = (r.height + CELL - 1) / CELL;
+        for (int c = 0; c < r.poses.size(); c++) {
+            byte[] m = masks[c];
+            if (m == null) continue;
+            Geometry.Pose p = r.poses.get(c);
+            double[] depth = nearestDepth(r, c, gw, gh);
+            // Proyección incremental: x_c = R·(center + i·aW + j·aH + k·aD) + t
+            double[] ri = Lin.scale(Lin.mulV(p.r, axes[0]), step), rj = Lin.scale(Lin.mulV(p.r, axes[1]), step),
+                    rk = Lin.scale(Lin.mulV(p.r, axes[2]), step);
+            double[] o = Lin.add(p.apply(b.center), Lin.add(Lin.scale(Lin.mulV(p.r, axes[0]), lo[0] + step / 2),
+                    Lin.add(Lin.scale(Lin.mulV(p.r, axes[1]), lo[1] + step / 2), Lin.scale(Lin.mulV(p.r, axes[2]), lo[2] + step / 2))));
+            double margin = 2 * step;
+            for (int k = 0; k < g.nz; k++)
+                for (int j = 0; j < g.ny; j++) {
+                    double x = o[0] + j * rj[0] + k * rk[0], y = o[1] + j * rj[1] + k * rk[1], z = o[2] + j * rj[2] + k * rk[2];
+                    int row = (k * g.ny + j) * g.nx;
+                    for (int i = 0; i < g.nx; i++, x += ri[0], y += ri[1], z += ri[2]) {
+                        if (z <= 0) continue;
+                        double fu = r.focal * x / z + cx, fv = r.focal * y / z + cy;
+                        double u = fu * sx, v = fv * sy;
+                        if (u < 1 || v < 1 || u >= mw - 1 || v >= mh - 1) continue;
+                        // 1) Silueta: cuántas veces cae fuera (y cuántas se ve)
+                        seen[row + i]++;
+                        if (m[(int) v * mw + (int) u] == 0) bad[row + i]++;
+                        // 2) Espacio libre: claramente delante del punto más cercano que vio esta cámara en esa zona
+                        double dz = depth[(int) (fv / CELL) * gw + (int) (fu / CELL)];
+                        if (dz > 0 && z < dz - margin) free[row + i]++;
+                    }
+                }
+        }
+        // 3) Ocupado: dentro de casi todas las siluetas, visto lo suficiente, sin rayos que lo crucen y del lado del objeto
+        int minSeen = Math.max(5, views / 5);
+        g.occ = new byte[n];
+        for (int k = 0; k < g.nz; k++)
+            for (int j = 0; j < g.ny; j++)
+                for (int i = 0; i < g.nx; i++) {
+                    int id = g.idx(i, j, k);
+                    if (bad[id] > TOL || seen[id] < minSeen) continue;
+                    if (free[id] >= MIN_FREE) continue;
+                    if (planeDist(g, b, axes, i, j, k) <= 0) continue;
+                    g.occ[id] = 1;
+                }
+        largestComponent(g);
+        // 4) Medidas
+        int cnt = g.count();
+        if (cnt < 50) return null;
+        double[][] coord = new double[3][cnt];
+        double[] pd = new double[cnt];
+        int q = 0;
+        for (int k = 0; k < g.nz; k++)
+            for (int j = 0; j < g.ny; j++)
+                for (int i = 0; i < g.nx; i++)
+                    if (g.occ[g.idx(i, j, k)] != 0) {
+                        coord[0][q] = g.x0 + (i + 0.5) * step;
+                        coord[1][q] = g.y0 + (j + 0.5) * step;
+                        coord[2][q] = g.z0 + (k + 0.5) * step;
+                        pd[q++] = planeDist(g, b, axes, i, j, k);
+                    }
+        Result res = new Result();
+        res.grid = g;
+        res.views = views;
+        double[] e = new double[3];
+        for (int a = 0; a < 3; a++) e[a] = Measure.percentile(coord[a], 99) - Measure.percentile(coord[a], 1);
+        res.ancho = e[0];
+        res.alto = e[1];
+        res.prof = e[2];
+        res.front = Measure.percentile(pd, 99);
+        res.volume = cnt * step * step * step;
+        return res;
+    }
+
+    /**
+     * Profundidad del punto observado más cercano a la cámara {@code c} en
+     * cada zona de CELL×CELL px, tomando también las 8 zonas vecinas (más
+     * prudente cerca de bordes y en zonas sin puntos); 0 = sin datos.
+     */
+    static double[] nearestDepth(Sfm.Result r, int c, int gw, int gh) {
+        double[] d = new double[gw * gh];
+        int fr = r.camFrames.get(c);
+        Geometry.Pose p = r.poses.get(c);
+        for (int i = 0; i < r.pointTracks.size() && i < r.points.length; i++)
+            for (Sfm.Track t : r.pointTracks.get(i))
+                if (t.visible(fr)) {
+                    double z = p.apply(r.points[i])[2];
+                    int gx = (int) (t.x(fr) / CELL), gy = (int) (t.y(fr) / CELL);
+                    if (z > 0 && gx >= 0 && gy >= 0 && gx < gw && gy < gh && (d[gy * gw + gx] == 0 || z < d[gy * gw + gx])) d[gy * gw + gx] = z;
+                    break;
+                }
+        double[] out = new double[gw * gh];
+        for (int y = 0; y < gh; y++)
+            for (int x = 0; x < gw; x++) {
+                double best = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int xx = x + dx, yy = y + dy;
+                        if (xx < 0 || yy < 0 || xx >= gw || yy >= gh) continue;
+                        double v = d[yy * gw + xx];
+                        if (v > 0 && (best == 0 || v < best)) best = v;
+                    }
+                out[y * gw + x] = best;
+            }
+        return out;
+    }
+
+    /** Distancia al plano del centro del vóxel (i, j, k): es lineal en i, j, k. */
+    private static double planeDist(Carver.Grid g, Measure.Box b, double[][] axes, int i, int j, int k) {
+        double base = Lin.dot(Lin.sub(b.center, b.planeP), b.planeN);
+        return base + Lin.dot(axes[0], b.planeN) * (g.x0 + (i + 0.5) * g.step) + Lin.dot(axes[1], b.planeN) * (g.y0 + (j + 0.5) * g.step)
+                + Lin.dot(axes[2], b.planeN) * (g.z0 + (k + 0.5) * g.step);
+    }
+
+    /** Deja sólo la mayor región conexa (vecinos de 6): quita restos sueltos de siluetas imperfectas. */
+    static void largestComponent(Carver.Grid g) {
+        int n = g.occ.length;
+        int[] label = new int[n];
+        int best = 0, bestSize = 0, next = 0;
+        ArrayDeque<Integer> queue = new ArrayDeque<>();
+        for (int s = 0; s < n; s++) {
+            if (g.occ[s] == 0 || label[s] != 0) continue;
+            next++;
+            int size = 0;
+            label[s] = next;
+            queue.add(s);
+            while (!queue.isEmpty()) {
+                int id = queue.poll();
+                size++;
+                int i = id % g.nx, j = (id / g.nx) % g.ny, k = id / (g.nx * g.ny);
+                int[][] nb = {{i - 1, j, k}, {i + 1, j, k}, {i, j - 1, k}, {i, j + 1, k}, {i, j, k - 1}, {i, j, k + 1}};
+                for (int[] c : nb) {
+                    if (c[0] < 0 || c[1] < 0 || c[2] < 0 || c[0] >= g.nx || c[1] >= g.ny || c[2] >= g.nz) continue;
+                    int o = g.idx(c[0], c[1], c[2]);
+                    if (g.occ[o] != 0 && label[o] == 0) {
+                        label[o] = next;
+                        queue.add(o);
+                    }
+                }
+            }
+            if (size > bestSize) { bestSize = size; best = next; }
+        }
+        for (int s = 0; s < n; s++) if (label[s] != best) g.occ[s] = 0;
+    }
+
+    /**
+     * Qué tanto coinciden las dos medidas: la mayor diferencia relativa entre
+     * las proporciones (ancho, alto y distancia al plano, cada una dividida
+     * por la media geométrica de las tres). 0,05 = 5 %.
+     */
+    public static double disagreement(Measure.Box b, Result h) {
+        double[] pts = {b.ancho, b.alto, b.separation + b.prof};
+        double[] hull = {h.ancho, h.alto, h.front};
+        if (!b.onWall) {
+            // En una mesa la normal es el alto: el casco va del plano al tope
+            pts = new double[]{b.ancho, b.separation + b.alto, b.prof};
+            hull = new double[]{h.ancho, h.front, h.prof};
+        }
+        double gp = Math.cbrt(pts[0] * pts[1] * pts[2]), gh = Math.cbrt(hull[0] * hull[1] * hull[2]);
+        double worst = 0;
+        for (int a = 0; a < 3; a++) worst = Math.max(worst, Math.abs(hull[a] / gh - pts[a] / gp) / (pts[a] / gp));
+        return worst;
+    }
+
+    /** Puntos de pista visibles en cada cámara: dónde "tocar" el objeto para segmentarlo (x, y intercalados, en píxeles del cuadro). */
+    public static float[][] seeds(Sfm.Result r, Measure.Box b) {
+        float[][] out = new float[r.poses.size()][];
+        for (int c = 0; c < out.length; c++) {
+            int fr = r.camFrames.get(c);
+            float[] tmp = new float[2 * b.objectPoints.length];
+            int m = 0;
+            for (int i : b.objectPoints) {
+                if (i >= r.pointTracks.size()) continue; // puntos densos: sin pistas
+                for (Sfm.Track t : r.pointTracks.get(i))
+                    if (t.visible(fr)) {
+                        tmp[m++] = t.x(fr);
+                        tmp[m++] = t.y(fr);
+                        break;
+                    }
+            }
+            out[c] = Arrays.copyOf(tmp, m);
+        }
+        return out;
+    }
+}

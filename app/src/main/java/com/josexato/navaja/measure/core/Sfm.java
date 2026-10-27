@@ -207,6 +207,8 @@ public final class Sfm {
         public double[][] points;
         public int[] colors;
         public int[] nObs;
+        /** Pistas de cada punto ralo (de ahí, desde qué cámaras se vio); los puntos densos no tienen. */
+        public List<List<Track>> pointTracks = new ArrayList<>();
         public double focal, rms;
         public int width, height, frames, keyframes;
         /** Tramo del video usado (cuadros) y su índice de cuadro clave final. */
@@ -401,6 +403,7 @@ public final class Sfm {
         }
         double rms = bundle(camKf, kf, poses, goodPts, goodTr, f, cx, cy, 20, camKf.size() >= 8);
         out.points = goodPts.toArray(new double[0][]);
+        out.pointTracks = goodTr;
         out.colors = new int[goodTr.size()];
         out.nObs = new int[goodTr.size()];
         for (int i = 0; i < goodTr.size(); i++) {

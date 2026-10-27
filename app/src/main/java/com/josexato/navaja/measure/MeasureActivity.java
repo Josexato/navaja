@@ -19,17 +19,22 @@ import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
+import com.josexato.navaja.measure.core.Carve;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Sfm;
+import com.josexato.navaja.scan3d.core.Mesh;
+import com.josexato.navaja.scan3d.core.SurfaceNets;
 import com.josexato.navaja.ui.NavajaUi;
 import com.josexato.navaja.ui.Palette;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -51,6 +56,8 @@ public class MeasureActivity extends Activity {
     private static final int DENSE_POINTS = 2000;
     /** Reproceso de una zona: puntos a la vez y celda de siembra (px), más fina que la normal. */
     private static final int ZONE_POINTS = 1500, ZONE_CELL = 4;
+    /** Las siluetas se guardan a la mitad de resolución del cuadro (sobra para tallar). */
+    private static final int MASK_DIV = 2;
     /** Radio de la zona como fracción del lado mayor de la caja: chica, mediana, grande. */
     private static final double[] ZONE_SIZES = {0.10, 0.15, 0.25};
 
@@ -68,6 +75,8 @@ public class MeasureActivity extends Activity {
     private int zoneSize = 1;
     /** Centro de la zona elegida (índice en la nube), se conserva al volver del reproceso. */
     private int zonePoint = -1;
+    /** Segunda opinión: volumen tallado con las siluetas (null si no se pudo). */
+    private Carve.Result hull;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -98,7 +107,8 @@ public class MeasureActivity extends Activity {
         card.addView(NavajaUi.text(this, "Cómo filmar", NavajaUi.Style.LABEL));
         card.addView(NavajaUi.text(this,
                 "1. Filma 10–20 s moviéndote ALREDEDOR del objeto (no basta con girar el celular en el lugar).\n"
-                        + "2. Despacio y sin sacudidas; que nada pase por delante y tape la vista.\n"
+                        + "2. Despacio, sin sacudidas y a una distancia parecida; que nada pase por delante y tape la vista.\n"
+                        + "   Mientras rodeas, sube y baja un poco el celular: así también se recortan bien arriba y abajo.\n"
                         + "3. Empieza con el celular derecho: así sé dónde es «arriba».\n"
                         + "4. Ayuda que el objeto y lo que hay detrás tengan textura (no paredes lisas ni vidrio).\n"
                         + "5. Al final pon una medida que conozcas (por ejemplo el alto) para tener centímetros.",
@@ -189,6 +199,7 @@ public class MeasureActivity extends Activity {
                         + "más despacio, y con algo de textura detrás.");
                 videoUri = uri;
                 videoDims = dims;
+                hull = null;
                 try {
                     densify(uri, ch, dims);
                 } catch (IOException | RuntimeException e) {
@@ -279,21 +290,50 @@ public class MeasureActivity extends Activity {
     private void densify(Uri uri, Measure.Choice ch, int[] dims) throws IOException {
         Sfm.Result r = ch.result;
         Sfm.Tracker dt = new Sfm.Tracker(DENSE_POINTS, false);
+        // En la misma pasada: la silueta del objeto en cada cuadro clave (segunda opinión de la medida)
+        Map<Integer, Integer> camOf = new HashMap<>();
+        for (int c = 0; c < r.camFrames.size(); c++) camOf.put(r.camFrames.get(c), c);
+        float[][] seeds = Carve.seeds(r, ch.box);
+        byte[][] masks = new byte[r.poses.size()][];
+        int mw = dims[0] / MASK_DIV, mh = dims[1] / MASK_DIV;
+        Silhouettes sil = null;
+        try {
+            sil = new Silhouettes(this);
+        } catch (IOException | RuntimeException | LinkageError e) {
+            Log.w(TAG, "siluetas", e); // sin modelo (o sin su librería nativa): sólo la medida por puntos
+        }
+        Silhouettes model = sil;
         int[] idx = {-1};
         int span = r.endFrame - r.startFrame + 1;
-        VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
-            if (cancel.get()) return false;
-            if (w != dims[0] || h != dims[1]) return true;
-            if (++idx[0] < r.startFrame) return true;
-            dt.feed(argb, w, h);
-            post(String.format(Locale.getDefault(), "3/3 · Agregando puntos al objeto: %d %%", 100 * (idx[0] - r.startFrame + 1) / span));
-            return idx[0] < r.endFrame;
-        });
+        try {
+            VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                if (cancel.get()) return false;
+                if (w != dims[0] || h != dims[1]) return true;
+                if (++idx[0] < r.startFrame) return true;
+                dt.feed(argb, w, h);
+                Integer c = camOf.get(idx[0]);
+                if (model != null && c != null) {
+                    try {
+                        masks[c] = model.segment(argb, w, h, seeds[c], mw, mh);
+                    } catch (RuntimeException e) {
+                        Log.w(TAG, "silueta del cuadro " + idx[0], e); // se pierde sólo esta silueta
+                    }
+                }
+                post(String.format(Locale.getDefault(), "3/3 · Agregando puntos y siluetas del objeto: %d %%", 100 * (idx[0] - r.startFrame + 1) / span));
+                return idx[0] < r.endFrame;
+            });
+        } finally {
+            if (model != null) model.close();
+        }
         if (cancel.get()) return;
+        // El casco usa sólo los puntos ralos (con sus pistas): se talla antes de sumar los densos
+        hull = model == null ? null : Carve.carve(r, ch.box, masks, mw, mh);
         int first = r.points.length;
         int added = Sfm.densify(r, dt.tracks, r.startFrame);
         Measure.include(r, ch.box, first);
-        Log.i(TAG, "denso: " + dt.tracks.size() + " pistas, +" + added + " puntos, objeto " + ch.box.objectPoints.length);
+        Log.i(TAG, "denso: " + dt.tracks.size() + " pistas, +" + added + " puntos, objeto " + ch.box.objectPoints.length
+                + (hull == null ? " · sin casco" : String.format(Locale.ROOT, " · casco %d siluetas, diferencia %.1f %%", hull.views,
+                100 * Carve.disagreement(ch.box, hull))));
     }
 
     private void post(String s) { ui.post(() -> { if (progress != null) progress.setText(s); }); }
@@ -301,7 +341,7 @@ public class MeasureActivity extends Activity {
     // ============================================================ resultado
 
     private NavajaUi.Metric mAlto, mAncho, mProf;
-    private TextView extra;
+    private TextView extra, hullText;
 
     private void showResult() {
         Sfm.Result r = choice.result;
@@ -345,6 +385,17 @@ public class MeasureActivity extends Activity {
         })));
         c.addView(card);
         if (tabs.length > 0) NavajaUi.setChip(tabs[known], true);
+        // Segunda opinión: el volumen tallado con las siluetas (IA en el teléfono)
+        if (hull != null) {
+            LinearLayout hc = NavajaUi.card(this);
+            hc.addView(NavajaUi.text(this, "Segunda opinión: siluetas", NavajaUi.Style.LABEL));
+            hullText = NavajaUi.text(this, "", NavajaUi.Style.BODY);
+            hc.addView(hullText);
+            hc.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Exportar volumen (STL)", v -> exportStl())));
+            c.addView(hc);
+        } else {
+            hullText = null;
+        }
         // Más puntos en una zona: se vuelve a leer el tramo siguiendo puntos sólo ahí
         LinearLayout zc = NavajaUi.card(this);
         zc.addView(NavajaUi.text(this, "Más puntos en una zona", NavajaUi.Style.LABEL));
@@ -410,9 +461,72 @@ public class MeasureActivity extends Activity {
                 + "±10 %% en profundidad.", r.rms, b.objectPoints.length));
         if (scaleCm <= 0) sb.append("\nSin una medida conocida sólo hay proporciones: el tamaño real no se puede saber desde un video.");
         extra.setText(sb);
+        if (hullText != null) hullText.setText(hullSummary());
     }
 
-    private String cm(double modelUnits) { return String.format(Locale.getDefault(), "%.1f cm", modelUnits * scaleCm); }
+    /**
+     * Cuántos cm por unidad del casco: cada método se escala con su propia
+     * dimensión de la medida conocida (los puntos dispersos agrandan un poco la
+     * caja por igual en los tres ejes; las proporciones son lo comparable).
+     */
+    private double hullCmPerUnit() {
+        Measure.Box b = choice.box;
+        double pts = known == 0 ? b.alto : known == 1 ? b.ancho : b.separation + b.prof;
+        double hl = known == 0 ? hull.alto : known == 1 ? hull.ancho : hull.front;
+        if (!b.onWall && known == 2) { pts = b.prof; hl = hull.prof; }
+        return scaleCm * pts / hl;
+    }
+
+    private CharSequence hullSummary() {
+        Measure.Box b = choice.box;
+        double d = Carve.disagreement(b, hull);
+        String front = b.onWall ? "De la pared al frente" : "Del apoyo al tope";
+        StringBuilder sb = new StringBuilder();
+        if (scaleCm > 0) {
+            double k = hullCmPerUnit();
+            sb.append(String.format(Locale.getDefault(), "Alto %s · Ancho %s · %s %s", cmOf(hull.alto * k), cmOf(hull.ancho * k), front,
+                    cmOf((b.onWall ? hull.front : hull.prof) * k)));
+            sb.append(String.format(Locale.getDefault(), "\nVolumen ≈ %,.0f cm³ (macizo, sin el hueco de atrás)", hull.volume * k * k * k));
+        } else {
+            sb.append(String.format(Locale.getDefault(), "Ancho %s × el alto · %s %s × el alto", ratio(hull.ancho / hull.alto),
+                    front.toLowerCase(Locale.ROOT), ratio((b.onWall ? hull.front : hull.prof) / hull.alto)));
+        }
+        int pct = (int) Math.round(100 * d);
+        if (d <= 0.08) sb.append("\n✓ Coincide con la medida por puntos (diferencia ").append(pct).append(" %).");
+        else if (d <= 0.15) sb.append("\n≈ Coincide a medias (diferencia ").append(pct).append(" %): toma la medida con cautela.");
+        else sb.append("\n⚠ No coincide (diferencia ").append(pct).append(" %): el video puede venir mal (poco recorrido, objeto cortado o "
+                    + "imagen movida). Prueba con otro video.");
+        sb.append("\nTallado con ").append(hull.views).append(" siluetas del objeto (IA en el teléfono) y el espacio libre que dejan los puntos.");
+        return sb;
+    }
+
+    /** El volumen tallado como STL: en mm si hay medida conocida; si no, con el alto = 100 mm. */
+    private void exportStl() {
+        if (hull == null) return;
+        double mmPerUnit = scaleCm > 0 ? 10 * hullCmPerUnit() : 100 / hull.alto;
+        Mesh mesh = SurfaceNets.extract(hull.grid);
+        mesh.taubinSmooth(8);
+        for (int i = 0; i < mesh.pos.length; i++) mesh.pos[i] *= (float) mmPerUnit;
+        File dir = new File(getExternalFilesDir(null), "medidas");
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        File f = new File(dir, "volumen_" + System.currentTimeMillis() + ".stl");
+        try {
+            mesh.writeStl(f);
+        } catch (IOException e) {
+            toast("No se pudo guardar: " + e.getMessage());
+            return;
+        }
+        if (scaleCm <= 0) toast("Sin medida conocida: el STL tiene el alto = 100 mm");
+        Uri u = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+        Intent i = new Intent(Intent.ACTION_SEND).setType("model/stl").putExtra(Intent.EXTRA_STREAM, u)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivity(Intent.createChooser(i, "Compartir volumen (STL)"));
+    }
+
+    private String cm(double modelUnits) { return cmOf(modelUnits * scaleCm); }
+
+    private static String cmOf(double cm) { return String.format(Locale.getDefault(), "%.1f cm", cm); }
 
     private static String ratio(double v) { return String.format(Locale.getDefault(), "%.2f", v); }
 
