@@ -181,6 +181,27 @@ public class CarveTest {
             assertTrue("giro " + st.turnDeg, st.turnDeg > 2 && st.turnDeg < 9); // 3° horizontales + el vaivén vertical
             assertTrue(st.shared > 100);
         }
+        // Siluetas malas (fotos movidas): 4 manchas en otro lugar y 4 desbordadas por toda la imagen. Se descartan
+        // justo esas y el casco sigue midiendo la caja
+        byte[][] bad = masks.clone();
+        for (int c = 0; c < 8; c++) {
+            byte[] m = new byte[mw * mh];
+            if (c % 2 == 0) for (int y = 5; y < 40; y++) for (int x = 5; x < 40; x++) m[y * mw + x] = 1;
+            else java.util.Arrays.fill(m, (byte) 1);
+            bad[3 * c + 1] = m;
+        }
+        byte[][] used = Carve.validate(r, box, bad, mw, mh);
+        int off = 0;
+        for (int c = 0; c < used.length; c++) {
+            if (used[c] == null) off++;
+            if (c % 3 != 1 || c > 22) assertNotNull("buena " + c, used[c]);
+        }
+        assertEquals("descartadas", 8, off);
+        Carve.Result hb = Carve.carve(r, box, used, mw, mh);
+        assertNotNull(hb);
+        assertEquals("ancho con siluetas malas", 15, hb.ancho, 1.0);
+        assertEquals("alto con siluetas malas", 20, hb.alto, 1.5);
+        assertEquals("frente con siluetas malas", 15, hb.front, 1.0);
         // Sin siluetas suficientes no hay casco
         byte[][] few = new byte[masks.length][];
         System.arraycopy(masks, 0, few, 0, 5);

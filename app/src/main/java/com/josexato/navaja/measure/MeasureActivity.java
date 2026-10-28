@@ -93,6 +93,8 @@ public class MeasureActivity extends Activity {
     /** Para el informe: fotos de los cuadros clave, siluetas, tramos y pistas. */
     private File[] photos;
     private byte[][] masks;
+    /** Las siluetas que se usaron (las que concuerdan con los puntos del objeto); null donde se descartó o no hubo. */
+    private byte[][] masksUsed;
     private int maskW, maskH, trackCount;
     private final List<double[]> segInfo = new ArrayList<>();
     /** Por cuadro analizado: puntos activos, perdidos y nuevos (para ver dónde el movimiento fue brusco). */
@@ -420,13 +422,16 @@ public class MeasureActivity extends Activity {
         // Con siluetas se sabe mejor qué puntos son del objeto: los que caen dentro de la silueta en casi todas
         // las vistas (la agrupación por cercanía puede quedarse con una parte). Con ellos, caja nueva y tallado.
         if (model != null) {
-            Measure.Box nb = Measure.rebox(r, ch.box, Carve.silhouetteMembers(r, ch.box, cuts, mw, mh));
+            Measure.Box nb = Measure.rebox(r, ch.box, Carve.silhouetteMembers(r, ch.box, Carve.validate(r, ch.box, cuts, mw, mh), mw, mh));
             if (nb != null) {
                 Log.i(TAG, "objeto según las siluetas: " + nb.objectPoints.length + " puntos (antes " + ch.box.objectPoints.length + ")");
                 ch.box = nb;
             }
         }
-        hull = model == null ? null : Carve.carve(r, ch.box, cuts, mw, mh);
+        // Se validan de nuevo con la caja nueva (sus puntos son más del objeto)
+        byte[][] used = model == null ? null : Carve.validate(r, ch.box, cuts, mw, mh);
+        hull = model == null ? null : Carve.carve(r, ch.box, used, mw, mh);
+        masksUsed = used;
         if (hull != null) Measure.refineWithHull(r, ch.box, hull);
         photos = shots;
         this.masks = cuts;
@@ -751,6 +756,7 @@ public class MeasureActivity extends Activity {
         d.loopLog = loopLog;
         d.photos = photos;
         d.masks = masks;
+        d.masksUsed = masksUsed;
         d.maskW = maskW;
         d.maskH = maskH;
         return d;

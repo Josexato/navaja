@@ -58,6 +58,8 @@ final class MeasureReport {
         /** Fotos de los cuadros clave (mismo orden que las cámaras); null si falta alguna. */
         File[] photos;
         byte[][] masks;
+        /** Las siluetas usadas (null donde se descartó); null si no se validaron. */
+        byte[][] masksUsed;
         int maskW, maskH;
         private Cloud.Result cloud;
 
@@ -179,7 +181,7 @@ final class MeasureReport {
             s.append(String.format(Locale.ROOT, "| %s | %.2f s | %d | %s | %s | %s | %s | %.1f, %.1f, %.1f |\n", photoName(fr), fr / d.fps, seen,
                     st == null ? "—" : String.format(Locale.ROOT, "%.2f s", st.seconds(d.fps)), st == null ? "—" : String.valueOf(st.shared),
                     st == null ? "—" : String.format(Locale.ROOT, "%.1f° (%.0f°/s)", st.turnDeg, st.turnPerSecond(d.fps)),
-                    d.masks != null && d.masks[c] != null ? "sí" : "no", p[0] * k, p[1] * k, p[2] * k));
+                    silhouette(d, c), p[0] * k, p[1] * k, p[2] * k));
         }
         s.append("\n## 4. Puntos\n\n");
         s.append(String.format(Locale.ROOT, "- Nube: %d puntos (%d seguidos con pistas, el resto de la segunda pasada densa o de zonas reprocesadas).\n",
@@ -209,12 +211,18 @@ final class MeasureReport {
         if (d.hull != null) {
             double kh = d.scaleCm > 0 ? d.hullCmPerUnit : 1;
             if (b.onWall)
-                s.append(String.format(Locale.ROOT, "- Por siluetas (%d fotos): alto %.1f · ancho %.1f · de la pared al frente %.1f %s · volumen %.0f %s³.\n",
+                s.append(String.format(Locale.ROOT, "- Por siluetas (%d fotos): alto %.1f · ancho %.1f · de la pared al frente %.1f %s · volumen %.3g %s³.\n",
                         d.hull.views, d.hull.alto * kh, d.hull.ancho * kh, d.hull.front * kh, u, d.hull.volume * kh * kh * kh, u));
             else
-                s.append(String.format(Locale.ROOT, "- Por siluetas (%d fotos): alto (del apoyo al tope) %.1f · ancho %.1f · largo %.1f %s · volumen %.0f %s³.\n",
+                s.append(String.format(Locale.ROOT, "- Por siluetas (%d fotos): alto (del apoyo al tope) %.1f · ancho %.1f · largo %.1f %s · volumen %.3g %s³.\n",
                         d.hull.views, d.hull.front * kh, d.hull.ancho * kh, d.hull.prof * kh, u, d.hull.volume * kh * kh * kh, u));
             s.append(String.format(Locale.ROOT, "- Diferencia entre los dos métodos: %.1f %%.\n", 100 * Carve.disagreement(b, d.hull)));
+            if (d.masksUsed != null) {
+                int all = 0, off = 0;
+                for (int c = 0; c < d.masks.length; c++) if (d.masks[c] != null) { all++; if (d.masksUsed[c] == null) off++; }
+                s.append(String.format(Locale.ROOT, "- Siluetas descartadas: %d de %d (menos de la mitad de los puntos del objeto adentro, o "
+                        + "más de 3 veces el área que cubren: una mancha equivocada o desbordada, típica de una foto movida).\n", off, all));
+            }
         } else {
             s.append("- Sin segunda opinión por siluetas.\n");
         }
@@ -263,6 +271,11 @@ final class MeasureReport {
     static double[] boxCoords(Measure.Box b, double[] x) {
         double[] q = Lin.sub(x, b.center);
         return new double[]{Lin.dot(q, b.axisW), Lin.dot(q, b.onWall ? b.axisH : b.axisD), Lin.dot(Lin.sub(x, b.planeP), b.planeN)};
+    }
+
+    private static String silhouette(Data d, int c) {
+        if (d.masks == null || d.masks[c] == null) return "no";
+        return d.masksUsed != null && d.masksUsed[c] == null ? "descartada" : "sí";
     }
 
     private static int withNormal(Cloud.Points p) {
