@@ -99,6 +99,8 @@ public class MeasureActivity extends Activity {
     private final List<double[]> segInfo = new ArrayList<>();
     /** Por cuadro analizado: puntos activos, perdidos y nuevos (para ver dónde el movimiento fue brusco). */
     private final List<int[]> perFrame = new ArrayList<>();
+    /** Nitidez de cada cuadro analizado (varianza del laplaciano). */
+    private final List<Float> sharpness = new ArrayList<>();
     /** Intentos de unir tramos por cierre de bucle (para el informe). */
     private String loopLog = "";
     private boolean debug;
@@ -254,7 +256,9 @@ public class MeasureActivity extends Activity {
                 videoSeconds = dur[0] / 1e6;
                 if (tr.frames() < 20) throw new IOException("El video es muy corto: filma al menos 10 segundos");
                 Loop.LOG = new StringBuilder();
-                List<Sfm.Result> segs = Sfm.reconstruct(tr.tracks, tr.loopFeats, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
+                sharpness.clear();
+                sharpness.addAll(tr.sharpness);
+                List<Sfm.Result> segs = Sfm.reconstruct(tr.tracks, tr.loopFeats, tr.sharpness, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
                         (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
                 loopLog = Loop.LOG.toString();
                 Loop.LOG = null;
@@ -754,6 +758,7 @@ public class MeasureActivity extends Activity {
         d.segments.addAll(segInfo);
         d.perFrame.addAll(perFrame);
         d.loopLog = loopLog;
+        d.sharpness.addAll(sharpness);
         d.photos = photos;
         d.masks = masks;
         d.masksUsed = masksUsed;
