@@ -52,6 +52,8 @@ final class MeasureReport {
         List<double[]> segments = new ArrayList<>();
         /** Por cuadro analizado: puntos activos, perdidos y nuevos. */
         List<int[]> perFrame = new ArrayList<>();
+        /** Intentos de unir tramos por cierre de bucle. */
+        String loopLog = "";
         /** Fotos de los cuadros clave (mismo orden que las cámaras); null si falta alguna. */
         File[] photos;
         byte[][] masks;
@@ -114,12 +116,19 @@ final class MeasureReport {
             boolean last = i + 1 >= d.segments.size();
             s.append(String.format(Locale.ROOT, "| %d | %.1f s | %.1f s | %d | %d | %s | %s | %s |\n", i, g[0], g[1], (int) g[2], (int) g[3],
                     last ? "—" : String.format(Locale.ROOT, "%.1f s", d.segments.get(i + 1)[0] - g[1]),
-                    last || g.length < 5 ? "—" : String.valueOf((int) g[4]), i == d.choice.segment ? "**usado**" : ""));
+                    last || g.length < 5 || g[4] < 0 ? "—" : String.valueOf((int) g[4]), g.length > 5 && g[5] == 1 ? "**usado**" : ""));
         }
-        double usedS = (r.endFrame - r.startFrame) / d.fps;
-        s.append(String.format(Locale.ROOT, "\n**Video usado: %.1f s de %.1f s (%.0f %%).** La medida usa un solo tramo, el mejor; los otros se "
-                + "descartan, porque en un corte se pierden casi todos los puntos y no hay cómo alinear los tramos entre sí.\n",
-                usedS, d.videoSeconds, d.videoSeconds > 0 ? 100 * usedS / d.videoSeconds : 0));
+        double usedS = 0;
+        for (int[] p : r.parts) usedS += (p[1] - p[0]) / d.fps;
+        s.append(String.format(Locale.ROOT, "\n**Video usado: %.1f s de %.1f s (%.0f %%)%s.** En un corte se pierden casi todos los puntos; los tramos se "
+                + "unen sólo si más adelante se reconocen lugares ya vistos (cierre de bucle). Los que no, se descartan.\n",
+                usedS, d.videoSeconds, d.videoSeconds > 0 ? 100 * usedS / d.videoSeconds : 0, r.parts.size() > 1 ? ", " + r.parts.size() + " tramos unidos" : ""));
+        if (d.loopLog != null && !d.loopLog.isEmpty()) {
+            s.append("\n### Cierre de bucle\n\n");
+            s.append("Para cada par de tramos: cuadros del otro tramo comparados con el principal (coincidencias verificadas con geometría de dos "
+                    + "vistas / con posición 3D / confirmadas al ubicar la cámara) y el resultado.\n\n");
+            for (String line : d.loopLog.split("\n")) if (!line.isEmpty()) s.append("- ").append(line).append('\n');
+        }
         // Seguimiento segundo a segundo: dónde se perdieron puntos (movimiento brusco o imagen movida)
         if (!d.perFrame.isEmpty()) {
             s.append("\n### Seguimiento segundo a segundo\n\n");

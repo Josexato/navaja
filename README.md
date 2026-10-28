@@ -152,10 +152,13 @@ Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escen
 | Si se pierde el hilo | reubicación con descriptores BRIEF orientados (pose plana con 4 puntos o DLT); si no, el video se parte en tramos y se usa el mejor |
 | Más puntos | segunda pasada sólo por el tramo usado: ~2000 puntos seguidos a la vez, triangulados con las poses ya conocidas (duplica los puntos del objeto; la medida sale de la nube rala, que es la más estable) |
 | Objeto | plano de la pared/mesa por RANSAC → puntos delante del plano → agrupación por vóxeles → relleno por casco convexo → caja con percentiles 1–99 |
+| Cierre de bucle | cada 10 cuadros, puntos multiescala (esquinas en una pirámide ×1,41 de 6 escalas + huella BRIEF en cada escala); si el video se cortó, los cuadros de otro tramo se comparan con el principal (geometría de dos vistas), los verificados se llevan a 3D y la cámara se ubica con PnP; con 2 o más cuadros coherentes y el mismo plano de apoyo, se unen los tramos y se ajustan juntos |
 | Siluetas | modelo **MagicTouch** de MediaPipe (TensorFlow Lite, en el teléfono, sin internet): el «toque» lo ponen los puntos del objeto vistos en ese cuadro; se descartan las manchas sin puntos |
 | Volumen | casco visual en una grilla de ~100 vóxeles (cada silueta recorta; se toleran 2 cuadros en desacuerdo) + espacio libre (delante del punto más cercano que vio cada cámara no hay nada) → la región conexa mayor → Surface Nets + suavizado de Taubin para el STL |
 
 Probado con una escena sintética (caja de 20×15×10 cm contra una pared, ruido de 0,5 px): ancho ±4 %, profundidad ±8 %. Con un video real de una máscara de 25 cm de alto: 19,3 × 15,4 cm (ancho × profundidad), coherente con COLMAP sobre los mismos cuadros.
+
+**Cierre de bucle:** con un video del nudo con dos vueltas y saltos bruscos que lo cortan, se unen los tramos (59 posiciones del celular en vez de 40) y la planta pasa de 56 × 59 a 64 × 64 mm (real 65,6 × 68,6) con diferencia entre métodos de 1,4 %. Sólo une vistas que se repiten: en la máscara, los primeros planos laterales no se parecen a nada del inicio y siguen sin unirse.
 
 **Prueba con medidas exactas:** el visor tiene el material **«Textura de prueba»** (manchas de colores fijas, para cualquier pieza). Con la pieza de ejemplo (nudo de 65,6 × 68,6 × 32 mm) y una vuelta completa a la cámara del visor, dando el alto = 32 mm: siluetas 60,5 × 66,8 mm y puntos 58,6 × 63,3 mm (diferencia entre métodos 2,8 %). Sin textura (el nudo gris liso) casi no hay puntos que seguir y la reconstrucción no arranca: el método necesita superficie con dibujo.
 

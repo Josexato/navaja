@@ -132,7 +132,8 @@ public class CarveTest {
         d.videoSeconds = 4;
         d.fps = 15;
         d.tracks = r.pointTracks.size();
-        d.segments.add(new double[]{0, 3.9, r.poses.size(), r.points.length});
+        d.segments.add(new double[]{0, 3.9, r.poses.size(), r.points.length, -1, 1, 0});
+        r.parts.add(new int[]{0, frames - 1, r.poses.size(), r.points.length});
         d.masks = masks;
         d.maskW = mw;
         d.maskH = mh;
