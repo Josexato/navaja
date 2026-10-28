@@ -12,6 +12,7 @@ import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
 import com.josexato.navaja.measure.core.Sfm;
+import com.josexato.navaja.scan3d.core.Decimate;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
 
@@ -63,6 +64,18 @@ final class MeasureReport {
         int maskW, maskH;
         private Cloud.Result cloud;
 
+        private Mesh[] models;
+
+        /** Mallas del volumen: completa, base de modelado y low poly (simplificadas por error cuadrático); se calculan una vez. */
+        Mesh[] models() {
+            if (models == null) {
+                Mesh full = hullMesh(this);
+                Mesh base = Decimate.simplify(full, BASE_TRIS);
+                models = new Mesh[]{full, base, Decimate.simplify(base, LOW_TRIS)};
+            }
+            return models;
+        }
+
         /** La nube del objeto limpia (sin atípicos, en vóxeles, con normales); se calcula una vez. */
         Cloud.Result cloud() {
             if (cloud == null) cloud = Cloud.object(choice.result, choice.box);
@@ -80,7 +93,12 @@ final class MeasureReport {
             put(zip, "informe.md", report(d, lm).getBytes(StandardCharsets.UTF_8));
             put(zip, "nube_objeto.ply", objectPly(d.cloud(), b, d.scaleCm));
             put(zip, "nube_completa.ply", ply(r, b, d.scaleCm, false));
-            if (d.hull != null) put(zip, "volumen.stl", stl(d));
+            if (d.hull != null) {
+                Mesh[] ms = d.models();
+                put(zip, "volumen.stl", stl(d));
+                put(zip, "modelo_base.obj", obj(ms[1], "modelo_base"));
+                put(zip, "modelo_lowpoly.obj", obj(ms[2], "modelo_lowpoly"));
+            }
             for (int c = 0; d.photos != null && c < d.photos.length; c++) {
                 File f = d.photos[c];
                 if (f == null || !f.exists()) continue;
@@ -246,7 +264,18 @@ final class MeasureReport {
         s.append("\n## 7. Archivos\n\n");
         s.append("- `nube_objeto.ply`: puntos del objeto limpios (sin atípicos, uno por vóxel, con normales) · `nube_completa.ply`: todos "
                 + "los puntos tal cual (objeto y entorno), en ejes del objeto.\n");
-        if (d.hull != null) s.append("- `volumen.stl`: volumen tallado con las siluetas, en mm").append(d.scaleCm > 0 ? "" : " (alto = 100 mm)").append(".\n");
+        if (d.hull != null) {
+            Mesh[] ms = d.models();
+            String mm = d.scaleCm > 0 ? "mm" : "mm (alto = 100 mm: sin medida conocida, sólo valen las proporciones)";
+            s.append(String.format(Locale.ROOT, "- `volumen.stl`: volumen tallado con las siluetas, completo (%d triángulos), en %s, Z hacia arriba.\n",
+                    ms[0].triangleCount(), mm));
+            s.append(String.format(Locale.ROOT, "- `modelo_base.obj`: el mismo volumen simplificado a %d triángulos (las zonas planas en caras grandes, "
+                    + "más detalle en las curvas): base para modelar.\n", ms[1].triangleCount()));
+            s.append(String.format(Locale.ROOT, "- `modelo_lowpoly.obj`: simplificado a %d triángulos, punto de partida low poly.\n", ms[2].triangleCount()));
+            s.append("- Los tres con el origen en el centro de la base. En Blender: *Archivo → Importar → Wavefront (.obj)* con las opciones por "
+                    + "defecto (OBJ viene con Y hacia arriba y Blender lo endereza); el STL ya viene con Z hacia arriba. Las unidades son mm: si "
+                    + "la escena está en metros, usa *Escala 0.001* al importar.\n");
+        }
         s.append("- `fotos/`: los cuadros clave usados").append(".\n");
         s.append("- `depuracion/` (si se pidió): cada foto con la silueta (cian) y los puntos clave.\n");
         return s.toString();
@@ -340,15 +369,42 @@ final class MeasureReport {
         return bo.toByteArray();
     }
 
-    /** Volumen tallado como STL binario, en mm (con alto = 100 mm si no hay medida conocida). */
-    static byte[] stl(Data d) throws IOException {
+    /** Triángulos de los modelos simplificados para Blender: base de modelado y low poly. */
+    static final int BASE_TRIS = 3000, LOW_TRIS = 400;
+
+    /**
+     * El volumen tallado como malla en mm (con alto = 100 mm si no hay medida
+     * conocida), con Y hacia arriba (la normal del apoyo o el "arriba" de la
+     * pared) y el origen en el centro de la base, apoyada en Y = 0.
+     */
+    static Mesh hullMesh(Data d) {
         double mmPerUnit = d.scaleCm > 0 ? 10 * d.hullCmPerUnit : 100 / (d.choice.box.onWall ? d.hull.alto : d.hull.front);
         Mesh mesh = SurfaceNets.extract(d.hull.grid);
         mesh.taubinSmooth(8);
         for (int i = 0; i < mesh.pos.length; i++) mesh.pos[i] *= (float) mmPerUnit;
+        float[] b = mesh.bounds();
+        float cx = (b[0] + b[1]) / 2, cz = (b[4] + b[5]) / 2;
+        for (int i = 0; i < mesh.pos.length; i += 3) {
+            mesh.pos[i] -= cx;
+            mesh.pos[i + 1] -= b[2];
+            mesh.pos[i + 2] -= cz;
+        }
+        return mesh;
+    }
+
+    /** STL binario del volumen completo, con Z hacia arriba (lo que espera Blender al importar STL y los programas de impresión). */
+    static byte[] stl(Data d) throws IOException {
+        Mesh m = d.models()[0], z = new Mesh();
+        z.tri = m.tri;
+        z.pos = new float[m.pos.length];
+        for (int i = 0; i < m.pos.length; i += 3) {
+            z.pos[i] = m.pos[i];
+            z.pos[i + 1] = -m.pos[i + 2];
+            z.pos[i + 2] = m.pos[i + 1];
+        }
         File tmp = File.createTempFile("volumen", ".stl");
         try {
-            mesh.writeStl(tmp);
+            z.writeStl(tmp);
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             try (InputStream in = new FileInputStream(tmp)) {
                 byte[] buf = new byte[1 << 16];
@@ -359,6 +415,24 @@ final class MeasureReport {
             //noinspection ResultOfMethodCallIgnored
             tmp.delete();
         }
+    }
+
+    /**
+     * OBJ con Y hacia arriba (la convención de OBJ: Blender lo importa
+     * derecho con sus opciones por defecto), en mm, sin normales: Blender
+     * las calcula y se puede elegir sombreado plano para low poly.
+     */
+    static byte[] obj(Mesh m, String name) {
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        try (PrintWriter pw = new PrintWriter(bo)) {
+            pw.print("# Navaja: " + name + " · " + m.triangleCount() + " triángulos · mm, Y hacia arriba, origen en el centro de la base\n");
+            pw.print("o " + name + "\n");
+            for (int i = 0; i < m.pos.length; i += 3)
+                pw.printf(Locale.ROOT, "v %.3f %.3f %.3f%n", m.pos[i], m.pos[i + 1], m.pos[i + 2]);
+            for (int t = 0; t < m.tri.length; t += 3)
+                pw.print("f " + (m.tri[t] + 1) + " " + (m.tri[t + 1] + 1) + " " + (m.tri[t + 2] + 1) + "\n");
+        }
+        return bo.toByteArray();
     }
 
     // ------------------------------------------------------------ depuración

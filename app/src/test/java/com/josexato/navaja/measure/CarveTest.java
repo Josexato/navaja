@@ -149,7 +149,28 @@ public class CarveTest {
                     files.put(e.getName(), bo.toByteArray());
                 }
             }
-            assertTrue(files.keySet().toString(), files.keySet().containsAll(java.util.Arrays.asList("informe.md", "nube_objeto.ply", "nube_completa.ply", "volumen.stl")));
+            assertTrue(files.keySet().toString(), files.keySet().containsAll(java.util.Arrays.asList("informe.md", "nube_objeto.ply", "nube_completa.ply", "volumen.stl",
+                    "modelo_base.obj", "modelo_lowpoly.obj")));
+            // Modelos para Blender: pocas caras, apoyados en Y = 0 y centrados
+            for (String name : new String[]{"modelo_base.obj", "modelo_lowpoly.obj"}) {
+                String o = new String(files.get(name), java.nio.charset.StandardCharsets.US_ASCII);
+                int faces = 0;
+                double minY = 1e9, maxY = -1e9, minX = 1e9, maxX = -1e9;
+                for (String line : o.split("\n")) {
+                    if (line.startsWith("f ")) faces++;
+                    if (line.startsWith("v ")) {
+                        String[] v = line.split(" ");
+                        minX = Math.min(minX, Double.parseDouble(v[1]));
+                        maxX = Math.max(maxX, Double.parseDouble(v[1]));
+                        minY = Math.min(minY, Double.parseDouble(v[2]));
+                        maxY = Math.max(maxY, Double.parseDouble(v[2]));
+                    }
+                }
+                assertTrue(name + " caras " + faces, faces > 12 && faces <= (name.contains("low") ? 400 : 3000));
+                assertEquals(name + " base", 0, minY, 2);
+                assertEquals(name + " alto (mm: la caja mide 20 cm)", 200, maxY - minY, 15);
+                assertEquals(name + " centrado", 0, minX + maxX, 5);
+            }
             String informe = new String(files.get("informe.md"), java.nio.charset.StandardCharsets.UTF_8);
             assertTrue(informe.contains("## 6. Puntos clave") && informe.contains("| arriba |") && informe.contains("**usado**"));
             String ply = new String(files.get("nube_objeto.ply"), java.nio.charset.StandardCharsets.US_ASCII);
