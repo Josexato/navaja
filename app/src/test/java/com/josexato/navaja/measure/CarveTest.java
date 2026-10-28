@@ -98,6 +98,13 @@ public class CarveTest {
         int mw = w / 2, mh = h / 2;
         byte[][] masks = new byte[r.poses.size()][];
         for (int c = 0; c < masks.length; c++) masks[c] = boxMask(r.poses.get(c), f, w, h, mw, mh);
+        // Pertenencia por siluetas: sólo puntos de la caja (z ≥ 5), ninguno de la pared, y casi todos los de la caja
+        List<Integer> mem = Carve.silhouetteMembers(r, box, masks, mw, mh);
+        int boxPts = 0;
+        for (double[] x : r.points) if (x[2] >= 5) boxPts++;
+        for (int i : mem) assertTrue("de la caja", r.points[i][2] >= 4.9);
+        assertTrue("miembros " + mem.size() + " de " + boxPts, mem.size() > 0.8 * boxPts);
+        assertNotNull(Measure.rebox(r, box, mem));
         Carve.Result hull = Carve.carve(r, box, masks, mw, mh);
         assertNotNull(hull);
         assertEquals(30, hull.views);
@@ -161,6 +168,14 @@ public class CarveTest {
         assertTrue(Measure.refineWithHull(r, box, hull));
         assertEquals("ancho recuperado", anchoBien, box.ancho, 0.05 * anchoBien);
         assertTrue(box.objectPoints.length >= all.length * 0.9);
+        // Pasos entre fotos: una cámara cada 2 cuadros, ~3° de arco por paso más el vaivén vertical
+        List<com.josexato.navaja.measure.core.Motion.Step> steps = com.josexato.navaja.measure.core.Motion.steps(r);
+        assertEquals(r.poses.size() - 1, steps.size());
+        for (com.josexato.navaja.measure.core.Motion.Step st : steps) {
+            assertEquals(2, st.toFrame - st.fromFrame);
+            assertTrue("giro " + st.turnDeg, st.turnDeg > 2 && st.turnDeg < 9); // 3° horizontales + el vaivén vertical
+            assertTrue(st.shared > 100);
+        }
         // Sin siluetas suficientes no hay casco
         byte[][] few = new byte[masks.length][];
         System.arraycopy(masks, 0, few, 0, 5);
@@ -209,6 +224,20 @@ public class CarveTest {
 
     static double cross(double[] o, double[] a, double[] b) {
         return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    }
+
+    /** Seguimiento por segundo: activos mínimos, perdidos, nuevos y el cuadro más brusco. */
+    @Test
+    public void indicadoresDelSeguimiento() {
+        List<int[]> pf = new ArrayList<>();
+        for (int f = 0; f < 30; f++) pf.add(new int[]{f == 20 ? 50 : 400, f == 20 ? 360 : 10, f == 20 ? 10 : 10});
+        List<double[]> ps = com.josexato.navaja.measure.core.Motion.perSecond(pf, 15);
+        assertEquals(2, ps.size());
+        assertEquals(400, ps.get(0)[1], 0);
+        assertEquals(50, ps.get(1)[1], 0);
+        assertEquals(20, com.josexato.navaja.measure.core.Motion.worstFrame(pf));
+        assertEquals(0.9, com.josexato.navaja.measure.core.Motion.lostFraction(pf, 20), 1e-9);
+        assertEquals(0.9, ps.get(1)[4], 1e-9);
     }
 
     /** La entrada del modelo: color en [0, 1] y el toque como mancha con máximo 1 en su lugar. */

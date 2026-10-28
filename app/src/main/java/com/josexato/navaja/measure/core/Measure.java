@@ -218,6 +218,15 @@ public final class Measure {
             if (d < dMin - margin || d > dMax + margin) continue;
             if (Hull.contains(hull, Lin.dot(q, e1), Lin.dot(q, e2))) { best.add(i); inObj.add(i); }
         }
+        return buildBox(r, bn, bp, best);
+    }
+
+    /**
+     * La caja del objeto: ejes (normal del plano de apoyo y "arriba" de las
+     * cámaras) y medidas con los puntos {@code best}.
+     */
+    static Box buildBox(Sfm.Result r, double[] bn, double[] bp, List<Integer> best) {
+        double[][] p = r.points;
         // 5) Ejes: normal del plano + "arriba" de la imagen. El celular (o la vista de un visor 3D) se mantiene
         //    más o menos derecho, así que se promedia el "arriba" de todas las cámaras del tramo: si coinciden,
         //    vale aunque el tramo no empiece con el video (antes sólo se usaba el primer cuadro del video).
@@ -351,6 +360,17 @@ public final class Measure {
         double[] dPlane = new double[obj.length];
         for (int k = 0; k < obj.length; k++) dPlane[k] = Lin.dot(Lin.sub(obj[k], box.planeP), box.planeN);
         box.separation = Math.max(0, percentile(dPlane, 1));
+    }
+
+    /**
+     * Nueva caja con los puntos que las siluetas dicen que son del objeto
+     * ({@link Carve#silhouetteMembers}), con el mismo plano de apoyo. No
+     * depende de la agrupación por cercanía, que con objetos vistos desde
+     * todos lados puede quedarse con una parte. Null si son muy pocos.
+     */
+    public static Box rebox(Sfm.Result r, Box b, List<Integer> members) {
+        if (members.size() < 30) return null;
+        return buildBox(r, b.planeN, b.planeP, new ArrayList<>(members));
     }
 
     /**
