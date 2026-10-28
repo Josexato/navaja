@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 
 import com.josexato.navaja.measure.core.Carve;
+import com.josexato.navaja.measure.core.Cloud;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
@@ -58,6 +59,13 @@ final class MeasureReport {
         File[] photos;
         byte[][] masks;
         int maskW, maskH;
+        private Cloud.Result cloud;
+
+        /** La nube del objeto limpia (sin atípicos, en vóxeles, con normales); se calcula una vez. */
+        Cloud.Result cloud() {
+            if (cloud == null) cloud = Cloud.object(choice.result, choice.box);
+            return cloud;
+        }
     }
 
     private static final int[] COLORS = {0xFFFF5252, 0xFF40C4FF, 0xFFFFD740, 0xFF69F0AE, 0xFFE040FB};
@@ -68,7 +76,7 @@ final class MeasureReport {
         int[] lm = Measure.landmarks(r, b, d.hull);
         try (ZipOutputStream zip = new ZipOutputStream(os)) {
             put(zip, "informe.md", report(d, lm).getBytes(StandardCharsets.UTF_8));
-            put(zip, "nube_objeto.ply", ply(r, b, d.scaleCm, true));
+            put(zip, "nube_objeto.ply", objectPly(d.cloud(), b, d.scaleCm));
             put(zip, "nube_completa.ply", ply(r, b, d.scaleCm, false));
             if (d.hull != null) put(zip, "volumen.stl", stl(d));
             for (int c = 0; d.photos != null && c < d.photos.length; c++) {
@@ -177,6 +185,20 @@ final class MeasureReport {
         s.append(String.format(Locale.ROOT, "- Nube: %d puntos (%d seguidos con pistas, el resto de la segunda pasada densa o de zonas reprocesadas).\n",
                 r.points.length, r.pointTracks.size()));
         s.append(String.format(Locale.ROOT, "- Del objeto: %d · error de reproyección %.2f px.\n", b.objectPoints.length, r.rms));
+        if (b.otherPlanes.isEmpty())
+            s.append("- Otros planos grandes junto al objeto (piso, mesa, otra pared): ninguno.\n");
+        for (double[] op : b.otherPlanes)
+            s.append(String.format(Locale.ROOT, "- Otro plano quitado antes de agrupar (piso, mesa u otra pared): %d puntos, a %.0f° del %s. "
+                    + "Si tocaba el objeto, se le habría pegado e inflado la caja.\n", (int) op[6], op[7], b.onWall ? "plano de la pared" : "plano de apoyo"));
+        Cloud.Result cl = d.cloud();
+        s.append(String.format(Locale.ROOT, "- Puntos sueltos (atípicos) del objeto: %d de %d. Un punto es atípico si la distancia media a sus %d "
+                + "vecinos más cercanos supera la típica en más de 3 desvíos y el doble, salvo que se haya visto desde %d o más fotos. Se quitan de "
+                + "la nube exportada; la medida no los necesita quitar porque usa los percentiles 1–99.\n",
+                cl.outliers, cl.input, Cloud.K_SOR, Cloud.TRUSTED_OBS));
+        s.append(String.format(Locale.ROOT, "- Nube limpia para exportar: %d puntos del objeto → %d sin atípicos → %d vóxeles de %.2f %s "
+                + "(%.0f %% de la mayor medida; un punto por vóxel, con color medio) · normales: plano de los %d vecinos, hacia la cámara más "
+                + "cercana (%d de %d con normal).\n", cl.input, cl.input - cl.outliers, cl.points.size(), cl.voxel * k, u, 100 * Cloud.VOXEL_FRACTION,
+                Cloud.K_NORMAL, withNormal(cl.points), cl.points.size()));
         s.append("\n## 5. Medidas\n\n");
         if (b.onWall)
             s.append(String.format(Locale.ROOT, "- Por puntos: alto %.1f · ancho %.1f · de la pared al frente %.1f %s (profundidad %.1f + separación %.1f).\n",
@@ -214,7 +236,8 @@ final class MeasureReport {
                     Lin.norm(Lin.sub(r.points[lm[0]], r.points[lm[1]])) * k, u,
                     lm[2] >= 0 && lm[3] >= 0 ? Lin.norm(Lin.sub(r.points[lm[2]], r.points[lm[3]])) * k : 0, u));
         s.append("\n## 7. Archivos\n\n");
-        s.append("- `nube_objeto.ply`: puntos del objeto · `nube_completa.ply`: todos (objeto y entorno), en ejes del objeto.\n");
+        s.append("- `nube_objeto.ply`: puntos del objeto limpios (sin atípicos, uno por vóxel, con normales) · `nube_completa.ply`: todos "
+                + "los puntos tal cual (objeto y entorno), en ejes del objeto.\n");
         if (d.hull != null) s.append("- `volumen.stl`: volumen tallado con las siluetas, en mm").append(d.scaleCm > 0 ? "" : " (alto = 100 mm)").append(".\n");
         s.append("- `fotos/`: los cuadros clave usados").append(".\n");
         s.append("- `depuracion/` (si se pidió): cada foto con la silueta (cian) y los puntos clave.\n");
@@ -242,10 +265,44 @@ final class MeasureReport {
         return new double[]{Lin.dot(q, b.axisW), Lin.dot(q, b.onWall ? b.axisH : b.axisD), Lin.dot(Lin.sub(x, b.planeP), b.planeN)};
     }
 
+    private static int withNormal(Cloud.Points p) {
+        int n = 0;
+        for (double[] v : p.normal) if (v != null) n++;
+        return n;
+    }
+
     /** Nombre del eje y de {@link #boxCoords}. */
     private static String yName(Measure.Box b) { return b.onWall ? "alto" : "largo"; }
 
     // ------------------------------------------------------------ nube y volumen
+
+    /**
+     * La nube del objeto procesada ({@link Cloud#object}) en ejes del objeto,
+     * con color, normal y cuántos puntos originales resume cada vóxel.
+     */
+    static byte[] objectPly(Cloud.Result c, Measure.Box b, double scaleCm) {
+        Cloud.Points pts = c.points;
+        double k = scaleCm > 0 ? scaleCm : 1;
+        double[][] axes = {b.axisW, b.onWall ? b.axisH : b.axisD, b.planeN};
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        try (PrintWriter pw = new PrintWriter(bo)) {
+            pw.print("ply\nformat ascii 1.0\ncomment Navaja: puntos del objeto sin atípicos, un punto por vóxel"
+                    + String.format(Locale.ROOT, " de %.4f", c.voxel * k)
+                    + ", ejes del objeto (x ancho, y " + yName(b) + ", z distancia al apoyo)" + (scaleCm > 0 ? ", cm" : ", unidades del modelo") + "\n");
+            pw.print("element vertex " + pts.size() + "\nproperty float x\nproperty float y\nproperty float z\n"
+                    + "property float nx\nproperty float ny\nproperty float nz\n"
+                    + "property uchar red\nproperty uchar green\nproperty uchar blue\nproperty ushort puntos\nend_header\n");
+            for (int i = 0; i < pts.size(); i++) {
+                double[] p = boxCoords(b, pts.p[i]);
+                double[] n = new double[3];
+                if (pts.normal[i] != null) for (int a = 0; a < 3; a++) n[a] = Lin.dot(pts.normal[i], axes[a]);
+                int col = pts.color[i];
+                pw.printf(Locale.ROOT, "%.4f %.4f %.4f %.3f %.3f %.3f %d %d %d %d%n", p[0] * k, p[1] * k, p[2] * k, n[0], n[1], n[2],
+                        (col >> 16) & 255, (col >> 8) & 255, col & 255, Math.min(65535, pts.count[i]));
+            }
+        }
+        return bo.toByteArray();
+    }
 
     private static byte[] ply(Sfm.Result r, Measure.Box b, double scaleCm, boolean objectOnly) {
         boolean[] obj = new boolean[r.points.length];
