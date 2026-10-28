@@ -99,11 +99,15 @@ public final class Colmap {
     /**
      * poses.json: cámara, y por foto su archivo, cuadro, tiempo, R y t
      * (x_cámara = R·X + t), centro, nitidez y si su silueta se usó; más la
-     * escala (cm por unidad, 0 si no se conoce) y la caja del objeto.
+     * escala (cm por unidad, 0 si no se conoce) y la caja del objeto. Con
+     * sensores, también "arriba" según la gravedad: en el modelo
+     * ({@code arriba_gravedad}) y en cada cámara ({@code arriba_sensor}).
      */
     public static String json(Sfm.Result r, String[] names, double fps, List<Float> sharpness, byte[][] masksUsed, Measure.Box b, double cmPerUnit) {
         StringBuilder s = new StringBuilder("{\n");
         s.append("  \"formato\": \"navaja-poses-1\",\n");
+        double[] g = Measure.gravityUp(r);
+        if (g != null) s.append("  \"arriba_gravedad\": ").append(vec(g)).append(",\n");
         s.append("  \"convencion\": \"x_camara = R * X + t; camara mira a +z, y hacia abajo; pixeles con el centro del primero en (0, 0)\",\n");
         s.append(String.format(Locale.ROOT, "  \"cm_por_unidad\": %.6f,\n", cmPerUnit));
         s.append(String.format(Locale.ROOT, "  \"camara\": {\"modelo\": \"pinhole\", \"ancho\": %d, \"alto\": %d, \"f\": %.6f, \"cx\": %.3f, \"cy\": %.3f},\n",
@@ -125,6 +129,7 @@ public final class Colmap {
             s.append(", \"R\": ").append(vec(p.r)).append(", \"t\": ").append(vec(p.t)).append(", \"centro\": ").append(vec(p.center()));
             if (sharpness != null && fr < sharpness.size()) s.append(String.format(Locale.ROOT, ", \"nitidez\": %.2f", sharpness.get(fr)));
             if (masksUsed != null) s.append(", \"silueta\": ").append(masksUsed[c] != null);
+            if (r.camUp != null && c < r.camUp.length && r.camUp[c] != null) s.append(", \"arriba_sensor\": ").append(vec(r.camUp[c]));
             s.append(c + 1 < r.poses.size() ? "},\n" : "}\n");
         }
         s.append("  ]\n}\n");

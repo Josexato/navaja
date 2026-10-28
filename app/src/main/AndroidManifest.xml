@@ -120,6 +120,15 @@
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Grabación del video para medir con los sensores (orientación y gravedad) al mismo tiempo. -->
+        <activity
+            android:name=".measure.SensorRecordActivity"
+            android:exported="false"
+            android:label="Navaja · Grabar con sensores"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- Firma de PDF verificable (SSJF): lápiz + QR + clave del Keystore + historial. También
              recibe "Abrir con" de un PDF y el texto de un QR compartido desde la cámara o Lens. -->
         <activity
