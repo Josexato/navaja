@@ -23,6 +23,8 @@ public final class Features {
         public final int frame;
         public final float[] x, y, scale;
         public final long[][] desc;
+        /** Regiones de color dentro de la silueta del objeto en este cuadro (null si no hay silueta). */
+        public Regions.Set regions;
 
         Set(int frame, int n) {
             this.frame = frame;

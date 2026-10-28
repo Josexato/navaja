@@ -108,8 +108,24 @@ public final class Loop {
             // 1) De foto a foto: coincidencias con cada cuadro de a; los más parecidos, verificados con geometría de dos vistas
             int[][] m = new int[fa.size()][];
             Integer[] order = new Integer[fa.size()];
-            for (int k = 0; k < fa.size(); k++) { m[k] = matchSets(q, fa.get(k)); order[k] = k; }
-            Arrays.sort(order, (x, y) -> Integer.compare(count(m[y]), count(m[x])));
+            int guided = 0;
+            int[] plain = new int[fa.size()];
+            for (int k = 0; k < fa.size(); k++) {
+                m[k] = matchSets(q, fa.get(k));
+                order[k] = k;
+                plain[k] = count(m[k]);
+                // Si las regiones de color de los dos cuadros calzan, dicen dónde debería caer cada punto: se buscan
+                // también coincidencias cerca de ese lugar (la prueba de razón sólo contra los vecinos de ahí)
+                Regions.Match rm = Regions.match(q.regions, fa.get(k).regions);
+                if (rm != null) {
+                    guided++;
+                    int[] g = matchGuided(q, fa.get(k), rm, GUIDE_R * fa.get(k).regions.size);
+                    // Sólo donde no había coincidencia: las regiones agregan candidatas, no reemplazan
+                    for (int i = 0; i < g.length; i++) if (m[k][i] < 0 && g[i] >= 0) m[k][i] = g[i];
+                }
+            }
+            // Orden por las coincidencias sin guía: una región mal emparejada no debe desplazar a los cuadros parecidos
+            Arrays.sort(order, (x, y) -> Integer.compare(plain[y], plain[x]));
             List<double[]> xs = new ArrayList<>(), ob = new ArrayList<>();
             List<int[]> pair = new ArrayList<>();
             int verified = 0;
@@ -139,7 +155,7 @@ public final class Loop {
                     pair.add(new int[]{bAssoc[i], ap});
                 }
             }
-            detail.append(' ').append(q.frame).append(':').append(verified).append('/').append(xs.size());
+            detail.append(' ').append(q.frame).append(guided > 0 ? "[reg " + guided + "]" : "").append(':').append(verified).append('/').append(xs.size());
             if (xs.size() < MIN_PNP) continue;
             double[][] X = xs.toArray(new double[0][]), O = ob.toArray(new double[0][]);
             Geometry.Pose p = Sfm.pnpRansac(X, O, f, rnd, PNP_ITERS);
@@ -225,6 +241,52 @@ public final class Loop {
             out[i] = bj >= 0 && b1 <= MAX_DIST && b1 < RATIO * b2 ? bj : -1;
         }
         return out;
+    }
+
+    /** Radio de búsqueda guiada por regiones, en fracción del tamaño de la silueta. */
+    static final double GUIDE_R = 0.2;
+    /** Distancia máxima de huella en la búsqueda guiada: más exigente, porque la prueba de razón es sólo local. */
+    static final int GUIDE_DIST = 40;
+
+    /**
+     * Como {@link #matchSets}, pero cada punto de {@code q} sólo se compara con
+     * los de {@code s} a menos de {@code radius} px de donde lo pone {@code rm}.
+     */
+    static int[] matchGuided(Features.Set q, Features.Set s, Regions.Match rm, double radius) {
+        int[] out = new int[q.size()];
+        double r2 = radius * radius;
+        for (int i = 0; i < q.size(); i++) {
+            double[] at = rm.map(q.x[i], q.y[i]);
+            long[] d = q.desc[i];
+            int b1 = 999, b2 = 999, bj = -1;
+            for (int j = 0; j < s.size(); j++) {
+                double dx = s.x[j] - at[0], dy = s.y[j] - at[1];
+                if (dx * dx + dy * dy > r2) continue;
+                long[] e = s.desc[j];
+                int dist = Long.bitCount(d[0] ^ e[0]) + Long.bitCount(d[1] ^ e[1]) + Long.bitCount(d[2] ^ e[2]) + Long.bitCount(d[3] ^ e[3]);
+                if (dist < b1) { b2 = b1; b1 = dist; bj = j; } else if (dist < b2) b2 = dist;
+            }
+            out[i] = bj >= 0 && b1 <= GUIDE_DIST && b1 < RATIO * b2 ? bj : -1;
+        }
+        return out;
+    }
+
+    /** Cuadros de distancia máxima al corte para comparar sus regiones. */
+    static final int CUT_REACH = 3 * Sfm.LOOP_EVERY;
+
+    /**
+     * Giro y escala del objeto en la imagen a través de un corte (de lo último
+     * antes de {@code endFrame} a lo primero desde {@code startFrame}), según
+     * sus regiones de color. Null si no hay regiones cerca del corte o no calzan.
+     */
+    public static Regions.Match acrossCut(List<Features.Set> feats, int endFrame, int startFrame) {
+        Features.Set before = null, after = null;
+        for (Features.Set fs : feats) {
+            if (fs.regions == null) continue;
+            if (fs.frame <= endFrame && fs.frame >= endFrame - CUT_REACH && (before == null || fs.frame > before.frame)) before = fs;
+            if (fs.frame >= startFrame && fs.frame <= startFrame + CUT_REACH && (after == null || fs.frame < after.frame)) after = fs;
+        }
+        return before == null || after == null ? null : Regions.match(before.regions, after.regions);
     }
 
     private static int count(int[] m) {

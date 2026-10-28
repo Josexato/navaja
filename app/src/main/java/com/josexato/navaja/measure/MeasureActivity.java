@@ -25,10 +25,12 @@ import android.widget.Toast;
 import androidx.core.content.FileProvider;
 
 import com.josexato.navaja.measure.core.Carve;
+import com.josexato.navaja.measure.core.Features;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Loop;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
+import com.josexato.navaja.measure.core.Regions;
 import com.josexato.navaja.measure.core.Sfm;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
@@ -208,18 +210,44 @@ public class MeasureActivity extends Activity {
                 perFrame.clear();
                 int[] dims = new int[2];
                 long[] dur = new long[1];
-                VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
-                    if (cancel.get()) return false;
-                    if (dims[0] != 0 && (dims[0] != w || dims[1] != h)) return true; // cuadro de otro tamaño: se ignora
-                    dims[0] = w;
-                    dims[1] = h;
-                    dur[0] = d;
-                    tr.feed(argb, w, h);
-                    perFrame.add(new int[]{tr.activeCount(), tr.lastLost, tr.lastNew});
-                    int pct = d > 0 ? (int) Math.min(100, 100 * t / d) : 0;
-                    post(String.format(Locale.getDefault(), "1/3 · Siguiendo puntos cuadro a cuadro: %d %%  (%d puntos activos)", pct, tr.activeCount()));
-                    return true;
-                });
+                // Silueta y regiones de color en los cuadros de puntos multiescala: ayudan a reconocer lugares entre
+                // tramos. El toque va al centro de la silueta anterior (al principio, al centro de la imagen).
+                Silhouettes sil = null;
+                try {
+                    sil = new Silhouettes(this);
+                } catch (IOException | RuntimeException | LinkageError e) {
+                    Log.w(TAG, "siluetas", e);
+                }
+                Silhouettes model = sil;
+                double[][] tapRef = {null};
+                try {
+                    VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                        if (cancel.get()) return false;
+                        if (dims[0] != 0 && (dims[0] != w || dims[1] != h)) return true; // cuadro de otro tamaño: se ignora
+                        dims[0] = w;
+                        dims[1] = h;
+                        dur[0] = d;
+                        tr.feed(argb, w, h);
+                        perFrame.add(new int[]{tr.activeCount(), tr.lastLost, tr.lastNew});
+                        Features.Set fs = tr.loopFeats.isEmpty() ? null : tr.loopFeats.get(tr.loopFeats.size() - 1);
+                        if (model != null && fs != null && fs.frame == tr.frames() - 1) {
+                            if (tapRef[0] == null) tapRef[0] = new double[]{w / 2.0, h / 2.0};
+                            try {
+                                int mw = w / MASK_DIV, mh = h / MASK_DIV;
+                                byte[] m = model.segment(argb, w, h, new float[]{(float) tapRef[0][0], (float) tapRef[0][1]}, mw, mh);
+                                if (m != null) fs.regions = Regions.detect(argb, w, h, m, mw, mh);
+                                if (fs.regions != null) tapRef[0] = new double[]{fs.regions.cx, fs.regions.cy};
+                            } catch (RuntimeException e) {
+                                Log.w(TAG, "regiones del cuadro " + fs.frame, e);
+                            }
+                        }
+                        int pct = d > 0 ? (int) Math.min(100, 100 * t / d) : 0;
+                        post(String.format(Locale.getDefault(), "1/3 · Siguiendo puntos cuadro a cuadro: %d %%  (%d puntos activos)", pct, tr.activeCount()));
+                        return true;
+                    });
+                } finally {
+                    if (model != null) model.close();
+                }
                 if (cancel.get()) return;
                 videoSeconds = dur[0] / 1e6;
                 if (tr.frames() < 20) throw new IOException("El video es muy corto: filma al menos 10 segundos");
@@ -231,16 +259,23 @@ public class MeasureActivity extends Activity {
                 Measure.Choice ch = Measure.best(segs);
                 segInfo.clear();
                 // Un renglón por tramo original (en orden de tiempo): {desde s, hasta s, cámaras, puntos, pistas que cruzan
-                // al siguiente, usado (1/0), grupo}. Los tramos unidos por cierre de bucle comparten grupo.
+                // al siguiente, usado (1/0), grupo, giro (°), escala y regiones emparejadas a través del corte}. Los tramos unidos por cierre de bucle comparten grupo.
                 List<double[]> rows = new ArrayList<>();
                 for (int g = 0; g < segs.size(); g++)
                     for (int[] p : segs.get(g).parts)
-                        rows.add(new double[]{p[0], p[1], p[2], p[3], -1, ch != null && g == ch.segment ? 1 : 0, g});
+                        rows.add(new double[]{p[0], p[1], p[2], p[3], -1, ch != null && g == ch.segment ? 1 : 0, g, 0, 0, 0});
                 rows.sort((x, y) -> Double.compare(x[0], y[0]));
                 for (int i = 0; i + 1 < rows.size(); i++) {
                     int cross = 0, fa = (int) rows.get(i)[1], fb = (int) rows.get(i + 1)[0];
                     for (Sfm.Track t : tr.tracks) if (t.visible(fa) && t.visible(fb)) cross++;
                     rows.get(i)[4] = cross;
+                    // Giro y escala del objeto en la imagen a través del corte, según sus regiones de color
+                    Regions.Match rm = Loop.acrossCut(tr.loopFeats, fa, fb);
+                    if (rm != null) {
+                        rows.get(i)[7] = rm.angleDeg;
+                        rows.get(i)[8] = rm.scale;
+                        rows.get(i)[9] = rm.pairs.size();
+                    }
                 }
                 for (double[] row : rows) { row[0] /= FPS; row[1] /= FPS; segInfo.add(row); }
                 trackCount = tr.tracks.size();
