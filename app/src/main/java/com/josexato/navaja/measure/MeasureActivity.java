@@ -26,6 +26,7 @@ import androidx.core.content.FileProvider;
 
 import com.josexato.navaja.measure.core.Carve;
 import com.josexato.navaja.measure.core.Features;
+import com.josexato.navaja.measure.core.Imu;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Loop;
 import com.josexato.navaja.measure.core.Measure;
@@ -61,7 +62,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MeasureActivity extends Activity {
 
     private static final String TAG = "Medir";
-    private static final int REQ_PICK = 1, REQ_RECORD = 2, REQ_FOLDER = 3;
+    private static final int REQ_PICK = 1, REQ_RECORD = 2, REQ_FOLDER = 3, REQ_RECORD_SENSORS = 4;
     /** Cuadros por segundo analizados y lado mayor de cada cuadro (validado con un video real de 19 s). */
     private static final double FPS = 15;
     private static final int LONG_SIDE = 960, MAX_POINTS = 600;
@@ -78,6 +79,12 @@ public class MeasureActivity extends Activity {
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private final AtomicBoolean cancel = new AtomicBoolean();
     private File recorded;
+    /** Sensores grabados con el video ({@link SensorRecordActivity}); null si el video no los tiene. */
+    private File sensorsFile;
+    /** Los sensores del video medido (null sin sensores). */
+    private Imu imu;
+    /** Si el video grabado ya se copió a la carpeta de guardado. */
+    private volatile boolean recordedCopied;
     private Measure.Choice choice;
     private double videoSeconds;
     private int known = 0;     // 0 alto, 1 ancho, 2 profundidad
@@ -109,6 +116,7 @@ public class MeasureActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         if (b != null && b.getString("rec") != null) recorded = new File(b.getString("rec"));
+        if (b != null && b.getString("sen") != null) sensorsFile = new File(b.getString("sen"));
         showIntro();
     }
 
@@ -116,6 +124,7 @@ public class MeasureActivity extends Activity {
     protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         if (recorded != null) out.putString("rec", recorded.getAbsolutePath());
+        if (sensorsFile != null) out.putString("sen", sensorsFile.getAbsolutePath());
     }
 
     @Override
@@ -145,14 +154,23 @@ public class MeasureActivity extends Activity {
         NavajaUi.topMargin(rec, 12);
         c.addView(rec, new LinearLayout.LayoutParams(-1, -2));
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Elegir un video", v -> pick())));
-        TextView note = NavajaUi.text(this, "Todo se calcula en el teléfono; el video no sale de aquí. Toma uno o dos minutos.",
+        TextView note = NavajaUi.text(this, "Todo se calcula en el teléfono; el video no sale de aquí. El que grabes se guarda en tu carpeta de guardado (junto al ZIP). Toma uno o dos minutos.",
                 NavajaUi.Style.MUTED);
         NavajaUi.topMargin(note, 12);
         c.addView(note);
         setContentView(scr.root);
     }
 
+    /** Graba con la pantalla propia (video + sensores); si la cámara no abre, con la app de cámara del sistema. */
     private void record() {
+        try {
+            startActivityForResult(new Intent(this, SensorRecordActivity.class), REQ_RECORD_SENSORS);
+        } catch (ActivityNotFoundException e) {
+            recordWithSystemCamera();
+        }
+    }
+
+    private void recordWithSystemCamera() {
         File dir = new File(getExternalFilesDir(null), "medidas");
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
@@ -180,7 +198,18 @@ public class MeasureActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_RECORD_SENSORS && res != RESULT_OK && data != null && data.getStringExtra(SensorRecordActivity.EXTRA_ERROR) != null) {
+            toast(data.getStringExtra(SensorRecordActivity.EXTRA_ERROR) + ": grabo con la app de cámara (sin sensores)");
+            recordWithSystemCamera();
+            return;
+        }
         if (res != RESULT_OK) return;
+        if (req == REQ_RECORD_SENSORS && data != null && data.getStringExtra(SensorRecordActivity.EXTRA_VIDEO) != null) {
+            recorded = new File(data.getStringExtra(SensorRecordActivity.EXTRA_VIDEO));
+            String sp = data.getStringExtra(SensorRecordActivity.EXTRA_SENSORS);
+            sensorsFile = sp == null ? null : new File(sp);
+            req = REQ_RECORD;
+        } else if (req == REQ_RECORD) sensorsFile = null;
         if (req == REQ_FOLDER && data != null && data.getData() != null) {
             Uri tree = data.getData();
             getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
@@ -189,8 +218,22 @@ public class MeasureActivity extends Activity {
             if (pendingSave) save();
             return;
         }
-        if (req == REQ_PICK && data != null && data.getData() != null) process(data.getData());
-        else if (req == REQ_RECORD && recorded != null && recorded.length() > 0) process(Uri.fromFile(recorded));
+        if (req == REQ_PICK && data != null && data.getData() != null) {
+            sensorsFile = null;
+            process(data.getData());
+        }
+        else if (req == REQ_RECORD && recorded != null && recorded.length() > 0) {
+            // El video grabado queda en la carpeta privada de la app: se copia a la carpeta de guardado (si ya se eligió;
+            // si no, junto al ZIP al guardar) para que no se pierda aunque la medida falle
+            recordedCopied = false;
+            Uri tree = folder();
+            File rec = recorded, sen = sensorsFile;
+            if (tree != null) work.execute(() -> {
+                String base = "video_" + stamp();
+                if (copyRecording(tree, rec, base + ".mp4", "video/mp4") && sen != null) copyRecording(tree, sen, base + ".sensores.csv", "text/csv");
+            });
+            process(Uri.fromFile(recorded));
+        }
         else if (req == REQ_RECORD && data != null && data.getData() != null) process(data.getData());
     }
 
@@ -262,6 +305,9 @@ public class MeasureActivity extends Activity {
                         (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
                 loopLog = Loop.LOG.toString();
                 Loop.LOG = null;
+                // Con sensores: el "arriba" de cada foto según la gravedad (decide mesa o pared y orienta la caja)
+                imu = loadImu(sensorsFile);
+                if (imu != null) for (Sfm.Result sg : segs) sg.camUp = imu.cameraUps(sg, FPS);
                 Measure.Choice ch = Measure.best(segs);
                 segInfo.clear();
                 // Un renglón por tramo original (en orden de tiempo): {desde s, hasta s, cámaras, puntos, pistas que cruzan
@@ -759,6 +805,8 @@ public class MeasureActivity extends Activity {
         d.perFrame.addAll(perFrame);
         d.loopLog = loopLog;
         d.sharpness.addAll(sharpness);
+        d.imu = imu;
+        d.sensorsFile = imu != null ? sensorsFile : null;
         d.photos = photos;
         d.masks = masks;
         d.masksUsed = masksUsed;
@@ -779,7 +827,9 @@ public class MeasureActivity extends Activity {
         pendingSave = false;
         MeasureReport.Data d = reportData();
         boolean withDebug = debug;
-        String name = "medida_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date()) + ".zip";
+        String base = "medida_" + stamp(), name = base + ".zip";
+        File rec = recorded != null && recorded.exists() && Uri.fromFile(recorded).equals(videoUri) && !recordedCopied ? recorded : null;
+        File sen = rec != null && sensorsFile != null && sensorsFile.exists() ? sensorsFile : null;
         toast("Guardando…");
         work.execute(() -> {
             try {
@@ -790,13 +840,50 @@ public class MeasureActivity extends Activity {
                     if (os == null) throw new IOException("no se pudo abrir el archivo");
                     MeasureReport.write(os, d, withDebug);
                 }
-                String where = folderName(tree) + "/" + name;
+                boolean video = rec != null && copyRecording(tree, rec, base + ".mp4", "video/mp4");
+                if (video && sen != null) copyRecording(tree, sen, base + ".sensores.csv", "text/csv");
+                String where = folderName(tree) + "/" + name + (video ? " (y el video " + base + ".mp4)" : "");
                 ui.post(() -> toast("Guardado en " + where));
             } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "guardar", e);
                 ui.post(() -> toast("No se pudo guardar: " + e.getMessage() + ". Prueba «Cambiar carpeta»."));
             }
         });
+    }
+
+    /** Los sensores de {@code f} (null si no hay o no se pueden leer). */
+    private static Imu loadImu(File f) {
+        if (f == null || !f.exists()) return null;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[1 << 16];
+            for (int n; (n = in.read(buf)) > 0; ) bo.write(buf, 0, n);
+            return Imu.parse(bo.toString("UTF-8"));
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "sensores", e);
+            return null;
+        }
+    }
+
+    private static String stamp() { return new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date()); }
+
+    /** Copia el video grabado (o sus sensores) a la carpeta de guardado; false si no se pudo (queda en la carpeta privada de la app). */
+    private boolean copyRecording(Uri tree, File rec, String name, String mime) {
+        try {
+            Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+            Uri doc = DocumentsContract.createDocument(getContentResolver(), parent, mime, name);
+            if (doc == null) return false;
+            try (OutputStream os = getContentResolver().openOutputStream(doc); java.io.InputStream in = new java.io.FileInputStream(rec)) {
+                if (os == null) return false;
+                byte[] buf = new byte[1 << 16];
+                for (int n; (n = in.read(buf)) > 0; ) os.write(buf, 0, n);
+            }
+            if (mime.startsWith("video")) recordedCopied = true;
+            return true;
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "copiar video", e);
+            return false;
+        }
     }
 
     /** Comparte la nube del objeto limpia (la misma `nube_objeto.ply` del ZIP), calculada fuera de la pantalla. */

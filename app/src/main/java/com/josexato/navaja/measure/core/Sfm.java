@@ -286,6 +286,8 @@ public final class Sfm {
         public int merged = 1;
         /** Tramos originales que lo forman: {cuadro inicial, cuadro final, cámaras, puntos}. */
         public final List<int[]> parts = new ArrayList<>();
+        /** "Arriba" de cada cámara según la gravedad (sensores), en coordenadas de la cámara; null si no se grabaron sensores. */
+        public double[][] camUp;
     }
 
     public interface Progress {

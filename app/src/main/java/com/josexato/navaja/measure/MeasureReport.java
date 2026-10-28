@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import com.josexato.navaja.measure.core.Carve;
 import com.josexato.navaja.measure.core.Cloud;
 import com.josexato.navaja.measure.core.Colmap;
+import com.josexato.navaja.measure.core.Imu;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
@@ -56,6 +57,9 @@ final class MeasureReport {
         List<double[]> segments = new ArrayList<>();
         /** Por cuadro analizado: puntos activos, perdidos y nuevos. */
         List<int[]> perFrame = new ArrayList<>();
+        /** Sensores grabados con el video (null si no hay) y su archivo. */
+        Imu imu;
+        File sensorsFile;
         /** Nitidez de cada cuadro analizado (varianza del laplaciano); vacía si no se midió. */
         List<Float> sharpness = new ArrayList<>();
         /** Intentos de unir tramos por cierre de bucle. */
@@ -131,6 +135,14 @@ final class MeasureReport {
             put(zip, "colmap/sparse/0/cameras.txt", col[0].getBytes(StandardCharsets.UTF_8));
             put(zip, "colmap/sparse/0/images.txt", col[1].getBytes(StandardCharsets.UTF_8));
             put(zip, "colmap/sparse/0/points3D.txt", col[2].getBytes(StandardCharsets.UTF_8));
+            if (d.sensorsFile != null && d.sensorsFile.exists()) {
+                ByteArrayOutputStream so = new ByteArrayOutputStream();
+                try (InputStream in = new FileInputStream(d.sensorsFile)) {
+                    byte[] buf = new byte[1 << 16];
+                    for (int n; (n = in.read(buf)) > 0; ) so.write(buf, 0, n);
+                }
+                put(zip, "sensores.csv", so.toByteArray());
+            }
             put(zip, "poses.json", Colmap.json(r, names, d.fps, d.sharpness, d.masksUsed, b, d.scaleCm).getBytes(StandardCharsets.UTF_8));
             byte[][] mk = d.masksUsed != null ? d.masksUsed : d.masks;
             for (int c = 0; mk != null && c < mk.length; c++)
@@ -247,6 +259,23 @@ final class MeasureReport {
                     medSharp > 0 && fr < d.sharpness.size() ? String.format(Locale.ROOT, "%.0f %%", 100 * d.sharpness.get(fr) / medSharp) : "—",
                     silhouette(d, c), p[0] * k, p[1] * k, p[2] * k));
         }
+        s.append("\n### Sensores\n\n");
+        if (d.imu == null)
+            s.append("- Sin sensores: el video no se grabó con la pantalla de grabación de Navaja (o se eligió de la galería). \"Arriba\" "
+                    + "sale de cómo se sostuvo el celular en las fotos.\n");
+        else {
+            s.append(String.format(Locale.ROOT, "- Grabado con sensores (%s).\n", d.imu));
+            double[] g = Measure.gravityUp(r);
+            if (g != null) {
+                double ang = Math.toDegrees(Math.acos(Math.min(1, Math.abs(Lin.dot(g, b.planeN)))));
+                s.append(String.format(Locale.ROOT, "- \"Arriba\" según la gravedad: el plano de apoyo está a %.0f° de la horizontal → %s.\n",
+                        ang, b.onWall ? "pared" : "mesa"));
+            } else s.append("- La gravedad no coincide entre fotos (poses dudosas): \"arriba\" sale de cómo se sostuvo el celular.\n");
+            double[] ag = d.imu.poseAgreement(r, d.fps);
+            if (ag != null)
+                s.append(String.format(Locale.ROOT, "- Giro del celular entre fotos, imagen contra giroscopio: diferencia mediana %.1f°, máxima %.1f°%s.\n",
+                        ag[0], ag[1], ag[1] > 10 ? " (⚠ alguna pose calculada con la imagen se desvió)" : ""));
+        }
         s.append("\n## 4. Puntos\n\n");
         s.append(String.format(Locale.ROOT, "- Nube: %d puntos (%d seguidos con pistas, el resto de la segunda pasada densa o de zonas reprocesadas).\n",
                 r.points.length, r.pointTracks.size()));
@@ -336,6 +365,8 @@ final class MeasureReport {
                 + "(con la base creada por `feature_extractor` y `exhaustive_matcher` sobre `fotos/`) y luego `bundle_adjuster`.\n");
         s.append("- `colmap/mascaras/`: la silueta de cada foto usada (blanco = objeto), del tamaño de la foto y con el nombre que espera COLMAP "
                 + "(`cuadro_000.jpg.png`); también sirve para recortar el objeto al entrenar 2D-GS.\n");
+        if (d.sensorsFile != null) s.append("- `sensores.csv`: orientación del celular (cuaternión celular → mundo con Z arriba) y gravedad, con su hora "
+                + "(`#inicio_video_ns` = hora del primer cuadro del video).\n");
         s.append("- `poses.json`: lo mismo en JSON legible: cámara, R y t de cada foto (x_cámara = R·X + t), centro, nitidez, silueta usada, "
                 + "escala (cm por unidad, 0 si no se conoce) y la caja del objeto.\n");
         s.append("- `depuracion/` (si se pidió): cada foto con la silueta (cian) y los puntos clave.\n");

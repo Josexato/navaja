@@ -341,17 +341,24 @@ public final class Measure {
         // 5) Ejes: normal del plano + "arriba" de la imagen. El celular (o la vista de un visor 3D) se mantiene
         //    más o menos derecho, así que se promedia el "arriba" de todas las cámaras del tramo: si coinciden,
         //    vale aunque el tramo no empiece con el video (antes sólo se usaba el primer cuadro del video).
-        double[] up = new double[3];
-        for (Geometry.Pose ps : r.poses) up = Lin.add(up, new double[]{-ps.r[3], -ps.r[4], -ps.r[5]});
-        double agree = Lin.norm(up) / r.poses.size(); // 1 = todas las cámaras con el mismo "arriba"
-        up = Lin.unit(up);
         Box box = new Box();
         box.planeN = bn;
         box.planeP = bp;
-        box.upKnown = r.startFrame <= 2 || agree >= UP_AGREE;
-        // Pared o mesa: por la dirección media del "arriba" respecto del plano. Al orbitar mirando desde arriba, el
-        // "arriba" de cada foto se inclina y el promedio se acorta (~0,5), pero su dirección sigue siendo clara.
-        box.onWall = agree < 0.25 || Math.abs(Lin.dot(up, bn)) < 0.7;
+        double[] up = gravityUp(r);
+        if (up != null) {
+            // Con sensores: "arriba" es la gravedad. Mesa si su normal está a menos de 60° de la vertical
+            box.upKnown = true;
+            box.onWall = Math.abs(Lin.dot(up, bn)) < GRAVITY_TABLE;
+        } else {
+            up = new double[3];
+            for (Geometry.Pose ps : r.poses) up = Lin.add(up, new double[]{-ps.r[3], -ps.r[4], -ps.r[5]});
+            double agree = Lin.norm(up) / r.poses.size(); // 1 = todas las cámaras con el mismo "arriba"
+            up = Lin.unit(up);
+            box.upKnown = r.startFrame <= 2 || agree >= UP_AGREE;
+            // Pared o mesa: por la dirección media del "arriba" respecto del plano. Al orbitar mirando desde arriba, el
+            // "arriba" de cada foto se inclina y el promedio se acorta (~0,5), pero su dirección sigue siendo clara.
+            box.onWall = agree < 0.25 || Math.abs(Lin.dot(up, bn)) < 0.7;
+        }
         double[][] obj = new double[best.size()][];
         for (int k = 0; k < obj.length; k++) obj[k] = p[best.get(k)];
         if (box.onWall && box.upKnown) {
@@ -395,6 +402,27 @@ public final class Measure {
         int[] all = Arrays.copyOf(b.objectPoints, b.objectPoints.length + add.size());
         for (int k = 0; k < add.size(); k++) all[b.objectPoints.length + k] = add.get(k);
         b.objectPoints = all;
+    }
+
+    /** Con gravedad: el plano es mesa si |arriba · normal| ≥ 0,5 (normal a menos de 60° de la vertical). */
+    static final double GRAVITY_TABLE = 0.5;
+
+    /**
+     * "Arriba" en el sistema del modelo según la gravedad de los sensores
+     * (media de las cámaras: arriba de cada una llevado al modelo con su
+     * pose); null si no hay sensores o no coinciden entre sí (poses malas).
+     */
+    public static double[] gravityUp(Sfm.Result r) {
+        if (r.camUp == null) return null;
+        double[] up = new double[3];
+        int n = 0;
+        for (int c = 0; c < r.poses.size() && c < r.camUp.length; c++) {
+            if (r.camUp[c] == null) continue;
+            up = Lin.add(up, Lin.mulV(Lin.tr(r.poses.get(c).r), r.camUp[c]));
+            n++;
+        }
+        if (n < 3 || Lin.norm(up) < 0.8 * n) return null;
+        return Lin.unit(up);
     }
 
     /** Coincidencia mínima del "arriba" de las cámaras para confiar en él (media de vectores unitarios). */
