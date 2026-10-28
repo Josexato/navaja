@@ -149,7 +149,28 @@ public class CarveTest {
                     files.put(e.getName(), bo.toByteArray());
                 }
             }
-            assertTrue(files.keySet().toString(), files.keySet().containsAll(java.util.Arrays.asList("informe.md", "nube_objeto.ply", "nube_completa.ply", "volumen.stl")));
+            assertTrue(files.keySet().toString(), files.keySet().containsAll(java.util.Arrays.asList("informe.md", "nube_objeto.ply", "nube_completa.ply", "volumen.stl",
+                    "modelo_base.obj", "modelo_lowpoly.obj")));
+            // Modelos para Blender: pocas caras, apoyados en Y = 0 y centrados
+            for (String name : new String[]{"modelo_base.obj", "modelo_lowpoly.obj"}) {
+                String o = new String(files.get(name), java.nio.charset.StandardCharsets.US_ASCII);
+                int faces = 0;
+                double minY = 1e9, maxY = -1e9, minX = 1e9, maxX = -1e9;
+                for (String line : o.split("\n")) {
+                    if (line.startsWith("f ")) faces++;
+                    if (line.startsWith("v ")) {
+                        String[] v = line.split(" ");
+                        minX = Math.min(minX, Double.parseDouble(v[1]));
+                        maxX = Math.max(maxX, Double.parseDouble(v[1]));
+                        minY = Math.min(minY, Double.parseDouble(v[2]));
+                        maxY = Math.max(maxY, Double.parseDouble(v[2]));
+                    }
+                }
+                assertTrue(name + " caras " + faces, faces > 12 && faces <= (name.contains("low") ? 400 : 3000));
+                assertEquals(name + " base", 0, minY, 2);
+                assertEquals(name + " alto (mm: la caja mide 20 cm)", 200, maxY - minY, 15);
+                assertEquals(name + " centrado", 0, minX + maxX, 5);
+            }
             String informe = new String(files.get("informe.md"), java.nio.charset.StandardCharsets.UTF_8);
             assertTrue(informe.contains("## 6. Puntos clave") && informe.contains("| arriba |") && informe.contains("**usado**"));
             String ply = new String(files.get("nube_objeto.ply"), java.nio.charset.StandardCharsets.US_ASCII);
@@ -181,6 +202,27 @@ public class CarveTest {
             assertTrue("giro " + st.turnDeg, st.turnDeg > 2 && st.turnDeg < 9); // 3° horizontales + el vaivén vertical
             assertTrue(st.shared > 100);
         }
+        // Siluetas malas (fotos movidas): 4 manchas en otro lugar y 4 desbordadas por toda la imagen. Se descartan
+        // justo esas y el casco sigue midiendo la caja
+        byte[][] bad = masks.clone();
+        for (int c = 0; c < 8; c++) {
+            byte[] m = new byte[mw * mh];
+            if (c % 2 == 0) for (int y = 5; y < 40; y++) for (int x = 5; x < 40; x++) m[y * mw + x] = 1;
+            else java.util.Arrays.fill(m, (byte) 1);
+            bad[3 * c + 1] = m;
+        }
+        byte[][] used = Carve.validate(r, box, bad, mw, mh);
+        int off = 0;
+        for (int c = 0; c < used.length; c++) {
+            if (used[c] == null) off++;
+            if (c % 3 != 1 || c > 22) assertNotNull("buena " + c, used[c]);
+        }
+        assertEquals("descartadas", 8, off);
+        Carve.Result hb = Carve.carve(r, box, used, mw, mh);
+        assertNotNull(hb);
+        assertEquals("ancho con siluetas malas", 15, hb.ancho, 1.0);
+        assertEquals("alto con siluetas malas", 20, hb.alto, 1.5);
+        assertEquals("frente con siluetas malas", 15, hb.front, 1.0);
         // Sin siluetas suficientes no hay casco
         byte[][] few = new byte[masks.length][];
         System.arraycopy(masks, 0, few, 0, 5);

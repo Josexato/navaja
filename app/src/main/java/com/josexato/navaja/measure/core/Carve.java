@@ -20,8 +20,14 @@ public final class Carve {
 
     /** Vóxeles por lado del eje más largo de la grilla. */
     static final int N = 100;
-    /** Cuadros en los que un vóxel puede caer fuera de la silueta y aun así quedar (errores de segmentación). */
+    /**
+     * Cuadros en los que un vóxel puede caer fuera de la silueta y aun así
+     * quedar (errores de segmentación): al menos 2, o el 10 % de los que lo
+     * ven. Con 87 fotos y algunas movidas, 2 fijos dejaban que una sola
+     * silueta mala por zona afinara el objeto a la mitad.
+     */
     static final int TOL = 2;
+    static final double TOL_FRACTION = 0.1;
     /** Zonas de la imagen (px) para la profundidad del punto más cercano que vio cada cámara. */
     static final int CELL = 24;
     /** Cámaras que deben ver vacío un vóxel para quitarlo (un punto 3D malo no alcanza). */
@@ -115,7 +121,7 @@ public final class Carve {
             for (int j = 0; j < g.ny; j++)
                 for (int i = 0; i < g.nx; i++) {
                     int id = g.idx(i, j, k);
-                    if (bad[id] > TOL || seen[id] < minSeen) continue;
+                    if (bad[id] > Math.max(TOL, TOL_FRACTION * seen[id]) || seen[id] < minSeen) continue;
                     if (free[id] >= MIN_FREE) continue;
                     if (planeDist(g, b, axes, i, j, k) <= 0) continue;
                     g.occ[id] = 1;
@@ -215,6 +221,54 @@ public final class Carve {
             if (in >= 5 && outN <= Math.max(1, (in + outN) / 10)) out.add(i);
         }
         return out;
+    }
+
+    /** Puntos del objeto que deben caer dentro de la silueta, y cuánto más grande que ellos puede ser la silueta. */
+    static final double MIN_INSIDE = 0.5, MAX_AREA_RATIO = 3;
+    /** Puntos del objeto visibles en la foto que hacen falta para juzgar su silueta. */
+    static final int MIN_JUDGE = 8;
+
+    /**
+     * Las siluetas que concuerdan con los puntos del objeto (las otras quedan
+     * null en la copia devuelta): al menos la mitad de los puntos con pista
+     * del objeto vistos en esa foto deben caer dentro, y la silueta no puede
+     * ocupar más de 3 veces el rectángulo que cubren esos puntos (percentiles
+     * 10–90, ampliado 25 %). Así se descartan una mancha de la mesa tomada
+     * por el objeto y una silueta que se desborda por el piso, que con una
+     * foto movida pasan seguido. Con menos de 8 puntos visibles no se juzga.
+     */
+    public static byte[][] validate(Sfm.Result r, Measure.Box b, byte[][] masks, int mw, int mh) {
+        byte[][] out = masks.clone();
+        float[][] pts = seeds(r, b);
+        double sx = (double) mw / r.width, sy = (double) mh / r.height;
+        for (int c = 0; c < masks.length; c++) {
+            byte[] m = masks[c];
+            if (m == null || pts[c].length < 2 * MIN_JUDGE) continue;
+            int n = pts[c].length / 2, in = 0;
+            double[] xs = new double[n], ys = new double[n];
+            for (int k = 0; k < n; k++) {
+                xs[k] = pts[c][2 * k];
+                ys[k] = pts[c][2 * k + 1];
+                int u = (int) (xs[k] * sx), v = (int) (ys[k] * sy);
+                if (u >= 0 && v >= 0 && u < mw && v < mh && near(m, mw, mh, u, v)) in++;
+            }
+            double x0 = Measure.percentile(xs, 10), x1 = Measure.percentile(xs, 90), y0 = Measure.percentile(ys, 10), y1 = Measure.percentile(ys, 90);
+            double rect = Math.max(1, (x1 - x0) * 1.25 * sx) * Math.max(1, (y1 - y0) * 1.25 * sy);
+            int area = 0;
+            for (byte v : m) if (v != 0) area++;
+            if (in < MIN_INSIDE * n || area > MAX_AREA_RATIO * rect) out[c] = null;
+        }
+        return out;
+    }
+
+    /** ¿Hay silueta en (u, v) o a un píxel? (los bordes de la silueta son imprecisos) */
+    private static boolean near(byte[] m, int mw, int mh, int u, int v) {
+        for (int dv = -1; dv <= 1; dv++)
+            for (int du = -1; du <= 1; du++) {
+                int x = u + du, y = v + dv;
+                if (x >= 0 && y >= 0 && x < mw && y < mh && m[y * mw + x] != 0) return true;
+            }
+        return false;
     }
 
     /** Distancia al plano del centro del vóxel (i, j, k): es lineal en i, j, k. */
