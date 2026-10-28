@@ -71,6 +71,19 @@ public class PlanesTest {
         assertEquals("de la pared al frente", 15, b.prof + b.separation, 1.5);
     }
 
+    /** Un plano real deja a las cámaras de un lado; uno que corta el recorrido no (salvo las que pasan casi a ras). */
+    @Test
+    public void lasCamarasQuedanDeUnLado() {
+        double[][] eyes = new double[40][];
+        for (int c = 0; c < 40; c++) {
+            double a = Math.toRadians(9 * c);
+            eyes[c] = new double[]{30 * Math.sin(a), -20 + (c == 7 ? 21 : 0), 30 * Math.cos(a)}; // una cámara 1 por debajo
+        }
+        double[] origin = {0, 0, 0};
+        assertTrue("la mesa", Measure.camerasOnOneSide(eyes, origin, new double[]{0, -1, 0}, 3));
+        assertTrue("un plano vertical por el centro corta el recorrido", !Measure.camerasOnOneSide(eyes, origin, new double[]{1, 0, 0}, 3));
+    }
+
     /** Una caja grande sobre la mesa: sus caras planas son del objeto (están al centro de las fotos) y no se quitan. */
     @Test
     public void noQuitaLasCarasDeUnaCaja() {
