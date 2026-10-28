@@ -34,6 +34,8 @@ public final class Measure {
          */
         public boolean upKnown;
         public double[] planeN, planeP;
+        /** Otros planos quitados antes de agrupar: {nx, ny, nz, px, py, pz, puntos quitados, grados con el apoyo}. */
+        public List<double[]> otherPlanes = new ArrayList<>();
 
         public double[][] corners() {
             double[][] c = new double[8][];
@@ -144,6 +146,10 @@ public final class Measure {
             if (d > 2 * thr && dist[i] < 4 * sc) front.add(i);
         }
         if (front.size() < 20) return null;
+        // 2b) Otros planos grandes entre lo que sobresale (la mesa bajo una máscara colgada, la pared detrás de algo
+        //     sobre la mesa): si tocan el objeto, la agrupación por cercanía los une a él e infla la caja
+        List<double[]> extra = otherPlanes(r, front, bn, thr, rnd);
+        if (front.size() < 20) return null;
         // Separación típica entre vecinos: define qué tan cerca deben estar dos puntos para ser del mismo objeto
         // (con una muestra de hasta 500 puntos: la mediana no cambia y con nubes densas evita un cálculo n²)
         int step = Math.max(1, front.size() / 500);
@@ -218,7 +224,87 @@ public final class Measure {
             if (d < dMin - margin || d > dMax + margin) continue;
             if (Hull.contains(hull, Lin.dot(q, e1), Lin.dot(q, e2))) { best.add(i); inObj.add(i); }
         }
-        return buildBox(r, bn, bp, best);
+        Box box = buildBox(r, bn, bp, best);
+        box.otherPlanes = extra;
+        return box;
+    }
+
+    /** Planos adicionales que se buscan, y lo mínimo para quitar uno: ángulo con el apoyo, puntos y qué tan "de borde" es. */
+    static final int MAX_OTHER_PLANES = 2;
+    static final double OTHER_MIN_DEG = 45, OTHER_MIN_FRACTION = 0.1, OTHER_CENTRALITY = 0.6;
+
+    /**
+     * RANSAC repetido sobre los puntos que sobresalen del plano de apoyo
+     * ({@code front}, que se modifica): saca hasta 2 planos más y los puntos
+     * del lado de atrás de cada uno (el objeto está del lado de las cámaras).
+     * Para no confundir una cara plana del objeto (una caja) con una pared,
+     * el plano debe formar ≥ 45° con el apoyo, tener ≥ 10 % de los puntos y
+     * ser "de borde": sus puntos se ven al centro de las fotos bastante
+     * menos que el resto (< 0,6 veces), porque lo que se filma está al centro.
+     * Devuelve cada plano quitado como {nx, ny, nz, px, py, pz, puntos, grados}.
+     */
+    static List<double[]> otherPlanes(Sfm.Result r, List<Integer> front, double[] bn, double thr, Random rnd) {
+        double[][] p = r.points;
+        List<double[]> out = new ArrayList<>();
+        double[] central = new double[p.length];
+        for (int i : front) central[i] = centrality(r, p[i]);
+        for (int k = 0; k < MAX_OTHER_PLANES && front.size() >= 40; k++) {
+            int m = front.size(), bestCount = -1;
+            double[] pn = null, pp = null;
+            for (int it = 0; it < 800; it++) {
+                double[] a = p[front.get(rnd.nextInt(m))], b = p[front.get(rnd.nextInt(m))], c = p[front.get(rnd.nextInt(m))];
+                double[] nn = Lin.cross(Lin.sub(b, a), Lin.sub(c, a));
+                double l = Lin.norm(nn);
+                if (l < 1e-12) continue;
+                nn = Lin.scale(nn, 1 / l);
+                if (Math.abs(Lin.dot(nn, bn)) > Math.cos(Math.toRadians(OTHER_MIN_DEG))) continue;
+                int cnt = 0;
+                for (int i : front) if (Math.abs(Lin.dot(Lin.sub(p[i], a), nn)) < thr) cnt++;
+                if (cnt > bestCount) { bestCount = cnt; pn = nn; pp = a; }
+            }
+            if (pn == null || bestCount < Math.max(30, OTHER_MIN_FRACTION * m)) break;
+            // Reajuste por mínimos cuadrados
+            List<double[]> in = new ArrayList<>();
+            for (int i : front) if (Math.abs(Lin.dot(Lin.sub(p[i], pp), pn)) < thr) in.add(p[i]);
+            pp = mean(in.toArray(new double[0][]));
+            double[][] cov = new double[3][3];
+            for (double[] q : in) {
+                double[] d = Lin.sub(q, pp);
+                for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) cov[i][j] += d[i] * d[j];
+            }
+            pn = Lin.unit(((double[][]) Lin.eigSym(cov)[1])[0]);
+            double deg = Math.toDegrees(Math.acos(Math.min(1, Math.abs(Lin.dot(pn, bn)))));
+            if (deg < OTHER_MIN_DEG) break;
+            // Hacia las cámaras
+            double side = 0;
+            for (Geometry.Pose ps : r.poses) side += Lin.dot(Lin.sub(ps.center(), pp), pn);
+            if (side < 0) pn = Lin.scale(pn, -1);
+            // ¿De borde? centralidad media de sus puntos contra la del resto
+            double cin = 0, cout = 0;
+            int nin = 0, nout = 0;
+            for (int i : front) {
+                if (Math.abs(Lin.dot(Lin.sub(p[i], pp), pn)) < thr) { cin += central[i]; nin++; } else { cout += central[i]; nout++; }
+            }
+            if (nout == 0 || cin / nin >= OTHER_CENTRALITY * (cout / nout)) break;
+            List<Integer> keep = new ArrayList<>();
+            for (int i : front) if (Lin.dot(Lin.sub(p[i], pp), pn) > 2 * thr) keep.add(i);
+            out.add(new double[]{pn[0], pn[1], pn[2], pp[0], pp[1], pp[2], front.size() - keep.size(), deg});
+            front.clear();
+            front.addAll(keep);
+        }
+        return out;
+    }
+
+    /** Fracción de las cámaras en las que el punto cae en el centro de la imagen (60 % central de cada lado). */
+    static double centrality(Sfm.Result r, double[] x) {
+        int c = 0;
+        for (Geometry.Pose ps : r.poses) {
+            double[] xc = ps.apply(x);
+            if (xc[2] <= 0) continue;
+            double u = r.focal * xc[0] / xc[2], v = r.focal * xc[1] / xc[2];
+            if (Math.abs(u) < 0.3 * r.width && Math.abs(v) < 0.3 * r.height) c++;
+        }
+        return (double) c / Math.max(1, r.poses.size());
     }
 
     /**
@@ -372,7 +458,9 @@ public final class Measure {
      */
     public static Box rebox(Sfm.Result r, Box b, List<Integer> members) {
         if (members.size() < 30) return null;
-        return buildBox(r, b.planeN, b.planeP, new ArrayList<>(members));
+        Box nb = buildBox(r, b.planeN, b.planeP, new ArrayList<>(members));
+        nb.otherPlanes = b.otherPlanes;
+        return nb;
     }
 
     /**

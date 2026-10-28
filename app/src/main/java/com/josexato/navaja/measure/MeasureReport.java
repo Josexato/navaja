@@ -185,6 +185,11 @@ final class MeasureReport {
         s.append(String.format(Locale.ROOT, "- Nube: %d puntos (%d seguidos con pistas, el resto de la segunda pasada densa o de zonas reprocesadas).\n",
                 r.points.length, r.pointTracks.size()));
         s.append(String.format(Locale.ROOT, "- Del objeto: %d · error de reproyección %.2f px.\n", b.objectPoints.length, r.rms));
+        if (b.otherPlanes.isEmpty())
+            s.append("- Otros planos grandes junto al objeto (piso, mesa, otra pared): ninguno.\n");
+        for (double[] op : b.otherPlanes)
+            s.append(String.format(Locale.ROOT, "- Otro plano quitado antes de agrupar (piso, mesa u otra pared): %d puntos, a %.0f° del %s. "
+                    + "Si tocaba el objeto, se le habría pegado e inflado la caja.\n", (int) op[6], op[7], b.onWall ? "plano de la pared" : "plano de apoyo"));
         Cloud.Result cl = d.cloud();
         s.append(String.format(Locale.ROOT, "- Puntos sueltos (atípicos) del objeto: %d de %d. Un punto es atípico si la distancia media a sus %d "
                 + "vecinos más cercanos supera la típica en más de 3 desvíos y el doble, salvo que se haya visto desde %d o más fotos. Se quitan de "
