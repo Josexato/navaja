@@ -52,6 +52,8 @@ final class MeasureReport {
         List<double[]> segments = new ArrayList<>();
         /** Por cuadro analizado: puntos activos, perdidos y nuevos. */
         List<int[]> perFrame = new ArrayList<>();
+        /** Intentos de unir tramos por cierre de bucle. */
+        String loopLog = "";
         /** Fotos de los cuadros clave (mismo orden que las cámaras); null si falta alguna. */
         File[] photos;
         byte[][] masks;
@@ -106,20 +108,33 @@ final class MeasureReport {
                 r.width, r.height));
         s.append("\n## 2. Seguimiento de puntos y tramos\n\n");
         s.append("- Puntos seguidos cuadro a cuadro (pistas): ").append(d.tracks).append(".\n");
-        s.append("- Si el seguimiento se corta (imagen movida, algo tapa la vista), el video se parte en tramos y se usa el mejor.\n\n");
-        s.append("| Tramo | Desde | Hasta | Posiciones del celular | Puntos 3D | Hueco hasta el siguiente | Puntos que cruzan el corte | |\n"
-                + "|---|---|---|---|---|---|---|---|\n");
+        s.append("- Si el seguimiento se corta (imagen movida, algo tapa la vista), el video se parte en tramos y se usa el mejor.\n");
+        s.append("- Giro y escala en la imagen: cuánto rotó y cambió de tamaño el objeto en la foto a través del corte, según manchas de "
+                + "color dentro de su silueta (por ejemplo ojos o boca) emparejadas por color, forma (momentos de Hu) y disposición.\n\n");
+        s.append("| Tramo | Desde | Hasta | Posiciones del celular | Puntos 3D | Hueco hasta el siguiente | Puntos que cruzan el corte | "
+                + "Giro y escala en la imagen (regiones) | |\n"
+                + "|---|---|---|---|---|---|---|---|---|\n");
         for (int i = 0; i < d.segments.size(); i++) {
             double[] g = d.segments.get(i);
             boolean last = i + 1 >= d.segments.size();
-            s.append(String.format(Locale.ROOT, "| %d | %.1f s | %.1f s | %d | %d | %s | %s | %s |\n", i, g[0], g[1], (int) g[2], (int) g[3],
+            s.append(String.format(Locale.ROOT, "| %d | %.1f s | %.1f s | %d | %d | %s | %s | %s | %s |\n", i, g[0], g[1], (int) g[2], (int) g[3],
                     last ? "—" : String.format(Locale.ROOT, "%.1f s", d.segments.get(i + 1)[0] - g[1]),
-                    last || g.length < 5 ? "—" : String.valueOf((int) g[4]), i == d.choice.segment ? "**usado**" : ""));
+                    last || g.length < 5 || g[4] < 0 ? "—" : String.valueOf((int) g[4]),
+                    last || g.length < 10 || g[9] < 2 ? "—" : String.format(Locale.ROOT, "%+.0f° · ×%.2f (%d regiones)", g[7], g[8], (int) g[9]),
+                    g.length > 5 && g[5] == 1 ? "**usado**" : ""));
         }
-        double usedS = (r.endFrame - r.startFrame) / d.fps;
-        s.append(String.format(Locale.ROOT, "\n**Video usado: %.1f s de %.1f s (%.0f %%).** La medida usa un solo tramo, el mejor; los otros se "
-                + "descartan, porque en un corte se pierden casi todos los puntos y no hay cómo alinear los tramos entre sí.\n",
-                usedS, d.videoSeconds, d.videoSeconds > 0 ? 100 * usedS / d.videoSeconds : 0));
+        double usedS = 0;
+        for (int[] p : r.parts) usedS += (p[1] - p[0]) / d.fps;
+        s.append(String.format(Locale.ROOT, "\n**Video usado: %.1f s de %.1f s (%.0f %%)%s.** En un corte se pierden casi todos los puntos; los tramos se "
+                + "unen sólo si más adelante se reconocen lugares ya vistos (cierre de bucle). Los que no, se descartan.\n",
+                usedS, d.videoSeconds, d.videoSeconds > 0 ? 100 * usedS / d.videoSeconds : 0, r.parts.size() > 1 ? ", " + r.parts.size() + " tramos unidos" : ""));
+        if (d.loopLog != null && !d.loopLog.isEmpty()) {
+            s.append("\n### Cierre de bucle\n\n");
+            s.append("Para cada par de tramos: cuadros del otro tramo comparados con el principal (coincidencias verificadas con geometría de dos "
+                    + "vistas / con posición 3D / confirmadas al ubicar la cámara) y el resultado. [reg N]: con N cuadros del principal "
+                    + "las regiones de color calzaron y guiaron la búsqueda de puntos.\n\n");
+            for (String line : d.loopLog.split("\n")) if (!line.isEmpty()) s.append("- ").append(line).append('\n');
+        }
         // Seguimiento segundo a segundo: dónde se perdieron puntos (movimiento brusco o imagen movida)
         if (!d.perFrame.isEmpty()) {
             s.append("\n### Seguimiento segundo a segundo\n\n");

@@ -25,9 +25,12 @@ import android.widget.Toast;
 import androidx.core.content.FileProvider;
 
 import com.josexato.navaja.measure.core.Carve;
+import com.josexato.navaja.measure.core.Features;
 import com.josexato.navaja.measure.core.Lin;
+import com.josexato.navaja.measure.core.Loop;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
+import com.josexato.navaja.measure.core.Regions;
 import com.josexato.navaja.measure.core.Sfm;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
@@ -94,6 +97,8 @@ public class MeasureActivity extends Activity {
     private final List<double[]> segInfo = new ArrayList<>();
     /** Por cuadro analizado: puntos activos, perdidos y nuevos (para ver dónde el movimiento fue brusco). */
     private final List<int[]> perFrame = new ArrayList<>();
+    /** Intentos de unir tramos por cierre de bucle (para el informe). */
+    private String loopLog = "";
     private boolean debug;
 
     @Override
@@ -205,36 +210,74 @@ public class MeasureActivity extends Activity {
                 perFrame.clear();
                 int[] dims = new int[2];
                 long[] dur = new long[1];
-                VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
-                    if (cancel.get()) return false;
-                    if (dims[0] != 0 && (dims[0] != w || dims[1] != h)) return true; // cuadro de otro tamaño: se ignora
-                    dims[0] = w;
-                    dims[1] = h;
-                    dur[0] = d;
-                    tr.feed(argb, w, h);
-                    perFrame.add(new int[]{tr.activeCount(), tr.lastLost, tr.lastNew});
-                    int pct = d > 0 ? (int) Math.min(100, 100 * t / d) : 0;
-                    post(String.format(Locale.getDefault(), "1/3 · Siguiendo puntos cuadro a cuadro: %d %%  (%d puntos activos)", pct, tr.activeCount()));
-                    return true;
-                });
+                // Silueta y regiones de color en los cuadros de puntos multiescala: ayudan a reconocer lugares entre
+                // tramos. El toque va al centro de la silueta anterior (al principio, al centro de la imagen).
+                Silhouettes sil = null;
+                try {
+                    sil = new Silhouettes(this);
+                } catch (IOException | RuntimeException | LinkageError e) {
+                    Log.w(TAG, "siluetas", e);
+                }
+                Silhouettes model = sil;
+                double[][] tapRef = {null};
+                try {
+                    VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                        if (cancel.get()) return false;
+                        if (dims[0] != 0 && (dims[0] != w || dims[1] != h)) return true; // cuadro de otro tamaño: se ignora
+                        dims[0] = w;
+                        dims[1] = h;
+                        dur[0] = d;
+                        tr.feed(argb, w, h);
+                        perFrame.add(new int[]{tr.activeCount(), tr.lastLost, tr.lastNew});
+                        Features.Set fs = tr.loopFeats.isEmpty() ? null : tr.loopFeats.get(tr.loopFeats.size() - 1);
+                        if (model != null && fs != null && fs.frame == tr.frames() - 1) {
+                            if (tapRef[0] == null) tapRef[0] = new double[]{w / 2.0, h / 2.0};
+                            try {
+                                int mw = w / MASK_DIV, mh = h / MASK_DIV;
+                                byte[] m = model.segment(argb, w, h, new float[]{(float) tapRef[0][0], (float) tapRef[0][1]}, mw, mh);
+                                if (m != null) fs.regions = Regions.detect(argb, w, h, m, mw, mh);
+                                if (fs.regions != null) tapRef[0] = new double[]{fs.regions.cx, fs.regions.cy};
+                            } catch (RuntimeException e) {
+                                Log.w(TAG, "regiones del cuadro " + fs.frame, e);
+                            }
+                        }
+                        int pct = d > 0 ? (int) Math.min(100, 100 * t / d) : 0;
+                        post(String.format(Locale.getDefault(), "1/3 · Siguiendo puntos cuadro a cuadro: %d %%  (%d puntos activos)", pct, tr.activeCount()));
+                        return true;
+                    });
+                } finally {
+                    if (model != null) model.close();
+                }
                 if (cancel.get()) return;
                 videoSeconds = dur[0] / 1e6;
                 if (tr.frames() < 20) throw new IOException("El video es muy corto: filma al menos 10 segundos");
-                List<Sfm.Result> segs = Sfm.reconstruct(tr.tracks, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
+                Loop.LOG = new StringBuilder();
+                List<Sfm.Result> segs = Sfm.reconstruct(tr.tracks, tr.loopFeats, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
                         (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
+                loopLog = Loop.LOG.toString();
+                Loop.LOG = null;
                 Measure.Choice ch = Measure.best(segs);
                 segInfo.clear();
-                for (int i = 0; i < segs.size(); i++) {
-                    Sfm.Result g = segs.get(i);
-                    // Pistas que cruzan el corte hacia el tramo siguiente (vivas al final de éste y al inicio del otro)
-                    int cross = -1;
-                    if (i + 1 < segs.size()) {
-                        cross = 0;
-                        int a = g.endFrame, b = segs.get(i + 1).startFrame;
-                        for (Sfm.Track t : tr.tracks) if (t.visible(a) && t.visible(b)) cross++;
+                // Un renglón por tramo original (en orden de tiempo): {desde s, hasta s, cámaras, puntos, pistas que cruzan
+                // al siguiente, usado (1/0), grupo, giro (°), escala y regiones emparejadas a través del corte}. Los tramos unidos por cierre de bucle comparten grupo.
+                List<double[]> rows = new ArrayList<>();
+                for (int g = 0; g < segs.size(); g++)
+                    for (int[] p : segs.get(g).parts)
+                        rows.add(new double[]{p[0], p[1], p[2], p[3], -1, ch != null && g == ch.segment ? 1 : 0, g, 0, 0, 0});
+                rows.sort((x, y) -> Double.compare(x[0], y[0]));
+                for (int i = 0; i + 1 < rows.size(); i++) {
+                    int cross = 0, fa = (int) rows.get(i)[1], fb = (int) rows.get(i + 1)[0];
+                    for (Sfm.Track t : tr.tracks) if (t.visible(fa) && t.visible(fb)) cross++;
+                    rows.get(i)[4] = cross;
+                    // Giro y escala del objeto en la imagen a través del corte, según sus regiones de color
+                    Regions.Match rm = Loop.acrossCut(tr.loopFeats, fa, fb);
+                    if (rm != null) {
+                        rows.get(i)[7] = rm.angleDeg;
+                        rows.get(i)[8] = rm.scale;
+                        rows.get(i)[9] = rm.pairs.size();
                     }
-                    segInfo.add(new double[]{g.startFrame / FPS, g.endFrame / FPS, g.poses.size(), g.points.length, cross});
                 }
+                for (double[] row : rows) { row[0] /= FPS; row[1] /= FPS; segInfo.add(row); }
                 trackCount = tr.tracks.size();
                 if (ch == null) throw new IOException("No pude reconstruir el objeto. Prueba moviéndote más alrededor de él, "
                         + "más despacio, y con algo de textura detrás.");
@@ -549,19 +592,27 @@ public class MeasureActivity extends Activity {
             mProf.set(ratio(b.prof / b.alto), "× el alto", 0);
         }
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format(Locale.getDefault(), "Tramo usado: %.1f–%.1f s de %.1f s · %d posiciones del celular · %.0f° alrededor del objeto",
-                r.startFrame / FPS, r.endFrame / FPS, videoSeconds, r.poses.size(), choice.arcDeg));
-        double usedS = (r.endFrame - r.startFrame) / FPS;
+        StringBuilder used = new StringBuilder();
+        double usedS = 0;
+        for (int[] p : r.parts) {
+            used.append(used.length() == 0 ? "" : " + ").append(String.format(Locale.getDefault(), "%.1f–%.1f s", p[0] / FPS, p[1] / FPS));
+            usedS += (p[1] - p[0]) / FPS;
+        }
+        sb.append(String.format(Locale.getDefault(), "%s: %s de %.1f s · %d posiciones del celular · %.0f° alrededor del objeto",
+                r.parts.size() > 1 ? "Tramos usados" : "Tramo usado", used, videoSeconds, r.poses.size(), choice.arcDeg));
+        if (r.parts.size() > 1) sb.append(" (unidos por cierre de bucle: se reconocieron lugares ya vistos)");
         sb.append(String.format(Locale.getDefault(), "\nVideo usado: %.0f %% (%.1f de %.1f s).", videoSeconds > 0 ? 100 * usedS / videoSeconds : 0, usedS,
                 videoSeconds));
-        if (choice.segments > 1)
-            sb.append(" El video se cortó en ").append(choice.segments).append(" tramos (algo tapó la vista o el movimiento fue muy brusco); "
-                    + "se usó el mejor y los otros se descartan.");
+        int total = 0;
+        for (double[] row : segInfo) total++;
+        if (total > r.parts.size())
+            sb.append(" El video se cortó en ").append(total).append(" tramos (algo tapó la vista o el movimiento fue muy brusco); ")
+                    .append(total - r.parts.size()).append(" no se pudieron unir y se descartan.");
         int wf = Motion.worstFrame(perFrame);
         if (wf > 0)
             sb.append(String.format(Locale.getDefault(), "\nCambio más brusco: a los %.1f s se perdió el %.0f %% de los puntos de un cuadro al siguiente.",
                     wf / FPS, 100 * Motion.lostFraction(perFrame, wf)));
-        if (!b.upKnown) sb.append("\nEse tramo no empieza con el video: el «alto» es el lado más largo del objeto.");
+        if (!b.upKnown) sb.append("\nNo se pudo saber dónde es «arriba» (el celular giró mucho): el «alto» es el lado más largo del objeto.");
         if (b.separation > 0.02 * b.alto && scaleCm > 0)
             sb.append(String.format(Locale.getDefault(), "\nSeparación entre el objeto y %s: %s.", b.onWall ? "la pared" : "la mesa", cm(b.separation)));
         sb.append(String.format(Locale.getDefault(), "\nCalidad: error de reproyección %.1f px · %d puntos del objeto. Precisión típica ±3–5 %% en alto y ancho, "
@@ -697,6 +748,7 @@ public class MeasureActivity extends Activity {
         d.tracks = trackCount;
         d.segments.addAll(segInfo);
         d.perFrame.addAll(perFrame);
+        d.loopLog = loopLog;
         d.photos = photos;
         d.masks = masks;
         d.maskW = maskW;

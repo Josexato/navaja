@@ -238,7 +238,9 @@ public final class Measure {
         box.planeN = bn;
         box.planeP = bp;
         box.upKnown = r.startFrame <= 2 || agree >= UP_AGREE;
-        box.onWall = agree < 0.5 || Math.abs(Lin.dot(up, bn)) < 0.7;
+        // Pared o mesa: por la dirección media del "arriba" respecto del plano. Al orbitar mirando desde arriba, el
+        // "arriba" de cada foto se inclina y el promedio se acorta (~0,5), pero su dirección sigue siendo clara.
+        box.onWall = agree < 0.25 || Math.abs(Lin.dot(up, bn)) < 0.7;
         double[][] obj = new double[best.size()][];
         for (int k = 0; k < obj.length; k++) obj[k] = p[best.get(k)];
         if (box.onWall && box.upKnown) {

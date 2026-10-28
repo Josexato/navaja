@@ -19,6 +19,8 @@ public final class Sfm {
     private Sfm() { }
 
     public static StringBuilder LOG = null;
+    /** Cada cuántos cuadros se buscan puntos multiescala para el cierre de bucle (10 = 0,67 s a 15 cuadros por segundo). */
+    public static final int LOOP_EVERY = 10;
 
     /** Un punto seguido en cuadros consecutivos [start, start + n). */
     public static final class Track {
@@ -78,6 +80,8 @@ public final class Sfm {
     /** Sigue puntos a lo largo del video, cuadro a cuadro. */
     public static final class Tracker {
         public final List<Track> tracks = new ArrayList<>();
+        /** Puntos multiescala cada {@link #LOOP_EVERY} cuadros (para el cierre de bucle). */
+        public final List<Features.Set> loopFeats = new ArrayList<>();
         private final List<Track> active = new ArrayList<>();
         private Klt.Pyramid prev;
         private float[] prevSmooth;
@@ -119,6 +123,8 @@ public final class Sfm {
             frame++;
             Klt.Pyramid pyr = new Klt.Pyramid(Klt.gray(argb), w, h);
             float[] sm = descriptors ? Brief.smooth(pyr.img[0], w, h) : null;
+            // Cada LOOP_EVERY cuadros, puntos multiescala para reconocer lugares entre tramos (cierre de bucle)
+            if (descriptors && frame % LOOP_EVERY == 0) loopFeats.add(Features.detect(frame, pyr.img[0], w, h));
             if (prev != null && !active.isEmpty()) {
                 List<float[]> pts = new ArrayList<>();
                 for (Track t : active) pts.add(new float[]{t.x[t.n - 1], t.y[t.n - 1]});
@@ -222,6 +228,10 @@ public final class Sfm {
         /** Tramo del video usado (cuadros) y su índice de cuadro clave final. */
         public int startFrame, endFrame, endKf;
         public String note;
+        /** Cuántos tramos originales forman este (1 = no se unió nada). */
+        public int merged = 1;
+        /** Tramos originales que lo forman: {cuadro inicial, cuadro final, cámaras, puntos}. */
+        public final List<int[]> parts = new ArrayList<>();
     }
 
     public interface Progress {
@@ -234,6 +244,11 @@ public final class Sfm {
      * resto del video arma un tramo nuevo. Cada tramo tiene su propia escala.
      */
     public static List<Result> reconstruct(List<Track> tracks, int frames, int w, int h, double f0, Progress pr) {
+        return reconstruct(tracks, null, frames, w, h, f0, pr);
+    }
+
+    /** Igual, y si hay puntos multiescala ({@code loopFeats}) intenta unir los tramos por cierre de bucle. */
+    public static List<Result> reconstruct(List<Track> tracks, List<Features.Set> loopFeats, int frames, int w, int h, double f0, Progress pr) {
         Random rnd = new Random(7);
         // 1) Cuadros clave: cuando los puntos se movieron lo suficiente desde el anterior
         List<Integer> kf = new ArrayList<>();
@@ -261,6 +276,7 @@ public final class Sfm {
             out.add(seg);
             from = seg.endKf + 1;
         }
+        if (out.size() > 1 && loopFeats != null && !loopFeats.isEmpty()) out = Loop.close(out, tracks, loopFeats, pr, rnd);
         return out;
     }
 
@@ -309,6 +325,95 @@ public final class Sfm {
         for (int i = 0; i < cols.size(); i++) { r.colors[i] = cols.get(i); r.nObs[i] = obsN.get(i); }
         return added;
     }
+
+    /**
+     * Une el tramo {@code b} al {@code a}: {@code sim} (s, R, t) lleva los
+     * puntos de b al sistema de a, y {@code same[i]} es el punto de a que es
+     * el mismo que el punto i de b (−1 si ninguno). Los puntos iguales se
+     * funden (sus pistas quedan juntas) y se ajusta todo junto con una sola
+     * focal. Null si el ajuste conjunto no cuadra (la unión estaba mal).
+     */
+    static Result join(Result a, Result b, List<Track> tracks, int[] same, double[] sim) {
+        double s = sim[0];
+        double[] rot = Arrays.copyOfRange(sim, 1, 10), tr = Arrays.copyOfRange(sim, 10, 13);
+        // Cámaras de b en el sistema de a: x_c = R_c·Rᵀ·x' + (s·t_c − R_c·Rᵀ·t), a escala s
+        Result out = new Result();
+        out.width = a.width;
+        out.height = a.height;
+        out.frames = a.frames;
+        List<Geometry.Pose> poses = new ArrayList<>(a.poses.size() + b.poses.size());
+        for (Geometry.Pose p : a.poses) poses.add(p.copy());
+        out.camFrames.addAll(a.camFrames);
+        for (int c = 0; c < b.poses.size(); c++) {
+            Geometry.Pose p = b.poses.get(c), q = new Geometry.Pose();
+            q.r = Lin.mul(p.r, Lin.tr(rot));
+            q.t = Lin.sub(Lin.scale(p.t, s), Lin.mulV(q.r, tr));
+            poses.add(q);
+            out.camFrames.add(b.camFrames.get(c));
+        }
+        // Puntos: los de a, los de b transformados (los compartidos se funden) y las pistas que cruzan sin punto
+        List<double[]> pts = new ArrayList<>();
+        List<List<Track>> ptTr = new ArrayList<>();
+        for (int i = 0; i < a.points.length; i++) {
+            pts.add(a.points[i].clone());
+            ptTr.add(new ArrayList<>(a.pointTracks.get(i)));
+        }
+        for (int i = 0; i < b.points.length; i++) {
+            if (same[i] >= 0) {
+                for (Track t : b.pointTracks.get(i)) if (!ptTr.get(same[i]).contains(t)) ptTr.get(same[i]).add(t);
+                continue;
+            }
+            pts.add(Geometry.applySim(sim, b.points[i]));
+            ptTr.add(new ArrayList<>(b.pointTracks.get(i)));
+        }
+        Map<Track, Integer> ptOf = new HashMap<>();
+        for (int i = 0; i < ptTr.size(); i++) for (Track t : ptTr.get(i)) ptOf.put(t, i);
+        double f = (a.focal * a.poses.size() + b.focal * b.poses.size()) / (a.poses.size() + b.poses.size());
+        double cx = a.width / 2.0, cy = a.height / 2.0;
+        // camKf/kf de identidad para reutilizar triangulateNew/observations con cuadros directos
+        List<Integer> kf = out.camFrames, camKf = new ArrayList<>();
+        for (int c = 0; c < kf.size(); c++) camKf.add(c);
+        triangulateNew(tracks, kf, camKf, poses, ptOf, pts, ptTr, f, cx, cy, 1.0);
+        double[] fa = {f};
+        double rms = bundle(camKf, kf, poses, pts, ptTr, fa, cx, cy, 25, true);
+        // Limpieza como en un tramo: fuera los puntos mal ajustados, y otro ajuste
+        List<double[]> goodPts = new ArrayList<>();
+        List<List<Track>> goodTr = new ArrayList<>();
+        for (int i = 0; i < pts.size(); i++) {
+            List<Bundle.Obs> obs = observations(ptTr.get(i), i, camKf, kf, cx, cy);
+            double worst = 0;
+            for (Bundle.Obs o : obs) worst = Math.max(worst, Bundle.reproj(poses.get(o.cam), pts.get(i), fa[0], o));
+            if (obs.size() >= 2 && worst < 4) {
+                goodPts.add(pts.get(i));
+                goodTr.add(ptTr.get(i));
+            }
+        }
+        rms = bundle(camKf, kf, poses, goodPts, goodTr, fa, cx, cy, 20, true);
+        if (LOG != null) LOG.append("  unido: rms ").append(String.format(java.util.Locale.ROOT, "%.2f", rms)).append(" px, ")
+                .append(goodPts.size()).append(" puntos, escala ").append(String.format(java.util.Locale.ROOT, "%.3f", s)).append('\n');
+        // Si el ajuste conjunto no cuadra (la unión estaba mal), no se usa
+        if (rms > Math.max(2.0, 1.5 * Math.max(a.rms, b.rms))) return null;
+        out.points = goodPts.toArray(new double[0][]);
+        out.pointTracks = goodTr;
+        out.colors = new int[goodTr.size()];
+        out.nObs = new int[goodTr.size()];
+        for (int i = 0; i < goodTr.size(); i++) {
+            out.colors[i] = goodTr.get(i).get(0).color;
+            out.nObs[i] = observations(goodTr.get(i), i, camKf, kf, cx, cy).size();
+        }
+        out.poses.addAll(poses);
+        out.focal = fa[0];
+        out.rms = rms;
+        out.startFrame = Math.min(a.startFrame, b.startFrame);
+        out.endFrame = Math.max(a.endFrame, b.endFrame);
+        out.endKf = Math.max(a.endKf, b.endKf);
+        out.keyframes = a.keyframes + b.keyframes;
+        out.merged = a.merged + b.merged;
+        out.parts.addAll(a.parts);
+        out.parts.addAll(b.parts);
+        return out;
+    }
+
 
     private static Result segment(List<Track> tracks, List<Integer> kf, int from, int frames, int w, int h, double f0,
                                   Progress pr, Random rnd) {
@@ -430,6 +535,7 @@ public final class Sfm {
         out.startFrame = kf.get(lo);
         out.endFrame = kf.get(hi);
         out.keyframes = hi - lo + 1;
+        out.parts.add(new int[]{out.startFrame, out.endFrame, out.poses.size(), out.points.length});
         if (LOG != null) LOG.append("tramo cuadros ").append(out.startFrame).append('-').append(out.endFrame).append(" cámaras ")
                 .append(camKf.size()).append('\n');
         return out;
@@ -555,11 +661,54 @@ public final class Sfm {
             xs[k] = pts.get(qp.get(k));
             ob[k] = new double[]{(qt.get(k).x(frame) - cx) / f, (qt.get(k).y(frame) - cy) / f};
         }
+        Geometry.Pose best = pnpRansac(xs, ob, f, rnd);
+        int bestIn = best == null ? 0 : countInliers(best, xs, ob, 5.0 / f);
+        double thr = 5.0 / f;
+        if (best == null || bestIn < 12) { if (LOG != null) LOG.append(" inliers ").append(bestIn).append('\n'); return null; }
+        List<double[]> x2 = new ArrayList<>(), o2 = new ArrayList<>();
+        for (int k = 0; k < n; k++) {
+            double[] xc = best.apply(xs[k]);
+            if (xc[2] > 0 && Math.hypot(xc[0] / xc[2] - ob[k][0], xc[1] / xc[2] - ob[k][1]) < thr) { x2.add(xs[k]); o2.add(ob[k]); }
+        }
+        Geometry.refinePose(best, x2.toArray(new double[0][]), o2.toArray(new double[0][]), f, 2, 15);
+        int linked = 0;
+        for (int k = 0; k < n; k++) {
+            double[] xc = best.apply(xs[k]);
+            if (xc[2] > 0 && f * Math.hypot(xc[0] / xc[2] - ob[k][0], xc[1] / xc[2] - ob[k][1]) < 4) {
+                ptOf.put(qt.get(k), qp.get(k));
+                ptTrack.get(qp.get(k)).add(qt.get(k));
+                linked++;
+            }
+        }
+        if (LOG != null) LOG.append(" → reubicado con ").append(linked).append('\n');
+        return linked >= 12 ? best : null;
+    }
+
+    static int countInliers(Geometry.Pose p, double[][] xs, double[][] ob, double thr) {
+        int in = 0;
+        for (int k = 0; k < xs.length; k++) {
+            double[] xc = p.apply(xs[k]);
+            if (xc[2] > 0 && Math.hypot(xc[0] / xc[2] - ob[k][0], xc[1] / xc[2] - ob[k][1]) < thr) in++;
+        }
+        return in;
+    }
+
+    /**
+     * Pose de una cámara desde correspondencias 3D–2D ({@code ob} en
+     * coordenadas normalizadas) sin pose inicial, con RANSAC alternando 4
+     * puntos con homografía (sirve para una pared) y 6 con DLT. Null si no hay.
+     */
+    static Geometry.Pose pnpRansac(double[][] xs, double[][] ob, double f, Random rnd) { return pnpRansac(xs, ob, f, rnd, 600); }
+
+    /** Igual con {@code iters} intentos (con muchas coincidencias falsas hacen falta miles). */
+    static Geometry.Pose pnpRansac(double[][] xs, double[][] ob, double f, Random rnd, int iters) {
+        int n = xs.length;
+        if (n < 6) return null;
         Geometry.Pose best = null;
         int bestIn = 0;
         double thr = 5.0 / f;
         int[] i6 = new int[6], i4 = new int[4];
-        for (int it = 0; it < 600; it++) {
+        for (int it = 0; it < iters; it++) {
             // Alternar: 4 puntos con homografía (sirve para la pared) y 6 con DLT (puntos en 3D)
             int[] idx = it % 2 == 0 ? i4 : i6;
             for (int k = 0; k < idx.length; k++) {
@@ -581,23 +730,6 @@ public final class Sfm {
             }
             if (in > bestIn) { bestIn = in; best = p; }
         }
-        if (best == null || bestIn < 12) { if (LOG != null) LOG.append(" inliers ").append(bestIn).append('\n'); return null; }
-        List<double[]> x2 = new ArrayList<>(), o2 = new ArrayList<>();
-        for (int k = 0; k < n; k++) {
-            double[] xc = best.apply(xs[k]);
-            if (xc[2] > 0 && Math.hypot(xc[0] / xc[2] - ob[k][0], xc[1] / xc[2] - ob[k][1]) < thr) { x2.add(xs[k]); o2.add(ob[k]); }
-        }
-        Geometry.refinePose(best, x2.toArray(new double[0][]), o2.toArray(new double[0][]), f, 2, 15);
-        int linked = 0;
-        for (int k = 0; k < n; k++) {
-            double[] xc = best.apply(xs[k]);
-            if (xc[2] > 0 && f * Math.hypot(xc[0] / xc[2] - ob[k][0], xc[1] / xc[2] - ob[k][1]) < 4) {
-                ptOf.put(qt.get(k), qp.get(k));
-                ptTrack.get(qp.get(k)).add(qt.get(k));
-                linked++;
-            }
-        }
-        if (LOG != null) LOG.append(" → reubicado con ").append(linked).append('\n');
-        return linked >= 12 ? best : null;
+        return bestIn >= 6 ? best : null;
     }
 }

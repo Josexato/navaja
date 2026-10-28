@@ -1,6 +1,7 @@
 package com.josexato.navaja.measure.core;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
@@ -30,6 +31,42 @@ public final class Geometry {
 
         /** Centro de la cámara en el mundo: −Rᵀ·t. */
         public double[] center() { return Lin.scale(Lin.mulV(Lin.tr(r), t), -1); }
+    }
+
+    /**
+     * Similitud y ≈ s·R·x + t por mínimos cuadrados (Umeyama) con los pares
+     * {@code use}. Devuelve {s, R (9), t (3)}.
+     */
+    public static double[] similarity(List<double[]> x, List<double[]> y, List<Integer> use) {
+        double[] mx = new double[3], my = new double[3];
+        for (int i : use) {
+            mx = Lin.add(mx, x.get(i));
+            my = Lin.add(my, y.get(i));
+        }
+        mx = Lin.scale(mx, 1.0 / use.size());
+        my = Lin.scale(my, 1.0 / use.size());
+        double[] cov = new double[9];
+        double vx = 0;
+        for (int i : use) {
+            double[] a = Lin.sub(x.get(i), mx), b = Lin.sub(y.get(i), my);
+            vx += Lin.dot(a, a);
+            for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) cov[3 * r + c] += b[r] * a[c];
+        }
+        Object[] svd = Lin.svd3(cov);
+        double[] u = (double[]) svd[0], sv = (double[]) svd[1], v = (double[]) svd[2];
+        double d = Lin.det(Lin.mul(u, Lin.tr(v))) < 0 ? -1 : 1;
+        double[] rot = Lin.mul(Lin.mul(u, new double[]{1, 0, 0, 0, 1, 0, 0, 0, d}), Lin.tr(v));
+        double s = (sv[0] + sv[1] + d * sv[2]) / vx;
+        double[] t = Lin.sub(my, Lin.scale(Lin.mulV(rot, mx), s));
+        double[] out = new double[13];
+        out[0] = s;
+        System.arraycopy(rot, 0, out, 1, 9);
+        System.arraycopy(t, 0, out, 10, 3);
+        return out;
+    }
+
+    public static double[] applySim(double[] sim, double[] x) {
+        return Lin.add(Lin.scale(Lin.mulV(Arrays.copyOfRange(sim, 1, 10), x), sim[0]), Arrays.copyOfRange(sim, 10, 13));
     }
 
     /** E con x2ᵀ·E·x1 = 0, por 8 puntos (sin forzar aún la forma esencial). */

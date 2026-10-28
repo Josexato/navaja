@@ -47,19 +47,25 @@ public final class Brief {
     }
 
     /** Huella en (x, y), o null si el punto está muy cerca del borde. */
-    public static long[] describe(float[] sm, int w, int h, float x, float y) {
-        int cx = Math.round(x), cy = Math.round(y);
-        if (cx < MARGIN || cy < MARGIN || cx >= w - MARGIN || cy >= h - MARGIN) return null;
+    public static long[] describe(float[] sm, int w, int h, float x, float y) { return describe(sm, w, h, x, y, 1); }
+
+    /**
+     * Huella con el patrón agrandado {@code k} veces (k entre 1 y 2): junto
+     * con los niveles de la pirámide da huellas a varias escalas.
+     */
+    static long[] describe(float[] sm, int w, int h, float x, float y, double k) {
+        int cx = Math.round(x), cy = Math.round(y), margin = (int) Math.ceil(MARGIN * k), rad = (int) Math.round(RADIUS * k);
+        if (cx < margin || cy < margin || cx >= w - margin || cy >= h - margin) return null;
         // Orientación por el centroide de intensidad
         double m10 = 0, m01 = 0;
-        for (int dy = -RADIUS; dy <= RADIUS; dy++)
-            for (int dx = -RADIUS; dx <= RADIUS; dx++) {
-                if (dx * dx + dy * dy > RADIUS * RADIUS) continue;
+        for (int dy = -rad; dy <= rad; dy++)
+            for (int dx = -rad; dx <= rad; dx++) {
+                if (dx * dx + dy * dy > rad * rad) continue;
                 float v = sm[(cy + dy) * w + cx + dx];
                 m10 += dx * v;
                 m01 += dy * v;
             }
-        double a = Math.atan2(m01, m10), c = Math.cos(a), s = Math.sin(a);
+        double a = Math.atan2(m01, m10), c = Math.cos(a) * k, s = Math.sin(a) * k;
         long[] d = new long[4];
         for (int i = 0; i < 256; i++) {
             float ax = PAIRS[4 * i], ay = PAIRS[4 * i + 1], bx = PAIRS[4 * i + 2], by = PAIRS[4 * i + 3];
