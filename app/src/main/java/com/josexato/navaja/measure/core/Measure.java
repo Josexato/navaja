@@ -218,16 +218,18 @@ public final class Measure {
             if (d < dMin - margin || d > dMax + margin) continue;
             if (Hull.contains(hull, Lin.dot(q, e1), Lin.dot(q, e2))) { best.add(i); inObj.add(i); }
         }
-        // 5) Ejes: normal del plano + "arriba" del primer cuadro
-        int fi = 0;
-        for (int c = 1; c < r.camFrames.size(); c++) if (r.camFrames.get(c) < r.camFrames.get(fi)) fi = c;
-        Geometry.Pose first = r.poses.get(fi);
-        double[] up = {-first.r[3], -first.r[4], -first.r[5]};
+        // 5) Ejes: normal del plano + "arriba" de la imagen. El celular (o la vista de un visor 3D) se mantiene
+        //    más o menos derecho, así que se promedia el "arriba" de todas las cámaras del tramo: si coinciden,
+        //    vale aunque el tramo no empiece con el video (antes sólo se usaba el primer cuadro del video).
+        double[] up = new double[3];
+        for (Geometry.Pose ps : r.poses) up = Lin.add(up, new double[]{-ps.r[3], -ps.r[4], -ps.r[5]});
+        double agree = Lin.norm(up) / r.poses.size(); // 1 = todas las cámaras con el mismo "arriba"
+        up = Lin.unit(up);
         Box box = new Box();
         box.planeN = bn;
         box.planeP = bp;
-        box.upKnown = r.startFrame <= 2;
-        box.onWall = !box.upKnown || Math.abs(Lin.dot(up, bn)) < 0.7;
+        box.upKnown = r.startFrame <= 2 || agree >= UP_AGREE;
+        box.onWall = agree < 0.5 || Math.abs(Lin.dot(up, bn)) < 0.7;
         double[][] obj = new double[best.size()][];
         for (int k = 0; k < obj.length; k++) obj[k] = p[best.get(k)];
         if (box.onWall && box.upKnown) {
@@ -246,21 +248,7 @@ public final class Measure {
             box.axisD = inPlaneMajor(obj, bn);
             box.axisW = Lin.cross(box.axisH, box.axisD);
         }
-        double[][] lim = new double[3][];
-        double[][] axes = {box.axisH, box.axisW, box.axisD};
-        for (int a = 0; a < 3; a++) {
-            double[] proj = new double[obj.length];
-            for (int k = 0; k < obj.length; k++) proj[k] = Lin.dot(obj[k], axes[a]);
-            lim[a] = new double[]{percentile(proj, 1), percentile(proj, 99)};
-        }
-        box.alto = lim[0][1] - lim[0][0];
-        box.ancho = lim[1][1] - lim[1][0];
-        box.prof = lim[2][1] - lim[2][0];
-        box.center = new double[3];
-        for (int a = 0; a < 3; a++) box.center = Lin.add(box.center, Lin.scale(axes[a], (lim[a][0] + lim[a][1]) / 2));
-        double[] dPlane = new double[obj.length];
-        for (int k = 0; k < obj.length; k++) dPlane[k] = Lin.dot(Lin.sub(obj[k], bp), bn);
-        box.separation = Math.max(0, percentile(dPlane, 1));
+        extents(box, obj);
         box.objectPoints = best.stream().mapToInt(Integer::intValue).toArray();
         return box;
     }
@@ -287,6 +275,9 @@ public final class Measure {
         b.objectPoints = all;
     }
 
+    /** Coincidencia mínima del "arriba" de las cámaras para confiar en él (media de vectores unitarios). */
+    static final double UP_AGREE = 0.9;
+
     /** Nombres de los puntos clave, en el orden de {@link #landmarks}. */
     public static final String[] LANDMARKS = {"arriba", "abajo", "izquierda", "derecha", "frente"};
 
@@ -298,10 +289,17 @@ public final class Measure {
      * absoluto suele ser ruido y se ve en pocas fotos). Devuelve índices en
      * {@code r.points} (−1 si no hay).
      */
-    public static int[] landmarks(Sfm.Result r, Box b) {
+    public static int[] landmarks(Sfm.Result r, Box b) { return landmarks(r, b, null); }
+
+    /**
+     * Igual, y si hay volumen por siluetas ({@code hull}) sólo puntos que
+     * caen dentro de él (con 2 vóxeles de margen): los puntos de la pared o
+     * del piso que quedaron mal asignados al objeto no pueden ser puntos clave.
+     */
+    public static int[] landmarks(Sfm.Result r, Box b, Carve.Result hull) {
         List<Integer> good = new ArrayList<>();
         for (int i : b.objectPoints)
-            if (i < r.pointTracks.size() && r.nObs[i] >= 3) good.add(i);
+            if (i < r.pointTracks.size() && r.nObs[i] >= 3 && (hull == null || Carve.inside(hull, r.points[i], 2))) good.add(i);
         int[] out = new int[LANDMARKS.length];
         Arrays.fill(out, -1);
         if (good.isEmpty()) return out;
@@ -322,11 +320,63 @@ public final class Measure {
             final double[] kv = key[l];
             Arrays.sort(order, (x, y) -> Double.compare(kv[y], kv[x]));
             // Entre el 5 % más extremo, el que se vio desde más cámaras (para verlo en más fotos)
-            int best = order[0], top = Math.max(1, (int) Math.ceil(0.05 * order.length));
-            for (int k = 1; k < top; k++) if (r.nObs[good.get(order[k])] > r.nObs[good.get(best)]) best = order[k];
-            out[l] = good.get(best);
+            // (sin repetir un punto ya elegido para otro nombre)
+            java.util.Set<Integer> used = new java.util.HashSet<>();
+            for (int u = 0; u < l; u++) used.add(out[u]);
+            int best = -1, top = Math.max(1, (int) Math.ceil(0.05 * order.length));
+            for (int k = 0; k < order.length && (k < top || best < 0); k++) {
+                int i = good.get(order[k]);
+                if (used.contains(i)) continue;
+                if (best < 0 || r.nObs[i] > r.nObs[good.get(best)]) best = order[k];
+            }
+            if (best >= 0) out[l] = good.get(best);
         }
         return out;
+    }
+
+    /** Alto, ancho, profundidad (percentiles 1–99 en los ejes de la caja), centro y separación del plano. */
+    static void extents(Box box, double[][] obj) {
+        double[][] lim = new double[3][];
+        double[][] axes = {box.axisH, box.axisW, box.axisD};
+        for (int a = 0; a < 3; a++) {
+            double[] proj = new double[obj.length];
+            for (int k = 0; k < obj.length; k++) proj[k] = Lin.dot(obj[k], axes[a]);
+            lim[a] = new double[]{percentile(proj, 1), percentile(proj, 99)};
+        }
+        box.alto = lim[0][1] - lim[0][0];
+        box.ancho = lim[1][1] - lim[1][0];
+        box.prof = lim[2][1] - lim[2][0];
+        box.center = new double[3];
+        for (int a = 0; a < 3; a++) box.center = Lin.add(box.center, Lin.scale(axes[a], (lim[a][0] + lim[a][1]) / 2));
+        double[] dPlane = new double[obj.length];
+        for (int k = 0; k < obj.length; k++) dPlane[k] = Lin.dot(Lin.sub(obj[k], box.planeP), box.planeN);
+        box.separation = Math.max(0, percentile(dPlane, 1));
+    }
+
+    /**
+     * Con las siluetas se sabe mejor qué puntos son del objeto: los que están
+     * sobre el plano de apoyo y dentro del volumen tallado. La agrupación por
+     * cercanía puede dejar fuera una parte del objeto (con un nudo visto
+     * desde todos lados perdía un lóbulo y la planta salía 29 % corta). Se
+     * suman esos puntos y se recalcula la caja con los mismos ejes. Devuelve
+     * false si no había nada que sumar.
+     */
+    public static boolean refineWithHull(Sfm.Result r, Box b, Carve.Result h) {
+        // Sólo se agregan puntos: los que ya eran del objeto se quedan (la silueta puede quedar justa en los
+        // bordes y quitar puntos buenos; con la máscara eso achicaba el ancho un 10 %)
+        java.util.Set<Integer> in = new java.util.TreeSet<>();
+        for (int i : b.objectPoints) in.add(i);
+        int before = in.size();
+        double minD = 0.02 * Math.max(h.front, Math.max(h.ancho, h.alto));
+        for (int i = 0; i < r.pointTracks.size() && i < r.points.length; i++)
+            if (Lin.dot(Lin.sub(r.points[i], b.planeP), b.planeN) > minD && Carve.inside(h, r.points[i], 1)) in.add(i);
+        if (in.size() == before) return false;
+        double[][] obj = new double[in.size()][];
+        int k = 0;
+        for (int i : in) obj[k++] = r.points[i];
+        extents(b, obj);
+        b.objectPoints = in.stream().mapToInt(Integer::intValue).toArray();
+        return true;
     }
 
     // ------------------------------------------------------------------ utilidades

@@ -379,6 +379,7 @@
           <option value="solid" selected>Sólido</option>
           <option value="normals">Normales</option>
           <option value="vcolor" id="vcolorOpt" hidden>Color del escaneo</option>
+          <option value="test">Textura de prueba (para medir desde video)</option>
         </select>
       </label>
       <label>Color <input type="color" id="colorPick" value="#9fb0c3"></label>
@@ -489,6 +490,52 @@
     vertexColors: true, metalness: 0.0, roughness: 0.8, side: THREE.DoubleSide
   });
 
+  // Textura de prueba: manchas de colores fijas en la superficie (como un terrazo), para grabar la pieza en
+  // pantalla y probar «Escáner 3D desde video» con medidas exactas. Va por color de vértice: sirve para
+  // cualquier pieza, también STL u OBJ sin coordenadas de textura.
+  const testMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.0, roughness: 0.85, side: THREE.DoubleSide });
+  const TEST_PALETTE = [[0.86, 0.22, 0.20], [0.98, 0.78, 0.18], [0.16, 0.55, 0.85], [0.15, 0.65, 0.35], [0.93, 0.93, 0.90], [0.55, 0.30, 0.70], [0.10, 0.10, 0.12]];
+  function hash3(i, j, k) {
+    const h = Math.sin(i * 127.1 + j * 311.7 + k * 74.7) * 43758.5453;
+    return h - Math.floor(h);
+  }
+  function valueNoise(x, y, z) {
+    const i = Math.floor(x), j = Math.floor(y), k = Math.floor(z);
+    const fx = x - i, fy = y - j, fz = z - k;
+    const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+    let n = 0;
+    for (let c = 0; c < 8; c++) {
+      const a = c & 1, b = (c >> 1) & 1, d = (c >> 2) & 1;
+      n += hash3(i + a, j + b, k + d) * (a ? u : 1 - u) * (b ? v : 1 - v) * (d ? w : 1 - w);
+    }
+    return n;
+  }
+  function testGeometry(base) {
+    const g = base.clone();
+    g.computeBoundingSphere();
+    const r = g.boundingSphere.radius || 50, pos = g.attributes.position, col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const blob = valueNoise(x * 7 / r, y * 7 / r, z * 7 / r), fine = valueNoise(x * 30 / r + 50, y * 30 / r, z * 30 / r);
+      const c = TEST_PALETTE[Math.min(TEST_PALETTE.length - 1, Math.floor(blob * TEST_PALETTE.length))];
+      const shade = fine < 0.3 ? 0.45 : 1; // pintas oscuras finas: más esquinas para seguir
+      col[3 * i] = c[0] * shade; col[3 * i + 1] = c[1] * shade; col[3 * i + 2] = c[2] * shade;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  }
+  function applyMaterial(m) {
+    if ($('matSelect').value === 'test') {
+      if (!m.userData.base) m.userData.base = m.geometry;
+      if (!m.userData.test) m.userData.test = testGeometry(m.userData.base);
+      m.geometry = m.userData.test;
+      m.material = testMaterial;
+    } else {
+      if (m.userData.base) m.geometry = m.userData.base;
+      m.material = currentMaterial();
+    }
+  }
+
   function applyTheme3d() { scene.background = new THREE.Color(cssVar('--canvas-bg')); rebuildGrid(); }
   function rebuildGrid() {
     if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
@@ -545,7 +592,14 @@
   }
 
   function setModel(object3d, label) {
-    if (modelGroup) { scene.remove(modelGroup); modelGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+    if (modelGroup) {
+      scene.remove(modelGroup);
+      modelGroup.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.userData && o.userData.base) o.userData.base.dispose();
+        if (o.userData && o.userData.test) o.userData.test.dispose();
+      });
+    }
     meshes = []; wires = [];
     modelGroup = new THREE.Group();
     let payload;
@@ -558,6 +612,7 @@
     }
     modelGroup.add(payload);
     payload.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    for (const m of meshes) applyMaterial(m);
 
     const box = new THREE.Box3().setFromObject(payload);
     const center = box.getCenter(new THREE.Vector3());
@@ -605,7 +660,7 @@
     controls.update();
   }
 
-  $('matSelect').addEventListener('change', () => { for (const m of meshes) m.material = currentMaterial(); });
+  $('matSelect').addEventListener('change', () => { for (const m of meshes) applyMaterial(m); });
   $('colorPick').addEventListener('input', (e) => solidMaterial.color.set(e.target.value));
   $('wireChk').addEventListener('change', (e) => wires.forEach((w) => { w.visible = e.target.checked; }));
   $('gridChk').addEventListener('change', (e) => { if (grid) grid.visible = e.target.checked; });

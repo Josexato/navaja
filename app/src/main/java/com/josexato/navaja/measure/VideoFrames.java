@@ -72,13 +72,15 @@ final class VideoFrames {
                 int oi = codec.dequeueOutputBuffer(info, 10_000);
                 if (oi >= 0) {
                     boolean eos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
-                    if (info.size > 0 && info.presentationTimeUs >= next) {
+                    // Grilla fija de 1/fps (con ±1/4 de tolerancia): da fps cuadros por segundo sea el video de 24, 30,
+                    // 60 o 120 cuadros por segundo (antes, "50 ms después del último" daba 20 por segundo a 60 o 120)
+                    if (info.size > 0 && info.presentationTimeUs >= next - step / 4) {
                         Image img = codec.getOutputImage(oi);
                         if (img != null) {
                             int[][] dims = new int[1][];
                             int[] argb = toArgb(img, longSide, rotation, dims);
                             img.close();
-                            next = info.presentationTimeUs + step - step / 4;
+                            while (next <= info.presentationTimeUs + step / 4) next += step;
                             if (!sink.frame(argb, dims[0][0], dims[0][1], info.presentationTimeUs, duration)) {
                                 codec.releaseOutputBuffer(oi, false);
                                 return;
