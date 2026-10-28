@@ -78,6 +78,8 @@ public class MeasureActivity extends Activity {
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private final AtomicBoolean cancel = new AtomicBoolean();
     private File recorded;
+    /** Si el video grabado ya se copió a la carpeta de guardado. */
+    private volatile boolean recordedCopied;
     private Measure.Choice choice;
     private double videoSeconds;
     private int known = 0;     // 0 alto, 1 ancho, 2 profundidad
@@ -145,7 +147,7 @@ public class MeasureActivity extends Activity {
         NavajaUi.topMargin(rec, 12);
         c.addView(rec, new LinearLayout.LayoutParams(-1, -2));
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Elegir un video", v -> pick())));
-        TextView note = NavajaUi.text(this, "Todo se calcula en el teléfono; el video no sale de aquí. Toma uno o dos minutos.",
+        TextView note = NavajaUi.text(this, "Todo se calcula en el teléfono; el video no sale de aquí. El que grabes se guarda en tu carpeta de guardado (junto al ZIP). Toma uno o dos minutos.",
                 NavajaUi.Style.MUTED);
         NavajaUi.topMargin(note, 12);
         c.addView(note);
@@ -190,7 +192,15 @@ public class MeasureActivity extends Activity {
             return;
         }
         if (req == REQ_PICK && data != null && data.getData() != null) process(data.getData());
-        else if (req == REQ_RECORD && recorded != null && recorded.length() > 0) process(Uri.fromFile(recorded));
+        else if (req == REQ_RECORD && recorded != null && recorded.length() > 0) {
+            // El video grabado queda en la carpeta privada de la app: se copia a la carpeta de guardado (si ya se eligió;
+            // si no, junto al ZIP al guardar) para que no se pierda aunque la medida falle
+            recordedCopied = false;
+            Uri tree = folder();
+            File rec = recorded;
+            if (tree != null) work.execute(() -> copyRecording(tree, rec, "video_" + stamp() + ".mp4"));
+            process(Uri.fromFile(recorded));
+        }
         else if (req == REQ_RECORD && data != null && data.getData() != null) process(data.getData());
     }
 
@@ -779,7 +789,8 @@ public class MeasureActivity extends Activity {
         pendingSave = false;
         MeasureReport.Data d = reportData();
         boolean withDebug = debug;
-        String name = "medida_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date()) + ".zip";
+        String base = "medida_" + stamp(), name = base + ".zip";
+        File rec = recorded != null && recorded.exists() && Uri.fromFile(recorded).equals(videoUri) && !recordedCopied ? recorded : null;
         toast("Guardando…");
         work.execute(() -> {
             try {
@@ -790,13 +801,35 @@ public class MeasureActivity extends Activity {
                     if (os == null) throw new IOException("no se pudo abrir el archivo");
                     MeasureReport.write(os, d, withDebug);
                 }
-                String where = folderName(tree) + "/" + name;
+                boolean video = rec != null && copyRecording(tree, rec, base + ".mp4");
+                String where = folderName(tree) + "/" + name + (video ? " (y el video " + base + ".mp4)" : "");
                 ui.post(() -> toast("Guardado en " + where));
             } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "guardar", e);
                 ui.post(() -> toast("No se pudo guardar: " + e.getMessage() + ". Prueba «Cambiar carpeta»."));
             }
         });
+    }
+
+    private static String stamp() { return new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(new Date()); }
+
+    /** Copia el video grabado a la carpeta de guardado; false si no se pudo (queda en la carpeta privada de la app). */
+    private boolean copyRecording(Uri tree, File rec, String name) {
+        try {
+            Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+            Uri doc = DocumentsContract.createDocument(getContentResolver(), parent, "video/mp4", name);
+            if (doc == null) return false;
+            try (OutputStream os = getContentResolver().openOutputStream(doc); java.io.InputStream in = new java.io.FileInputStream(rec)) {
+                if (os == null) return false;
+                byte[] buf = new byte[1 << 16];
+                for (int n; (n = in.read(buf)) > 0; ) os.write(buf, 0, n);
+            }
+            recordedCopied = true;
+            return true;
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "copiar video", e);
+            return false;
+        }
     }
 
     /** Comparte la nube del objeto limpia (la misma `nube_objeto.ply` del ZIP), calculada fuera de la pantalla. */
