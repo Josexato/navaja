@@ -248,21 +248,7 @@ public final class Measure {
             box.axisD = inPlaneMajor(obj, bn);
             box.axisW = Lin.cross(box.axisH, box.axisD);
         }
-        double[][] lim = new double[3][];
-        double[][] axes = {box.axisH, box.axisW, box.axisD};
-        for (int a = 0; a < 3; a++) {
-            double[] proj = new double[obj.length];
-            for (int k = 0; k < obj.length; k++) proj[k] = Lin.dot(obj[k], axes[a]);
-            lim[a] = new double[]{percentile(proj, 1), percentile(proj, 99)};
-        }
-        box.alto = lim[0][1] - lim[0][0];
-        box.ancho = lim[1][1] - lim[1][0];
-        box.prof = lim[2][1] - lim[2][0];
-        box.center = new double[3];
-        for (int a = 0; a < 3; a++) box.center = Lin.add(box.center, Lin.scale(axes[a], (lim[a][0] + lim[a][1]) / 2));
-        double[] dPlane = new double[obj.length];
-        for (int k = 0; k < obj.length; k++) dPlane[k] = Lin.dot(Lin.sub(obj[k], bp), bn);
-        box.separation = Math.max(0, percentile(dPlane, 1));
+        extents(box, obj);
         box.objectPoints = best.stream().mapToInt(Integer::intValue).toArray();
         return box;
     }
@@ -313,7 +299,7 @@ public final class Measure {
     public static int[] landmarks(Sfm.Result r, Box b, Carve.Result hull) {
         List<Integer> good = new ArrayList<>();
         for (int i : b.objectPoints)
-            if (i < r.pointTracks.size() && r.nObs[i] >= 3 && (hull == null || Carve.inside(hull, b, r.points[i], 2))) good.add(i);
+            if (i < r.pointTracks.size() && r.nObs[i] >= 3 && (hull == null || Carve.inside(hull, r.points[i], 2))) good.add(i);
         int[] out = new int[LANDMARKS.length];
         Arrays.fill(out, -1);
         if (good.isEmpty()) return out;
@@ -346,6 +332,51 @@ public final class Measure {
             if (best >= 0) out[l] = good.get(best);
         }
         return out;
+    }
+
+    /** Alto, ancho, profundidad (percentiles 1–99 en los ejes de la caja), centro y separación del plano. */
+    static void extents(Box box, double[][] obj) {
+        double[][] lim = new double[3][];
+        double[][] axes = {box.axisH, box.axisW, box.axisD};
+        for (int a = 0; a < 3; a++) {
+            double[] proj = new double[obj.length];
+            for (int k = 0; k < obj.length; k++) proj[k] = Lin.dot(obj[k], axes[a]);
+            lim[a] = new double[]{percentile(proj, 1), percentile(proj, 99)};
+        }
+        box.alto = lim[0][1] - lim[0][0];
+        box.ancho = lim[1][1] - lim[1][0];
+        box.prof = lim[2][1] - lim[2][0];
+        box.center = new double[3];
+        for (int a = 0; a < 3; a++) box.center = Lin.add(box.center, Lin.scale(axes[a], (lim[a][0] + lim[a][1]) / 2));
+        double[] dPlane = new double[obj.length];
+        for (int k = 0; k < obj.length; k++) dPlane[k] = Lin.dot(Lin.sub(obj[k], box.planeP), box.planeN);
+        box.separation = Math.max(0, percentile(dPlane, 1));
+    }
+
+    /**
+     * Con las siluetas se sabe mejor qué puntos son del objeto: los que están
+     * sobre el plano de apoyo y dentro del volumen tallado. La agrupación por
+     * cercanía puede dejar fuera una parte del objeto (con un nudo visto
+     * desde todos lados perdía un lóbulo y la planta salía 29 % corta). Se
+     * suman esos puntos y se recalcula la caja con los mismos ejes. Devuelve
+     * false si no había nada que sumar.
+     */
+    public static boolean refineWithHull(Sfm.Result r, Box b, Carve.Result h) {
+        // Sólo se agregan puntos: los que ya eran del objeto se quedan (la silueta puede quedar justa en los
+        // bordes y quitar puntos buenos; con la máscara eso achicaba el ancho un 10 %)
+        java.util.Set<Integer> in = new java.util.TreeSet<>();
+        for (int i : b.objectPoints) in.add(i);
+        int before = in.size();
+        double minD = 0.02 * Math.max(h.front, Math.max(h.ancho, h.alto));
+        for (int i = 0; i < r.pointTracks.size() && i < r.points.length; i++)
+            if (Lin.dot(Lin.sub(r.points[i], b.planeP), b.planeN) > minD && Carve.inside(h, r.points[i], 1)) in.add(i);
+        if (in.size() == before) return false;
+        double[][] obj = new double[in.size()][];
+        int k = 0;
+        for (int i : in) obj[k++] = r.points[i];
+        extents(b, obj);
+        b.objectPoints = in.stream().mapToInt(Integer::intValue).toArray();
+        return true;
     }
 
     // ------------------------------------------------------------------ utilidades

@@ -157,6 +157,8 @@ Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escen
 
 Probado con una escena sintética (caja de 20×15×10 cm contra una pared, ruido de 0,5 px): ancho ±4 %, profundidad ±8 %. Con un video real de una máscara de 25 cm de alto: 19,3 × 15,4 cm (ancho × profundidad), coherente con COLMAP sobre los mismos cuadros.
 
+**Prueba con medidas exactas:** el visor tiene el material **«Textura de prueba»** (manchas de colores fijas, para cualquier pieza). Con la pieza de ejemplo (nudo de 65,6 × 68,6 × 32 mm) y una vuelta completa a la cámara del visor, dando el alto = 32 mm: siluetas 60,5 × 66,8 mm y puntos 58,6 × 63,3 mm (diferencia entre métodos 2,8 %). Sin textura (el nudo gris liso) casi no hay puntos que seguir y la reconstrucción no arranca: el método necesita superficie con dibujo.
+
 Con el video de la máscara las dos medidas coinciden: ancho 19,3 cm por puntos y 17,5–18,9 cm por siluetas, y 16,3–17,2 cm de la pared al frente contra 17,1 cm (diferencia 2–5 %).
 
 Límites: hace falta una medida conocida para tener centímetros; movimientos bruscos o borrosos cortan el hilo (se mide con el tramo más largo); objetos lisos, brillantes o transparentes dan pocos puntos; la profundidad es la medida menos precisa (~±10 %). Las siluetas no ven concavidades (el hueco de atrás de una máscara) y, si todo el video se hace a la misma altura, el volumen sale algo más alto de la cuenta. El modelo MagicTouch (6 MB, Apache 2.0, licencia en `assets/modelos/`) y TensorFlow Lite agregan ~12 MB al APK.

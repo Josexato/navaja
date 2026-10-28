@@ -360,6 +360,8 @@ public class MeasureActivity extends Activity {
         if (cancel.get()) return;
         // El casco usa sólo los puntos ralos (con sus pistas): se talla antes de sumar los densos
         hull = model == null ? null : Carve.carve(r, ch.box, cuts, mw, mh);
+        // Con siluetas se sabe mejor qué puntos son del objeto (la agrupación por cercanía puede dejar partes fuera)
+        if (hull != null && Measure.refineWithHull(r, ch.box, hull)) Log.i(TAG, "objeto según las siluetas: " + ch.box.objectPoints.length + " puntos");
         photos = shots;
         this.masks = cuts;
         maskW = mw;

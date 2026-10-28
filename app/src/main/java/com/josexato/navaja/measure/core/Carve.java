@@ -34,6 +34,9 @@ public final class Carve {
         public double ancho, alto, prof, front, volume;
         /** Cuadros con silueta usados. */
         public int views;
+        /** Centro y ejes (ancho, alto, profundidad) de la grilla: los de la caja al tallar (la caja puede cambiar después). */
+        public double[] center;
+        public double[][] axes;
     }
 
     /**
@@ -136,6 +139,8 @@ public final class Carve {
         Result res = new Result();
         res.grid = g;
         res.views = views;
+        res.center = b.center.clone();
+        res.axes = new double[][]{b.axisW.clone(), b.axisH.clone(), b.axisD.clone()};
         double[] e = new double[3];
         for (int a = 0; a < 3; a++) e[a] = Measure.percentile(coord[a], 99) - Measure.percentile(coord[a], 1);
         res.ancho = e[0];
@@ -187,11 +192,11 @@ public final class Carve {
     }
 
     /** ¿El punto {@code x} cae en un vóxel ocupado (o a menos de {@code dilate} vóxeles de uno)? */
-    public static boolean inside(Result h, Measure.Box b, double[] x, int dilate) {
+    public static boolean inside(Result h, double[] x, int dilate) {
         Carver.Grid g = h.grid;
-        double[] q = Lin.sub(x, b.center);
-        int i = (int) Math.floor((Lin.dot(q, b.axisW) - g.x0) / g.step), j = (int) Math.floor((Lin.dot(q, b.axisH) - g.y0) / g.step),
-            k = (int) Math.floor((Lin.dot(q, b.axisD) - g.z0) / g.step);
+        double[] q = Lin.sub(x, h.center);
+        int i = (int) Math.floor((Lin.dot(q, h.axes[0]) - g.x0) / g.step), j = (int) Math.floor((Lin.dot(q, h.axes[1]) - g.y0) / g.step),
+            k = (int) Math.floor((Lin.dot(q, h.axes[2]) - g.z0) / g.step);
         for (int dk = -dilate; dk <= dilate; dk++)
             for (int dj = -dilate; dj <= dilate; dj++)
                 for (int di = -dilate; di <= dilate; di++) {

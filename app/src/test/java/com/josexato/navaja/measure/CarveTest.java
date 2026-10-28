@@ -154,6 +154,13 @@ public class CarveTest {
         } catch (java.io.IOException e) {
             throw new AssertionError(e);
         }
+        // Si la agrupación hubiera perdido medio objeto, el volumen lo recupera (sólo agrega puntos)
+        int[] all = box.objectPoints.clone();
+        double anchoBien = box.ancho;
+        box.objectPoints = java.util.Arrays.stream(all).filter(i -> r.points[i][0] < 0).toArray();
+        assertTrue(Measure.refineWithHull(r, box, hull));
+        assertEquals("ancho recuperado", anchoBien, box.ancho, 0.05 * anchoBien);
+        assertTrue(box.objectPoints.length >= all.length * 0.9);
         // Sin siluetas suficientes no hay casco
         byte[][] few = new byte[masks.length][];
         System.arraycopy(masks, 0, few, 0, 5);
