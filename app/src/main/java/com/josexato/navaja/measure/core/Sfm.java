@@ -112,6 +112,9 @@ public final class Sfm {
 
         public int activeCount() { return active.size(); }
 
+        /** En el último cuadro: puntos que se perdieron (no se pudieron seguir) y puntos nuevos sembrados. */
+        public int lastLost, lastNew;
+
         public void feed(int[] argb, int w, int h) {
             frame++;
             Klt.Pyramid pyr = new Klt.Pyramid(Klt.gray(argb), w, h);
@@ -132,8 +135,11 @@ public final class Sfm {
                         t.addDesc(frame - 1, Brief.describe(prevSmooth, w, h, t.x[t.n - 1], t.y[t.n - 1]));
                     }
                 }
+                lastLost = active.size() - keep.size();
                 active.clear();
                 active.addAll(keep);
+            } else {
+                lastLost = 0;
             }
             int[] rect = zone == null ? null : zone.rect(frame);
             if (rect != null) {
@@ -147,6 +153,7 @@ public final class Sfm {
             } else if (zone != null) {
                 active.clear(); // la zona no se ve en este cuadro
             }
+            int beforeSeed = active.size();
             if (active.size() < maxPoints * 0.8 && (zone == null || rect != null)) {
                 List<float[]> taken = new ArrayList<>();
                 for (Track t : active) taken.add(new float[]{t.x[t.n - 1], t.y[t.n - 1]});
@@ -159,6 +166,7 @@ public final class Sfm {
                     active.add(t);
                 }
             }
+            lastNew = active.size() - beforeSeed;
             prev = pyr;
             prevSmooth = sm;
         }

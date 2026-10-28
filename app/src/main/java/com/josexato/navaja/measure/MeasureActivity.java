@@ -27,6 +27,7 @@ import androidx.core.content.FileProvider;
 import com.josexato.navaja.measure.core.Carve;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
+import com.josexato.navaja.measure.core.Motion;
 import com.josexato.navaja.measure.core.Sfm;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
@@ -91,6 +92,8 @@ public class MeasureActivity extends Activity {
     private byte[][] masks;
     private int maskW, maskH, trackCount;
     private final List<double[]> segInfo = new ArrayList<>();
+    /** Por cuadro analizado: puntos activos, perdidos y nuevos (para ver dónde el movimiento fue brusco). */
+    private final List<int[]> perFrame = new ArrayList<>();
     private boolean debug;
 
     @Override
@@ -199,6 +202,7 @@ public class MeasureActivity extends Activity {
         work.execute(() -> {
             try {
                 Sfm.Tracker tr = new Sfm.Tracker(MAX_POINTS);
+                perFrame.clear();
                 int[] dims = new int[2];
                 long[] dur = new long[1];
                 VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
@@ -208,6 +212,7 @@ public class MeasureActivity extends Activity {
                     dims[1] = h;
                     dur[0] = d;
                     tr.feed(argb, w, h);
+                    perFrame.add(new int[]{tr.activeCount(), tr.lastLost, tr.lastNew});
                     int pct = d > 0 ? (int) Math.min(100, 100 * t / d) : 0;
                     post(String.format(Locale.getDefault(), "1/3 · Siguiendo puntos cuadro a cuadro: %d %%  (%d puntos activos)", pct, tr.activeCount()));
                     return true;
@@ -219,7 +224,17 @@ public class MeasureActivity extends Activity {
                         (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
                 Measure.Choice ch = Measure.best(segs);
                 segInfo.clear();
-                for (Sfm.Result g : segs) segInfo.add(new double[]{g.startFrame / FPS, g.endFrame / FPS, g.poses.size(), g.points.length});
+                for (int i = 0; i < segs.size(); i++) {
+                    Sfm.Result g = segs.get(i);
+                    // Pistas que cruzan el corte hacia el tramo siguiente (vivas al final de éste y al inicio del otro)
+                    int cross = -1;
+                    if (i + 1 < segs.size()) {
+                        cross = 0;
+                        int a = g.endFrame, b = segs.get(i + 1).startFrame;
+                        for (Sfm.Track t : tr.tracks) if (t.visible(a) && t.visible(b)) cross++;
+                    }
+                    segInfo.add(new double[]{g.startFrame / FPS, g.endFrame / FPS, g.poses.size(), g.points.length, cross});
+                }
                 trackCount = tr.tracks.size();
                 if (ch == null) throw new IOException("No pude reconstruir el objeto. Prueba moviéndote más alrededor de él, "
                         + "más despacio, y con algo de textura detrás.");
@@ -536,8 +551,16 @@ public class MeasureActivity extends Activity {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(Locale.getDefault(), "Tramo usado: %.1f–%.1f s de %.1f s · %d posiciones del celular · %.0f° alrededor del objeto",
                 r.startFrame / FPS, r.endFrame / FPS, videoSeconds, r.poses.size(), choice.arcDeg));
+        double usedS = (r.endFrame - r.startFrame) / FPS;
+        sb.append(String.format(Locale.getDefault(), "\nVideo usado: %.0f %% (%.1f de %.1f s).", videoSeconds > 0 ? 100 * usedS / videoSeconds : 0, usedS,
+                videoSeconds));
         if (choice.segments > 1)
-            sb.append("\nEl video se cortó en ").append(choice.segments).append(" tramos (algo tapó la vista o el movimiento fue muy brusco); se usó el mejor.");
+            sb.append(" El video se cortó en ").append(choice.segments).append(" tramos (algo tapó la vista o el movimiento fue muy brusco); "
+                    + "se usó el mejor y los otros se descartan.");
+        int wf = Motion.worstFrame(perFrame);
+        if (wf > 0)
+            sb.append(String.format(Locale.getDefault(), "\nCambio más brusco: a los %.1f s se perdió el %.0f %% de los puntos de un cuadro al siguiente.",
+                    wf / FPS, 100 * Motion.lostFraction(perFrame, wf)));
         if (!b.upKnown) sb.append("\nEse tramo no empieza con el video: el «alto» es el lado más largo del objeto.");
         if (b.separation > 0.02 * b.alto && scaleCm > 0)
             sb.append(String.format(Locale.getDefault(), "\nSeparación entre el objeto y %s: %s.", b.onWall ? "la pared" : "la mesa", cm(b.separation)));
@@ -673,6 +696,7 @@ public class MeasureActivity extends Activity {
         d.fps = FPS;
         d.tracks = trackCount;
         d.segments.addAll(segInfo);
+        d.perFrame.addAll(perFrame);
         d.photos = photos;
         d.masks = masks;
         d.maskW = maskW;

@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import com.josexato.navaja.measure.core.Carve;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
+import com.josexato.navaja.measure.core.Motion;
 import com.josexato.navaja.measure.core.Sfm;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
@@ -49,6 +50,8 @@ final class MeasureReport {
         int tracks;
         /** Una línea por tramo: desde, hasta (s), cámaras y puntos. */
         List<double[]> segments = new ArrayList<>();
+        /** Por cuadro analizado: puntos activos, perdidos y nuevos. */
+        List<int[]> perFrame = new ArrayList<>();
         /** Fotos de los cuadros clave (mismo orden que las cámaras); null si falta alguna. */
         File[] photos;
         byte[][] masks;
@@ -104,23 +107,55 @@ final class MeasureReport {
         s.append("\n## 2. Seguimiento de puntos y tramos\n\n");
         s.append("- Puntos seguidos cuadro a cuadro (pistas): ").append(d.tracks).append(".\n");
         s.append("- Si el seguimiento se corta (imagen movida, algo tapa la vista), el video se parte en tramos y se usa el mejor.\n\n");
-        s.append("| Tramo | Desde | Hasta | Posiciones del celular | Puntos 3D | |\n|---|---|---|---|---|---|\n");
+        s.append("| Tramo | Desde | Hasta | Posiciones del celular | Puntos 3D | Hueco hasta el siguiente | Puntos que cruzan el corte | |\n"
+                + "|---|---|---|---|---|---|---|---|\n");
         for (int i = 0; i < d.segments.size(); i++) {
             double[] g = d.segments.get(i);
-            s.append(String.format(Locale.ROOT, "| %d | %.1f s | %.1f s | %d | %d | %s |\n", i, g[0], g[1], (int) g[2], (int) g[3],
-                    i == d.choice.segment ? "**usado**" : ""));
+            boolean last = i + 1 >= d.segments.size();
+            s.append(String.format(Locale.ROOT, "| %d | %.1f s | %.1f s | %d | %d | %s | %s | %s |\n", i, g[0], g[1], (int) g[2], (int) g[3],
+                    last ? "—" : String.format(Locale.ROOT, "%.1f s", d.segments.get(i + 1)[0] - g[1]),
+                    last || g.length < 5 ? "—" : String.valueOf((int) g[4]), i == d.choice.segment ? "**usado**" : ""));
+        }
+        double usedS = (r.endFrame - r.startFrame) / d.fps;
+        s.append(String.format(Locale.ROOT, "\n**Video usado: %.1f s de %.1f s (%.0f %%).** La medida usa un solo tramo, el mejor; los otros se "
+                + "descartan, porque en un corte se pierden casi todos los puntos y no hay cómo alinear los tramos entre sí.\n",
+                usedS, d.videoSeconds, d.videoSeconds > 0 ? 100 * usedS / d.videoSeconds : 0));
+        // Seguimiento segundo a segundo: dónde se perdieron puntos (movimiento brusco o imagen movida)
+        if (!d.perFrame.isEmpty()) {
+            s.append("\n### Seguimiento segundo a segundo\n\n");
+            s.append("Puntos activos (el mínimo de ese segundo), perdidos y nuevos, y el peor cuadro: qué parte de los puntos se perdió de un "
+                    + "cuadro al siguiente. Si es alto (⚠, 40 % o más), el celular se movió bruscamente o la imagen salió movida.\n\n");
+            s.append("| Segundo | Activos | Perdidos | Nuevos | Peor cuadro | |\n|---|---|---|---|---|---|\n");
+            for (double[] row : Motion.perSecond(d.perFrame, d.fps)) {
+                double t0 = row[0], t1 = row[0] + 1;
+                String mark = "";
+                for (int i = 0; i < d.segments.size(); i++) {
+                    double[] g = d.segments.get(i);
+                    if (g[1] >= t0 && g[1] < t1 && i + 1 < d.segments.size()) mark += "corte · ";
+                }
+                if (t1 > r.startFrame / d.fps && t0 <= r.endFrame / d.fps) mark += "usado";
+                s.append(String.format(Locale.ROOT, "| %d | %d | %d | %d | %s%.0f %% | %s |\n", (int) row[0], (int) row[1], (int) row[2],
+                        (int) row[3], row[4] >= 0.4 ? "⚠ " : "", 100 * row[4], mark.endsWith(" · ") ? mark.substring(0, mark.length() - 3) : mark));
+            }
         }
         s.append("\n## 3. Fotos usadas (carpeta `fotos/`)\n\n");
         s.append("Cada foto es un cuadro clave del tramo usado: ahí se ubicó el celular. Posición del celular en ejes del objeto ")
                 .append("(ancho, ").append(yName(b)).append(", distancia a la ").append(b.onWall ? "pared" : "mesa").append(").\n\n");
-        s.append("| Foto | Tiempo | Puntos vistos | Silueta | Celular (").append(u).append(") |\n|---|---|---|---|---|\n");
+        s.append("Desde la anterior: tiempo, puntos 3D vistos en las dos fotos y cuánto giró el celular (en grados y grados por segundo).\n\n");
+        s.append("| Foto | Tiempo | Puntos vistos | Desde la anterior | En común | Giro | Silueta | Celular (").append(u).append(") |\n"
+                + "|---|---|---|---|---|---|---|---|\n");
+        java.util.Map<Integer, Motion.Step> stepTo = new java.util.HashMap<>();
+        for (Motion.Step st : Motion.steps(r)) stepTo.put(st.toFrame, st);
         for (int c : byTime(r)) {
             int fr = r.camFrames.get(c);
+            Motion.Step st = stepTo.get(fr);
             int seen = 0;
             for (List<Sfm.Track> tl : r.pointTracks)
                 for (Sfm.Track t : tl) if (t.visible(fr)) { seen++; break; }
             double[] p = boxCoords(b, r.poses.get(c).center());
-            s.append(String.format(Locale.ROOT, "| %s | %.2f s | %d | %s | %.1f, %.1f, %.1f |\n", photoName(fr), fr / d.fps, seen,
+            s.append(String.format(Locale.ROOT, "| %s | %.2f s | %d | %s | %s | %s | %s | %.1f, %.1f, %.1f |\n", photoName(fr), fr / d.fps, seen,
+                    st == null ? "—" : String.format(Locale.ROOT, "%.2f s", st.seconds(d.fps)), st == null ? "—" : String.valueOf(st.shared),
+                    st == null ? "—" : String.format(Locale.ROOT, "%.1f° (%.0f°/s)", st.turnDeg, st.turnPerSecond(d.fps)),
                     d.masks != null && d.masks[c] != null ? "sí" : "no", p[0] * k, p[1] * k, p[2] * k));
         }
         s.append("\n## 4. Puntos\n\n");
