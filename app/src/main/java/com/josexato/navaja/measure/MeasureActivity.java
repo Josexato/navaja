@@ -359,9 +359,17 @@ public class MeasureActivity extends Activity {
         }
         if (cancel.get()) return;
         // El casco usa sólo los puntos ralos (con sus pistas): se talla antes de sumar los densos
+        // Con siluetas se sabe mejor qué puntos son del objeto: los que caen dentro de la silueta en casi todas
+        // las vistas (la agrupación por cercanía puede quedarse con una parte). Con ellos, caja nueva y tallado.
+        if (model != null) {
+            Measure.Box nb = Measure.rebox(r, ch.box, Carve.silhouetteMembers(r, ch.box, cuts, mw, mh));
+            if (nb != null) {
+                Log.i(TAG, "objeto según las siluetas: " + nb.objectPoints.length + " puntos (antes " + ch.box.objectPoints.length + ")");
+                ch.box = nb;
+            }
+        }
         hull = model == null ? null : Carve.carve(r, ch.box, cuts, mw, mh);
-        // Con siluetas se sabe mejor qué puntos son del objeto (la agrupación por cercanía puede dejar partes fuera)
-        if (hull != null && Measure.refineWithHull(r, ch.box, hull)) Log.i(TAG, "objeto según las siluetas: " + ch.box.objectPoints.length + " puntos");
+        if (hull != null) Measure.refineWithHull(r, ch.box, hull);
         photos = shots;
         this.masks = cuts;
         maskW = mw;
@@ -547,25 +555,34 @@ public class MeasureActivity extends Activity {
      */
     private double hullCmPerUnit() {
         Measure.Box b = choice.box;
-        double pts = known == 0 ? b.alto : known == 1 ? b.ancho : b.separation + b.prof;
-        double hl = known == 0 ? hull.alto : known == 1 ? hull.ancho : hull.front;
-        if (!b.onWall && known == 2) { pts = b.prof; hl = hull.prof; }
+        double pts = known == 0 ? pointsHeight(b) : known == 1 ? b.ancho : pointsThird(b);
+        double hl = known == 0 ? hullHeight(b) : known == 1 ? hull.ancho : hullThird(b);
         return scaleCm * pts / hl;
     }
+
+    /** Alto: en una pared, a lo largo de ella; sobre una mesa, del apoyo al tope (incluye la separación). */
+    private static double pointsHeight(Measure.Box b) { return b.onWall ? b.alto : b.separation + b.alto; }
+
+    private double hullHeight(Measure.Box b) { return b.onWall ? hull.alto : hull.front; }
+
+    /** Tercera medida: en una pared, de la pared al frente; sobre una mesa, el largo. */
+    private static double pointsThird(Measure.Box b) { return b.onWall ? b.separation + b.prof : b.prof; }
+
+    private double hullThird(Measure.Box b) { return b.onWall ? hull.front : hull.prof; }
 
     private CharSequence hullSummary() {
         Measure.Box b = choice.box;
         double d = Carve.disagreement(b, hull);
-        String front = b.onWall ? "De la pared al frente" : "Del apoyo al tope";
+        String third = b.onWall ? "De la pared al frente" : "Largo";
+        double hh = hullHeight(b), ht = hullThird(b);
         StringBuilder sb = new StringBuilder();
         if (scaleCm > 0) {
             double k = hullCmPerUnit();
-            sb.append(String.format(Locale.getDefault(), "Alto %s · Ancho %s · %s %s", cmOf(hull.alto * k), cmOf(hull.ancho * k), front,
-                    cmOf((b.onWall ? hull.front : hull.prof) * k)));
-            sb.append(String.format(Locale.getDefault(), "\nVolumen ≈ %,.0f cm³ (macizo, sin el hueco de atrás)", hull.volume * k * k * k));
+            sb.append(String.format(Locale.getDefault(), "Alto %s · Ancho %s · %s %s", cmOf(hh * k), cmOf(hull.ancho * k), third, cmOf(ht * k)));
+            sb.append(String.format(Locale.getDefault(), "\nVolumen ≈ %,.0f cm³ (macizo: sin huecos que no se vean desde fuera)", hull.volume * k * k * k));
         } else {
-            sb.append(String.format(Locale.getDefault(), "Ancho %s × el alto · %s %s × el alto", ratio(hull.ancho / hull.alto),
-                    front.toLowerCase(Locale.ROOT), ratio((b.onWall ? hull.front : hull.prof) / hull.alto)));
+            sb.append(String.format(Locale.getDefault(), "Ancho %s × el alto · %s %s × el alto", ratio(hull.ancho / hh),
+                    third.toLowerCase(Locale.ROOT), ratio(ht / hh)));
         }
         int pct = (int) Math.round(100 * d);
         if (d <= 0.08) sb.append("\n✓ Coincide con la medida por puntos (diferencia ").append(pct).append(" %).");

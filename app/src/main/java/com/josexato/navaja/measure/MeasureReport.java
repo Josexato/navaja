@@ -112,7 +112,7 @@ final class MeasureReport {
         }
         s.append("\n## 3. Fotos usadas (carpeta `fotos/`)\n\n");
         s.append("Cada foto es un cuadro clave del tramo usado: ahí se ubicó el celular. Posición del celular en ejes del objeto ")
-                .append("(ancho, alto, distancia a la ").append(b.onWall ? "pared" : "mesa").append(").\n\n");
+                .append("(ancho, ").append(yName(b)).append(", distancia a la ").append(b.onWall ? "pared" : "mesa").append(").\n\n");
         s.append("| Foto | Tiempo | Puntos vistos | Silueta | Celular (").append(u).append(") |\n|---|---|---|---|---|\n");
         for (int c : byTime(r)) {
             int fr = r.camFrames.get(c);
@@ -128,20 +128,28 @@ final class MeasureReport {
                 r.points.length, r.pointTracks.size()));
         s.append(String.format(Locale.ROOT, "- Del objeto: %d · error de reproyección %.2f px.\n", b.objectPoints.length, r.rms));
         s.append("\n## 5. Medidas\n\n");
-        s.append(String.format(Locale.ROOT, "- Por puntos: alto %.1f · ancho %.1f · %s %.1f %s · separación del %s %.1f %s.\n", b.alto * k,
-                b.ancho * k, b.onWall ? "profundidad" : "largo", b.prof * k, u, b.onWall ? "muro" : "apoyo", b.separation * k, u));
+        if (b.onWall)
+            s.append(String.format(Locale.ROOT, "- Por puntos: alto %.1f · ancho %.1f · de la pared al frente %.1f %s (profundidad %.1f + separación %.1f).\n",
+                    b.alto * k, b.ancho * k, (b.separation + b.prof) * k, u, b.prof * k, b.separation * k));
+        else
+            s.append(String.format(Locale.ROOT, "- Por puntos: alto (del apoyo al tope) %.1f · ancho %.1f · largo %.1f %s.\n",
+                    (b.separation + b.alto) * k, b.ancho * k, b.prof * k, u));
         if (d.hull != null) {
             double kh = d.scaleCm > 0 ? d.hullCmPerUnit : 1;
-            s.append(String.format(Locale.ROOT, "- Por siluetas (%d fotos): alto %.1f · ancho %.1f · del %s al %s %.1f %s · volumen %.0f %s³.\n",
-                    d.hull.views, d.hull.alto * kh, d.hull.ancho * kh, b.onWall ? "muro" : "apoyo", b.onWall ? "frente" : "tope",
-                    (b.onWall ? d.hull.front : d.hull.prof) * kh, u, d.hull.volume * kh * kh * kh, u));
+            if (b.onWall)
+                s.append(String.format(Locale.ROOT, "- Por siluetas (%d fotos): alto %.1f · ancho %.1f · de la pared al frente %.1f %s · volumen %.0f %s³.\n",
+                        d.hull.views, d.hull.alto * kh, d.hull.ancho * kh, d.hull.front * kh, u, d.hull.volume * kh * kh * kh, u));
+            else
+                s.append(String.format(Locale.ROOT, "- Por siluetas (%d fotos): alto (del apoyo al tope) %.1f · ancho %.1f · largo %.1f %s · volumen %.0f %s³.\n",
+                        d.hull.views, d.hull.front * kh, d.hull.ancho * kh, d.hull.prof * kh, u, d.hull.volume * kh * kh * kh, u));
             s.append(String.format(Locale.ROOT, "- Diferencia entre los dos métodos: %.1f %%.\n", 100 * Carve.disagreement(b, d.hull)));
         } else {
             s.append("- Sin segunda opinión por siluetas.\n");
         }
         s.append("\n## 6. Puntos clave\n\n");
         s.append("Cinco puntos que marcan la geometría (en `depuracion/` se dibujan sobre cada foto donde se ven).\n\n");
-        s.append("| Punto | Ancho | Alto | Distancia a la ").append(b.onWall ? "pared" : "mesa").append(" | Visto en fotos |\n|---|---|---|---|---|\n");
+        s.append("| Punto | Ancho | ").append(b.onWall ? "Alto" : "Largo").append(" | Distancia a la ").append(b.onWall ? "pared" : "mesa")
+                .append(" | Visto en fotos |\n|---|---|---|---|---|\n");
         for (int l = 0; l < lm.length; l++) {
             if (lm[l] < 0) continue;
             double[] p = boxCoords(b, r.points[lm[l]]);
@@ -173,11 +181,19 @@ final class MeasureReport {
 
     static String photoName(int frame) { return String.format(Locale.ROOT, "cuadro_%03d.jpg", frame); }
 
-    /** Coordenadas en ejes de la caja: ancho y alto desde su centro, y distancia al plano de apoyo. */
-    private static double[] boxCoords(Measure.Box b, double[] x) {
+    /**
+     * Coordenadas en ejes del objeto: x = ancho, y = alto (en una pared) o
+     * largo (sobre una mesa), ambos desde el centro, y z = distancia al
+     * plano de apoyo. (Sobre una mesa el alto ES la distancia al apoyo: antes
+     * se repetía y se perdía el largo.)
+     */
+    static double[] boxCoords(Measure.Box b, double[] x) {
         double[] q = Lin.sub(x, b.center);
-        return new double[]{Lin.dot(q, b.axisW), Lin.dot(q, b.axisH), Lin.dot(Lin.sub(x, b.planeP), b.planeN)};
+        return new double[]{Lin.dot(q, b.axisW), Lin.dot(q, b.onWall ? b.axisH : b.axisD), Lin.dot(Lin.sub(x, b.planeP), b.planeN)};
     }
+
+    /** Nombre del eje y de {@link #boxCoords}. */
+    private static String yName(Measure.Box b) { return b.onWall ? "alto" : "largo"; }
 
     // ------------------------------------------------------------ nube y volumen
 
@@ -190,7 +206,7 @@ final class MeasureReport {
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         try (PrintWriter pw = new PrintWriter(bo)) {
             pw.print("ply\nformat ascii 1.0\ncomment Navaja: " + (objectOnly ? "puntos del objeto" : "todos los puntos")
-                    + ", ejes del objeto (x ancho, y alto, z distancia al apoyo)" + (scaleCm > 0 ? ", cm" : ", unidades del modelo") + "\n");
+                    + ", ejes del objeto (x ancho, y " + yName(b) + ", z distancia al apoyo)" + (scaleCm > 0 ? ", cm" : ", unidades del modelo") + "\n");
             pw.print("element vertex " + n + "\nproperty float x\nproperty float y\nproperty float z\n"
                     + "property uchar red\nproperty uchar green\nproperty uchar blue\n" + (objectOnly ? "" : "property uchar objeto\n") + "end_header\n");
             for (int i = 0; i < r.points.length; i++) {
@@ -206,7 +222,7 @@ final class MeasureReport {
 
     /** Volumen tallado como STL binario, en mm (con alto = 100 mm si no hay medida conocida). */
     static byte[] stl(Data d) throws IOException {
-        double mmPerUnit = d.scaleCm > 0 ? 10 * d.hullCmPerUnit : 100 / d.hull.alto;
+        double mmPerUnit = d.scaleCm > 0 ? 10 * d.hullCmPerUnit : 100 / (d.choice.box.onWall ? d.hull.alto : d.hull.front);
         Mesh mesh = SurfaceNets.extract(d.hull.grid);
         mesh.taubinSmooth(8);
         for (int i = 0; i < mesh.pos.length; i++) mesh.pos[i] *= (float) mmPerUnit;

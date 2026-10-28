@@ -98,6 +98,13 @@ public class CarveTest {
         int mw = w / 2, mh = h / 2;
         byte[][] masks = new byte[r.poses.size()][];
         for (int c = 0; c < masks.length; c++) masks[c] = boxMask(r.poses.get(c), f, w, h, mw, mh);
+        // Pertenencia por siluetas: sólo puntos de la caja (z ≥ 5), ninguno de la pared, y casi todos los de la caja
+        List<Integer> mem = Carve.silhouetteMembers(r, box, masks, mw, mh);
+        int boxPts = 0;
+        for (double[] x : r.points) if (x[2] >= 5) boxPts++;
+        for (int i : mem) assertTrue("de la caja", r.points[i][2] >= 4.9);
+        assertTrue("miembros " + mem.size() + " de " + boxPts, mem.size() > 0.8 * boxPts);
+        assertNotNull(Measure.rebox(r, box, mem));
         Carve.Result hull = Carve.carve(r, box, masks, mw, mh);
         assertNotNull(hull);
         assertEquals(30, hull.views);

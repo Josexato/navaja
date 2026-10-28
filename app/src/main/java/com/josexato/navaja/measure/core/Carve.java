@@ -184,6 +184,39 @@ public final class Carve {
         return out;
     }
 
+    /**
+     * Puntos (con pistas) del objeto según las siluetas: por encima del
+     * plano de apoyo y dentro de la silueta en casi todas las vistas donde
+     * caen en la imagen (se toleran {@code max(1, 10 %)} vistas en
+     * desacuerdo, por errores de segmentación). No depende de ninguna caja
+     * previa. Vacío si hay menos de 8 siluetas.
+     */
+    public static java.util.List<Integer> silhouetteMembers(Sfm.Result r, Measure.Box b, byte[][] masks, int mw, int mh) {
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        int views = 0;
+        for (byte[] m : masks) if (m != null) views++;
+        if (views < 8) return out;
+        double sx = (double) mw / r.width, sy = (double) mh / r.height, cx = r.width / 2.0, cy = r.height / 2.0;
+        double size = Math.max(b.alto, Math.max(b.ancho, b.prof));
+        for (int i = 0; i < r.pointTracks.size() && i < r.points.length; i++) {
+            double[] x = r.points[i];
+            if (Lin.dot(Lin.sub(x, b.planeP), b.planeN) < 0.03 * size) continue; // la pared o el piso no
+            int in = 0, outN = 0;
+            for (int c = 0; c < masks.length; c++) {
+                byte[] m = masks[c];
+                if (m == null) continue;
+                double[] xc = r.poses.get(c).apply(x);
+                if (xc[2] <= 0) continue;
+                double u = (r.focal * xc[0] / xc[2] + cx) * sx, v = (r.focal * xc[1] / xc[2] + cy) * sy;
+                if (u < 1 || v < 1 || u >= mw - 1 || v >= mh - 1) continue;
+                if (m[(int) v * mw + (int) u] != 0) in++;
+                else outN++;
+            }
+            if (in >= 5 && outN <= Math.max(1, (in + outN) / 10)) out.add(i);
+        }
+        return out;
+    }
+
     /** Distancia al plano del centro del vóxel (i, j, k): es lineal en i, j, k. */
     private static double planeDist(Carver.Grid g, Measure.Box b, double[][] axes, int i, int j, int k) {
         double base = Lin.dot(Lin.sub(b.center, b.planeP), b.planeN);
