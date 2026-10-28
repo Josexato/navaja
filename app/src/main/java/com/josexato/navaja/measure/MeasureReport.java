@@ -12,6 +12,7 @@ import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
 import com.josexato.navaja.measure.core.Sfm;
+import com.josexato.navaja.measure.core.Texture;
 import com.josexato.navaja.scan3d.core.Decimate;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
@@ -65,6 +66,19 @@ final class MeasureReport {
         private Cloud.Result cloud;
 
         private Mesh[] models;
+        /** De la malla (mm, origen en la base) al modelo: mm por unidad y el desplazamiento aplicado. */
+        double meshMmPerUnit;
+        float[] meshOffset;
+        private Texture.Result[] textures;
+
+        /** Texturas (mapeo UV con las fotos) de los modelos base y low poly; null si no hay fotos. Se calculan una vez. */
+        Texture.Result[] textures() {
+            if (textures == null && photos != null && hull != null) {
+                Mesh[] ms = models();
+                textures = new Texture.Result[]{texture(this, ms[1], 2048), texture(this, ms[2], 1024)};
+            }
+            return textures;
+        }
 
         /** Mallas del volumen: completa, base de modelado y low poly (simplificadas por error cuadrático); se calculan una vez. */
         Mesh[] models() {
@@ -96,8 +110,16 @@ final class MeasureReport {
             if (d.hull != null) {
                 Mesh[] ms = d.models();
                 put(zip, "volumen.stl", stl(d));
-                put(zip, "modelo_base.obj", obj(ms[1], "modelo_base"));
-                put(zip, "modelo_lowpoly.obj", obj(ms[2], "modelo_lowpoly"));
+                Texture.Result[] tx = d.textures();
+                String[] names = {"modelo_base", "modelo_lowpoly"}, images = {"textura_base.jpg", "textura_lowpoly.jpg"};
+                for (int k = 0; k < 2; k++) {
+                    Texture.Result t = tx == null ? null : tx[k];
+                    put(zip, names[k] + ".obj", obj(ms[k + 1], names[k], t));
+                    if (t != null) {
+                        put(zip, names[k] + ".mtl", mtl(images[k]));
+                        put(zip, images[k], jpeg(t));
+                    }
+                }
             }
             for (int c = 0; d.photos != null && c < d.photos.length; c++) {
                 File f = d.photos[c];
@@ -272,6 +294,13 @@ final class MeasureReport {
             s.append(String.format(Locale.ROOT, "- `modelo_base.obj`: el mismo volumen simplificado a %d triángulos (las zonas planas en caras grandes, "
                     + "más detalle en las curvas): base para modelar.\n", ms[1].triangleCount()));
             s.append(String.format(Locale.ROOT, "- `modelo_lowpoly.obj`: simplificado a %d triángulos, punto de partida low poly.\n", ms[2].triangleCount()));
+            Texture.Result[] tx = d.textures();
+            if (tx != null)
+                s.append(String.format(Locale.ROOT, "- Texturas (mapeo UV con las fotos): `textura_base.jpg` %d×%d px, %d parches de %d fotos, %d triángulos "
+                                + "sin ver (gris) · `textura_lowpoly.jpg` %d×%d px, %d parches. Cada triángulo toma la foto que mejor lo ve (de frente, "
+                                + "grande y sin nada delante); las fotos con silueta descartada no se usan. Puede notarse una costura donde cambia la "
+                                + "foto (la luz no se iguala entre fotos). Los `.mtl` enlazan cada OBJ con su textura: déjalos en la misma carpeta.\n",
+                        tx[0].width, tx[0].height, tx[0].charts, tx[0].photosUsed, tx[0].unseen, tx[1].width, tx[1].height, tx[1].charts));
             s.append("- Los tres con el origen en el centro de la base. En Blender: *Archivo → Importar → Wavefront (.obj)* con las opciones por "
                     + "defecto (OBJ viene con Y hacia arriba y Blender lo endereza); el STL ya viene con Z hacia arriba. Las unidades son mm: si "
                     + "la escena está en metros, usa *Escala 0.001* al importar.\n");
@@ -389,7 +418,68 @@ final class MeasureReport {
             mesh.pos[i + 1] -= b[2];
             mesh.pos[i + 2] -= cz;
         }
+        d.meshMmPerUnit = mmPerUnit;
+        d.meshOffset = new float[]{cx, b[2], cz};
         return mesh;
+    }
+
+    /** Vértices de una malla de {@link #hullMesh} en coordenadas del modelo (para proyectarlos en las fotos). */
+    static double[][] worldVerts(Data d, Mesh m) {
+        double[][] out = new double[m.vertexCount()][];
+        for (int v = 0; v < out.length; v++) {
+            double[] x = d.hull.center.clone();
+            for (int a = 0; a < 3; a++) {
+                double g = (m.pos[3 * v + a] + d.meshOffset[a]) / d.meshMmPerUnit;
+                x = Lin.add(x, Lin.scale(d.hull.axes[a], g));
+            }
+            out[v] = x;
+        }
+        return out;
+    }
+
+    /**
+     * Mapeo UV de la malla con las fotos clave ({@link Texture}): sólo fotos
+     * con silueta válida (las movidas o mal segmentadas se saltan).
+     */
+    static Texture.Result texture(Data d, Mesh m, int maxSide) {
+        Sfm.Result r = d.choice.result;
+        boolean[] usable = new boolean[r.poses.size()];
+        for (int c = 0; c < usable.length; c++)
+            usable[c] = c < d.photos.length && d.photos[c] != null && d.photos[c].exists()
+                    && (d.masksUsed == null || d.masksUsed[c] != null);
+        return Texture.build(r, worldVerts(d, m), m.tri, usable, c -> photoPixels(d.photos[c], r.width, r.height), maxSide);
+    }
+
+    /** Los píxeles de la foto, al tamaño del cuadro analizado; null si no se puede leer. */
+    private static int[] photoPixels(File f, int w, int h) {
+        Bitmap bmp = BitmapFactory.decodeFile(f.getAbsolutePath());
+        if (bmp == null) return null;
+        try {
+            if (bmp.getWidth() != w || bmp.getHeight() != h) {
+                Bitmap s = Bitmap.createScaledBitmap(bmp, w, h, true);
+                bmp.recycle();
+                bmp = s;
+            }
+            int[] px = new int[w * h];
+            bmp.getPixels(px, 0, w, 0, 0, w, h);
+            return px;
+        } finally {
+            bmp.recycle();
+        }
+    }
+
+    /** La textura como JPEG. */
+    private static byte[] jpeg(Texture.Result t) {
+        Bitmap bmp = Bitmap.createBitmap(t.atlas, t.width, t.height, Bitmap.Config.ARGB_8888);
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        bmp.compress(Bitmap.CompressFormat.JPEG, 90, bo);
+        bmp.recycle();
+        return bo.toByteArray();
+    }
+
+    /** Material de OBJ que apunta a la textura. */
+    private static byte[] mtl(String image) {
+        return ("# Navaja\nnewmtl textura\nKa 1 1 1\nKd 1 1 1\nKs 0 0 0\nillum 1\nmap_Kd " + image + "\n").getBytes(StandardCharsets.US_ASCII);
     }
 
     /** STL binario del volumen completo, con Z hacia arriba (lo que espera Blender al importar STL y los programas de impresión). */
@@ -422,15 +512,25 @@ final class MeasureReport {
      * derecho con sus opciones por defecto), en mm, sin normales: Blender
      * las calcula y se puede elegir sombreado plano para low poly.
      */
-    static byte[] obj(Mesh m, String name) {
+    static byte[] obj(Mesh m, String name) { return obj(m, name, null); }
+
+    /** Igual, y si hay textura ({@code tex}), con coordenadas UV (una por esquina) y su material ({@code name}.mtl). */
+    static byte[] obj(Mesh m, String name, Texture.Result tex) {
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
         try (PrintWriter pw = new PrintWriter(bo)) {
             pw.print("# Navaja: " + name + " · " + m.triangleCount() + " triángulos · mm, Y hacia arriba, origen en el centro de la base\n");
+            if (tex != null) pw.print("mtllib " + name + ".mtl\n");
             pw.print("o " + name + "\n");
             for (int i = 0; i < m.pos.length; i += 3)
                 pw.printf(Locale.ROOT, "v %.3f %.3f %.3f%n", m.pos[i], m.pos[i + 1], m.pos[i + 2]);
-            for (int t = 0; t < m.tri.length; t += 3)
-                pw.print("f " + (m.tri[t] + 1) + " " + (m.tri[t + 1] + 1) + " " + (m.tri[t + 2] + 1) + "\n");
+            if (tex != null) {
+                for (int i = 0; i < tex.uv.length; i += 2) pw.printf(Locale.ROOT, "vt %.5f %.5f%n", tex.uv[i], tex.uv[i + 1]);
+                pw.print("usemtl textura\n");
+            }
+            for (int t = 0; t < m.tri.length; t += 3) {
+                if (tex == null) pw.print("f " + (m.tri[t] + 1) + " " + (m.tri[t + 1] + 1) + " " + (m.tri[t + 2] + 1) + "\n");
+                else pw.print("f " + (m.tri[t] + 1) + "/" + (t + 1) + " " + (m.tri[t + 1] + 1) + "/" + (t + 2) + " " + (m.tri[t + 2] + 1) + "/" + (t + 3) + "\n");
+            }
         }
         return bo.toByteArray();
     }

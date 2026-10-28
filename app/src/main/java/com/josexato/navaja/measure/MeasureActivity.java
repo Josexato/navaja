@@ -563,7 +563,7 @@ public class MeasureActivity extends Activity {
         // Guardar todo en una carpeta elegida (también la raíz de Archivos)
         LinearLayout sc = NavajaUi.card(this);
         sc.addView(NavajaUi.text(this, "Guardar", NavajaUi.Style.LABEL));
-        sc.addView(NavajaUi.text(this, "Un ZIP con el informe paso a paso, la nube (PLY), el volumen (STL), modelos simplificados para Blender (OBJ) y las fotos usadas.",
+        sc.addView(NavajaUi.text(this, "Un ZIP con el informe paso a paso, la nube (PLY), el volumen (STL), modelos simplificados para Blender (OBJ con textura de las fotos) y las fotos usadas.",
                 NavajaUi.Style.SECONDARY));
         CheckBox dbg = new CheckBox(this);
         dbg.setText("Depuración: dibujar la silueta y 5 puntos clave en cada foto");
