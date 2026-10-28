@@ -788,33 +788,28 @@ public class MeasureActivity extends Activity {
         });
     }
 
+    /** Comparte la nube del objeto limpia (la misma `nube_objeto.ply` del ZIP), calculada fuera de la pantalla. */
     private void exportPly() {
-        Sfm.Result r = choice.result;
-        double k = scaleCm > 0 ? scaleCm : 1;
+        MeasureReport.Data d = reportData();
         File dir = new File(getExternalFilesDir(null), "medidas");
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
         File f = new File(dir, "nube_" + System.currentTimeMillis() + ".ply");
-        boolean[] obj = new boolean[r.points.length];
-        for (int i : choice.box.objectPoints) obj[i] = true;
-        try (PrintWriter pw = new PrintWriter(f)) {
-            pw.print("ply\nformat ascii 1.0\ncomment Navaja: nube del objeto medido" + (scaleCm > 0 ? " (cm)" : " (escala arbitraria)") + "\n");
-            pw.print("element vertex " + choice.box.objectPoints.length + "\nproperty float x\nproperty float y\nproperty float z\n"
-                    + "property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n");
-            for (int i = 0; i < r.points.length; i++) {
-                if (!obj[i]) continue;
-                double[] q = r.points[i];
-                int col = r.colors[i];
-                pw.printf(Locale.US, "%.4f %.4f %.4f %d %d %d%n", q[0] * k, q[1] * k, q[2] * k, (col >> 16) & 255, (col >> 8) & 255, col & 255);
+        work.execute(() -> {
+            try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) {
+                fo.write(MeasureReport.objectPly(d.cloud(), d.choice.box, d.scaleCm));
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "nube", e);
+                ui.post(() -> toast("No se pudo guardar: " + e.getMessage()));
+                return;
             }
-        } catch (IOException e) {
-            toast("No se pudo guardar: " + e.getMessage());
-            return;
-        }
-        Uri u = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
-        Intent i = new Intent(Intent.ACTION_SEND).setType("application/octet-stream").putExtra(Intent.EXTRA_STREAM, u)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivity(Intent.createChooser(i, "Compartir nube de puntos"));
+            ui.post(() -> {
+                Uri u = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+                Intent i = new Intent(Intent.ACTION_SEND).setType("application/octet-stream").putExtra(Intent.EXTRA_STREAM, u)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(Intent.createChooser(i, "Compartir nube de puntos"));
+            });
+        });
     }
 
     private void error(String msg) {

@@ -153,7 +153,11 @@ public class CarveTest {
             String informe = new String(files.get("informe.md"), java.nio.charset.StandardCharsets.UTF_8);
             assertTrue(informe.contains("## 6. Puntos clave") && informe.contains("| arriba |") && informe.contains("**usado**"));
             String ply = new String(files.get("nube_objeto.ply"), java.nio.charset.StandardCharsets.US_ASCII);
-            assertTrue(ply.contains("element vertex " + box.objectPoints.length + "\n"));
+            // Nube limpia: un punto por vóxel (menos que los del objeto), con normales
+            int nv = Integer.parseInt(ply.split("element vertex ")[1].split("\n")[0]);
+            assertTrue("vóxeles " + nv + " de " + box.objectPoints.length, nv > 0 && nv <= box.objectPoints.length);
+            assertTrue(ply.contains("property float nx\n"));
+            assertTrue(informe.contains("Puntos sueltos (atípicos) del objeto"));
             // STL binario: 80 de cabecera + cantidad + 50 por triángulo
             byte[] stl = files.get("volumen.stl");
             int tris = java.nio.ByteBuffer.wrap(stl, 80, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
