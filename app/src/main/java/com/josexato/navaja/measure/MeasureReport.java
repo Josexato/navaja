@@ -60,7 +60,7 @@ final class MeasureReport {
     static void write(OutputStream os, Data d, boolean debug) throws IOException {
         Sfm.Result r = d.choice.result;
         Measure.Box b = d.choice.box;
-        int[] lm = Measure.landmarks(r, b);
+        int[] lm = Measure.landmarks(r, b, d.hull);
         try (ZipOutputStream zip = new ZipOutputStream(os)) {
             put(zip, "informe.md", report(d, lm).getBytes(StandardCharsets.UTF_8));
             put(zip, "nube_objeto.ply", ply(r, b, d.scaleCm, true));

@@ -186,6 +186,21 @@ public final class Carve {
                 + Lin.dot(axes[2], b.planeN) * (g.z0 + (k + 0.5) * g.step);
     }
 
+    /** ¿El punto {@code x} cae en un vóxel ocupado (o a menos de {@code dilate} vóxeles de uno)? */
+    public static boolean inside(Result h, Measure.Box b, double[] x, int dilate) {
+        Carver.Grid g = h.grid;
+        double[] q = Lin.sub(x, b.center);
+        int i = (int) Math.floor((Lin.dot(q, b.axisW) - g.x0) / g.step), j = (int) Math.floor((Lin.dot(q, b.axisH) - g.y0) / g.step),
+            k = (int) Math.floor((Lin.dot(q, b.axisD) - g.z0) / g.step);
+        for (int dk = -dilate; dk <= dilate; dk++)
+            for (int dj = -dilate; dj <= dilate; dj++)
+                for (int di = -dilate; di <= dilate; di++) {
+                    int a = i + di, c = j + dj, e = k + dk;
+                    if (a >= 0 && c >= 0 && e >= 0 && a < g.nx && c < g.ny && e < g.nz && g.occ[g.idx(a, c, e)] != 0) return true;
+                }
+        return false;
+    }
+
     /** Deja sólo la mayor región conexa (vecinos de 6): quita restos sueltos de siluetas imperfectas. */
     static void largestComponent(Carver.Grid g) {
         int n = g.occ.length;
