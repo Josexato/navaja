@@ -531,10 +531,24 @@ public class MeasureActivity extends Activity {
         LinearLayout c = scr.content;
         CloudView cloud = new CloudView(this);
         cloud.set(r.points, r.colors, b);
+        // Qué ver: la nube como salió, la nube limpia (sin atípicos, en vóxeles, con normales) o el modelo con textura
+        LinearLayout views = new LinearLayout(this);
+        TextView viewHint = NavajaUi.text(this, "", NavajaUi.Style.MUTED);
+        String[] hints = {
+                "Arrastra para girar. En color, lo que se midió; la caja naranja es la medida. Toca el objeto para elegir una zona.",
+                "Nube limpia: sólo el objeto, sin puntos sueltos y con densidad pareja (la de nube_objeto.ply). Las caras que miran "
+                        + "hacia ti se ven más claras.",
+                "Modelo: el volumen simplificado (modelo_base.obj) con la textura de las fotos. Lo gris no se vio en ninguna foto."};
+        viewHint.setText(hints[0]);
+        NavajaUi.tabs(views, new String[]{"Nube original", "Nube limpia", "Modelo"}, 0, i -> {
+            viewHint.setText(hints[i]);
+            showView(cloud, i);
+        });
+        c.addView(views);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, NavajaUi.dp(this, 320));
+        lp.topMargin = NavajaUi.dp(this, 8);
         c.addView(cloud, lp);
-        c.addView(NavajaUi.text(this, "Arrastra para girar. En color, lo que se midió; la caja naranja es la medida. "
-                + "Toca el objeto para elegir una zona.", NavajaUi.Style.MUTED));
+        c.addView(viewHint);
         mAlto = NavajaUi.metric(this, "Alto");
         mAncho = NavajaUi.metric(this, "Ancho");
         mProf = NavajaUi.metric(this, b.onWall ? "Profundidad" : "Largo");
@@ -847,6 +861,49 @@ public class MeasureActivity extends Activity {
             } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "guardar", e);
                 ui.post(() -> toast("No se pudo guardar: " + e.getMessage() + ". Prueba «Cambiar carpeta»."));
+            }
+        });
+    }
+
+    /**
+     * Cambia lo que muestra el visor; la nube limpia y el modelo se calculan
+     * la primera vez (en segundo plano: el modelo con textura tarda unos segundos).
+     */
+    private void showView(CloudView cloud, int mode) {
+        cloud.setMode(mode);
+        if (mode == CloudView.ORIGINAL || (mode == CloudView.CLEAN && cloud.hasClean()) || (mode == CloudView.MODEL && cloud.hasModel())) {
+            cloud.setMessage(null);
+            return;
+        }
+        if (mode == CloudView.MODEL && hull == null) {
+            cloud.setMessage("Sin modelo: no hubo siluetas para tallar el volumen");
+            return;
+        }
+        cloud.setMessage(mode == CloudView.MODEL ? "Armando el modelo y su textura…" : "Limpiando la nube…");
+        MeasureReport.Data d = reportData();
+        work.execute(() -> {
+            try {
+                if (mode == CloudView.CLEAN) {
+                    com.josexato.navaja.measure.core.Cloud.Points cp = d.cloud().points;
+                    ui.post(() -> {
+                        cloud.setClean(cp.p, cp.color, cp.normal);
+                        if (cloud.mode() == CloudView.CLEAN) cloud.setMessage(null);
+                    });
+                } else {
+                    com.josexato.navaja.scan3d.core.Mesh m = d.models()[1];
+                    double[][] verts = MeasureReport.worldVerts(d, m);
+                    com.josexato.navaja.measure.core.Texture.Result[] tx = d.textures();
+                    com.josexato.navaja.measure.core.Texture.Result t = tx == null ? null : tx[0];
+                    android.graphics.Bitmap bmp = t == null ? null
+                            : android.graphics.Bitmap.createBitmap(t.atlas, t.width, t.height, android.graphics.Bitmap.Config.ARGB_8888);
+                    ui.post(() -> {
+                        cloud.setModel(verts, m.tri, t == null ? null : t.uv, bmp);
+                        if (cloud.mode() == CloudView.MODEL) cloud.setMessage(null);
+                    });
+                }
+            } catch (RuntimeException e) {
+                Log.w(TAG, "visor", e);
+                ui.post(() -> cloud.setMessage("No se pudo calcular: " + e.getMessage()));
             }
         });
     }
