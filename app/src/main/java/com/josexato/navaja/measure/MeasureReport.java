@@ -8,6 +8,7 @@ import android.graphics.Paint;
 
 import com.josexato.navaja.measure.core.Carve;
 import com.josexato.navaja.measure.core.Cloud;
+import com.josexato.navaja.measure.core.Colmap;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
@@ -55,6 +56,8 @@ final class MeasureReport {
         List<double[]> segments = new ArrayList<>();
         /** Por cuadro analizado: puntos activos, perdidos y nuevos. */
         List<int[]> perFrame = new ArrayList<>();
+        /** Nitidez de cada cuadro analizado (varianza del laplaciano); vacía si no se midió. */
+        List<Float> sharpness = new ArrayList<>();
         /** Intentos de unir tramos por cierre de bucle. */
         String loopLog = "";
         /** Fotos de los cuadros clave (mismo orden que las cámaras); null si falta alguna. */
@@ -121,6 +124,17 @@ final class MeasureReport {
                     }
                 }
             }
+            // Para un servidor: la reconstrucción en formato COLMAP (parte de estas poses) y las siluetas como máscaras
+            String[] names = new String[r.poses.size()];
+            for (int c = 0; c < names.length; c++) names[c] = photoName(r.camFrames.get(c));
+            String[] col = Colmap.text(r, names);
+            put(zip, "colmap/sparse/0/cameras.txt", col[0].getBytes(StandardCharsets.UTF_8));
+            put(zip, "colmap/sparse/0/images.txt", col[1].getBytes(StandardCharsets.UTF_8));
+            put(zip, "colmap/sparse/0/points3D.txt", col[2].getBytes(StandardCharsets.UTF_8));
+            put(zip, "poses.json", Colmap.json(r, names, d.fps, d.sharpness, d.masksUsed, b, d.scaleCm).getBytes(StandardCharsets.UTF_8));
+            byte[][] mk = d.masksUsed != null ? d.masksUsed : d.masks;
+            for (int c = 0; mk != null && c < mk.length; c++)
+                if (mk[c] != null) put(zip, "colmap/mascaras/" + names[c] + ".png", Colmap.maskPng(mk[c], d.maskW, d.maskH, r.width, r.height));
             for (int c = 0; d.photos != null && c < d.photos.length; c++) {
                 File f = d.photos[c];
                 if (f == null || !f.exists()) continue;
@@ -207,8 +221,17 @@ final class MeasureReport {
         s.append("Cada foto es un cuadro clave del tramo usado: ahí se ubicó el celular. Posición del celular en ejes del objeto ")
                 .append("(ancho, ").append(yName(b)).append(", distancia a la ").append(b.onWall ? "pared" : "mesa").append(").\n\n");
         s.append("Desde la anterior: tiempo, puntos 3D vistos en las dos fotos y cuánto giró el celular (en grados y grados por segundo).\n\n");
-        s.append("| Foto | Tiempo | Puntos vistos | Desde la anterior | En común | Giro | Silueta | Celular (").append(u).append(") |\n"
-                + "|---|---|---|---|---|---|---|---|\n");
+        s.append("Nitidez: varianza del laplaciano del cuadro, en % de la mediana del video (baja = imagen movida; al elegir cada foto se toma "
+                + "la siguiente si es al menos 1,5 veces más nítida).\n\n");
+        double medSharp = 0;
+        if (!d.sharpness.isEmpty()) {
+            double[] sv = new double[d.sharpness.size()];
+            for (int i = 0; i < sv.length; i++) sv[i] = d.sharpness.get(i);
+            java.util.Arrays.sort(sv);
+            medSharp = sv[sv.length / 2];
+        }
+        s.append("| Foto | Tiempo | Puntos vistos | Desde la anterior | En común | Giro | Nitidez | Silueta | Celular (").append(u).append(") |\n"
+                + "|---|---|---|---|---|---|---|---|---|\n");
         java.util.Map<Integer, Motion.Step> stepTo = new java.util.HashMap<>();
         for (Motion.Step st : Motion.steps(r)) stepTo.put(st.toFrame, st);
         for (int c : byTime(r)) {
@@ -218,9 +241,10 @@ final class MeasureReport {
             for (List<Sfm.Track> tl : r.pointTracks)
                 for (Sfm.Track t : tl) if (t.visible(fr)) { seen++; break; }
             double[] p = boxCoords(b, r.poses.get(c).center());
-            s.append(String.format(Locale.ROOT, "| %s | %.2f s | %d | %s | %s | %s | %s | %.1f, %.1f, %.1f |\n", photoName(fr), fr / d.fps, seen,
+            s.append(String.format(Locale.ROOT, "| %s | %.2f s | %d | %s | %s | %s | %s | %s | %.1f, %.1f, %.1f |\n", photoName(fr), fr / d.fps, seen,
                     st == null ? "—" : String.format(Locale.ROOT, "%.2f s", st.seconds(d.fps)), st == null ? "—" : String.valueOf(st.shared),
                     st == null ? "—" : String.format(Locale.ROOT, "%.1f° (%.0f°/s)", st.turnDeg, st.turnPerSecond(d.fps)),
+                    medSharp > 0 && fr < d.sharpness.size() ? String.format(Locale.ROOT, "%.0f %%", 100 * d.sharpness.get(fr) / medSharp) : "—",
                     silhouette(d, c), p[0] * k, p[1] * k, p[2] * k));
         }
         s.append("\n## 4. Puntos\n\n");
@@ -306,6 +330,14 @@ final class MeasureReport {
                     + "la escena está en metros, usa *Escala 0.001* al importar.\n");
         }
         s.append("- `fotos/`: los cuadros clave usados").append(".\n");
+        s.append("- `colmap/sparse/0/` (cameras.txt, images.txt, points3D.txt): la reconstrucción del teléfono en formato COLMAP (cámara "
+                + "SIMPLE_PINHOLE sin distorsión, poses y puntos con sus observaciones), para que un servidor parta de ella: por ejemplo "
+                + "`colmap point_triangulator --database_path db.db --image_path fotos --input_path colmap/sparse/0 --output_path salida` "
+                + "(con la base creada por `feature_extractor` y `exhaustive_matcher` sobre `fotos/`) y luego `bundle_adjuster`.\n");
+        s.append("- `colmap/mascaras/`: la silueta de cada foto usada (blanco = objeto), del tamaño de la foto y con el nombre que espera COLMAP "
+                + "(`cuadro_000.jpg.png`); también sirve para recortar el objeto al entrenar 2D-GS.\n");
+        s.append("- `poses.json`: lo mismo en JSON legible: cámara, R y t de cada foto (x_cámara = R·X + t), centro, nitidez, silueta usada, "
+                + "escala (cm por unidad, 0 si no se conoce) y la caja del objeto.\n");
         s.append("- `depuracion/` (si se pidió): cada foto con la silueta (cian) y los puntos clave.\n");
         return s.toString();
     }

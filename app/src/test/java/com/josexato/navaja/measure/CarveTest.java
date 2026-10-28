@@ -150,7 +150,9 @@ public class CarveTest {
                 }
             }
             assertTrue(files.keySet().toString(), files.keySet().containsAll(java.util.Arrays.asList("informe.md", "nube_objeto.ply", "nube_completa.ply", "volumen.stl",
-                    "modelo_base.obj", "modelo_lowpoly.obj")));
+                    "modelo_base.obj", "modelo_lowpoly.obj", "poses.json", "colmap/sparse/0/cameras.txt", "colmap/sparse/0/images.txt",
+                    "colmap/sparse/0/points3D.txt")));
+            assertTrue(files.keySet().stream().anyMatch(n -> n.startsWith("colmap/mascaras/cuadro_") && n.endsWith(".jpg.png")));
             // Modelos para Blender: pocas caras, apoyados en Y = 0 y centrados
             for (String name : new String[]{"modelo_base.obj", "modelo_lowpoly.obj"}) {
                 String o = new String(files.get(name), java.nio.charset.StandardCharsets.US_ASCII);

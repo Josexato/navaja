@@ -77,11 +77,64 @@ public final class Sfm {
         public float y(int frame) { return y[frame - start]; }
     }
 
+    /**
+     * Cuadros siguientes entre los que se busca uno más nítido, y cuánto
+     * menos nítido debe ser el elegido para cambiarlo. Con 2 cuadros, en el
+     * video de la máscara el salto más largo cortaba el tramo principal; con
+     * 1 y 0,65 (el siguiente ≥ 1,5 veces más nítido) la medida no cambia.
+     */
+    static final int SHARP_AHEAD = 1;
+    static final double SHARP_RATIO = 0.65;
+
+    /**
+     * Nitidez: varianza del laplaciano (4 vecinos) de la imagen en grises,
+     * tomada en una grilla de 2 px. Una imagen movida pierde los bordes
+     * finos y la varianza cae; vale para comparar cuadros del mismo video.
+     */
+    public static double sharpness(float[] g, int w, int h) {
+        double s = 0, s2 = 0;
+        int n = 0;
+        for (int y = 1; y < h - 1; y += 2)
+            for (int x = 1; x < w - 1; x += 2) {
+                int i = y * w + x;
+                double l = g[i - 1] + g[i + 1] + g[i - w] + g[i + w] - 4 * g[i];
+                s += l;
+                s2 += l * l;
+                n++;
+            }
+        if (n == 0) return 0;
+        double m = s / n;
+        return s2 / n - m * m;
+    }
+
+    /**
+     * El cuadro clave a usar en vez de {@code fr}: el más nítido entre fr y
+     * los {@link #SHARP_AHEAD} siguientes, si fr tiene menos del 65 % de su
+     * nitidez y en él siguen visibles casi todos los puntos de fr que se ven
+     * desde el cuadro clave anterior (para no cortar el seguimiento).
+     */
+    static int sharpest(List<Float> sharp, int fr, int frames, List<Track> tracks, int last) {
+        if (fr >= sharp.size()) return fr;
+        int best = fr;
+        for (int k = fr + 1; k <= Math.min(frames - 1, fr + SHARP_AHEAD) && k < sharp.size(); k++)
+            if (sharp.get(k) > sharp.get(best)) best = k;
+        if (best == fr || sharp.get(fr) >= SHARP_RATIO * sharp.get(best)) return fr;
+        int both = 0, kept = 0;
+        for (Track t : tracks)
+            if (t.visible(last) && t.visible(fr)) {
+                both++;
+                if (t.visible(best)) kept++;
+            }
+        return both > 0 && kept >= 0.8 * both ? best : fr;
+    }
+
     /** Sigue puntos a lo largo del video, cuadro a cuadro. */
     public static final class Tracker {
         public final List<Track> tracks = new ArrayList<>();
         /** Puntos multiescala cada {@link #LOOP_EVERY} cuadros (para el cierre de bucle). */
         public final List<Features.Set> loopFeats = new ArrayList<>();
+        /** Nitidez de cada cuadro (varianza del laplaciano, {@link #sharpness}): baja si la imagen salió movida. */
+        public final List<Float> sharpness = new ArrayList<>();
         private final List<Track> active = new ArrayList<>();
         private Klt.Pyramid prev;
         private float[] prevSmooth;
@@ -123,6 +176,7 @@ public final class Sfm {
             frame++;
             Klt.Pyramid pyr = new Klt.Pyramid(Klt.gray(argb), w, h);
             float[] sm = descriptors ? Brief.smooth(pyr.img[0], w, h) : null;
+            if (descriptors) sharpness.add((float) Sfm.sharpness(pyr.img[0], w, h));
             // Cada LOOP_EVERY cuadros, puntos multiescala para reconocer lugares entre tramos (cierre de bucle)
             if (descriptors && frame % LOOP_EVERY == 0) loopFeats.add(Features.detect(frame, pyr.img[0], w, h));
             if (prev != null && !active.isEmpty()) {
@@ -249,6 +303,15 @@ public final class Sfm {
 
     /** Igual, y si hay puntos multiescala ({@code loopFeats}) intenta unir los tramos por cierre de bucle. */
     public static List<Result> reconstruct(List<Track> tracks, List<Features.Set> loopFeats, int frames, int w, int h, double f0, Progress pr) {
+        return reconstruct(tracks, loopFeats, null, frames, w, h, f0, pr);
+    }
+
+    /**
+     * Igual, y con la nitidez de cada cuadro ({@code sharp}, de {@link Tracker#sharpness}; null = sin filtro):
+     * cada cuadro clave se corre al más nítido de los {@link #SHARP_AHEAD} siguientes si él salió movido.
+     */
+    public static List<Result> reconstruct(List<Track> tracks, List<Features.Set> loopFeats, List<Float> sharp, int frames, int w, int h,
+                                           double f0, Progress pr) {
         Random rnd = new Random(7);
         // 1) Cuadros clave: cuando los puntos se movieron lo suficiente desde el anterior
         List<Integer> kf = new ArrayList<>();
@@ -266,7 +329,11 @@ public final class Sfm {
             if (d.size() < 30 && fr - last > 1) { kf.add(fr - 1); continue; }
             d.sort(null);
             double med = d.isEmpty() ? 0 : d.get(d.size() / 2);
-            if (med > minDisp || d.size() < 0.5 * lastCount) kf.add(fr);
+            if (med > minDisp || d.size() < 0.5 * lastCount) {
+                int best = sharp == null ? fr : sharpest(sharp, fr, frames, tracks, last);
+                kf.add(best);
+                fr = best;
+            }
         }
         if (kf.get(kf.size() - 1) != frames - 1) kf.add(frames - 1);
         List<Result> out = new ArrayList<>();
