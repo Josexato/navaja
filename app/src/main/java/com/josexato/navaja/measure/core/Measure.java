@@ -106,8 +106,12 @@ public final class Measure {
         for (int i = 0; i < n; i++) dist[i] = Lin.norm(Lin.sub(p[i], med));
         double sc = percentile(dist, 50);
         // 1) Plano de apoyo: RANSAC
-        double thr = 0.012 * sc, bestCount = -1;
-        double[] bn = null, bp = null;
+        //    Una mesa o pared real deja a todas las cámaras de un mismo lado: los planos que las cortan (un corte
+        //    oblicuo por el mouse pad y el fondo, con la taza del video "Feliz día papá") no valen, salvo que ninguno lo cumpla
+        double thr = 0.012 * sc, bestCount = -1, anyCount = -1;
+        double[] bn = null, bp = null, an = null, ap = null;
+        double[][] eyes = new double[r.poses.size()][];
+        for (int c = 0; c < eyes.length; c++) eyes[c] = r.poses.get(c).center();
         for (int it = 0; it < 1500; it++) {
             double[] a = p[rnd.nextInt(n)], b = p[rnd.nextInt(n)], c = p[rnd.nextInt(n)];
             double[] nn = Lin.cross(Lin.sub(b, a), Lin.sub(c, a));
@@ -116,8 +120,10 @@ public final class Measure {
             nn = Lin.scale(nn, 1 / l);
             int cnt = 0;
             for (double[] q : p) if (Math.abs(Lin.dot(Lin.sub(q, a), nn)) < thr) cnt++;
-            if (cnt > bestCount) { bestCount = cnt; bn = nn; bp = a; }
+            if (cnt > anyCount) { anyCount = cnt; an = nn; ap = a; }
+            if (cnt > bestCount && camerasOnOneSide(eyes, a, nn, SIDE_MARGIN * sc)) { bestCount = cnt; bn = nn; bp = a; }
         }
+        if (bn == null) { bn = an; bp = ap; }
         // Reajuste del plano por mínimos cuadrados con sus puntos, y su ruido real (MAD)
         for (int pass = 0; pass < 2; pass++) {
             List<double[]> in = new ArrayList<>();
@@ -305,6 +311,25 @@ public final class Measure {
             if (Math.abs(u) < 0.3 * r.width && Math.abs(v) < 0.3 * r.height) c++;
         }
         return (double) c / Math.max(1, r.poses.size());
+    }
+
+    /**
+     * Fracción máxima de cámaras que puede quedar claramente del otro lado
+     * del plano de apoyo, y qué es "claramente": más allá del 30 % de la
+     * escala de la escena. Filmando casi a ras de la mesa, el error de pose
+     * deja algunas cámaras apenas debajo de ella: ésas no cuentan.
+     */
+    static final double OTHER_SIDE = 0.05, SIDE_MARGIN = 0.3;
+
+    /** ¿Casi todas las cámaras (todas menos el 5 %) del mismo lado del plano, salvo las que están a menos de {@code margin} de él? */
+    static boolean camerasOnOneSide(double[][] eyes, double[] p, double[] n, double margin) {
+        int pos = 0, neg = 0;
+        for (double[] e : eyes) {
+            double d = Lin.dot(Lin.sub(e, p), n);
+            if (d > margin) pos++;
+            else if (d < -margin) neg++;
+        }
+        return Math.min(pos, neg) <= OTHER_SIDE * eyes.length;
     }
 
     /**
