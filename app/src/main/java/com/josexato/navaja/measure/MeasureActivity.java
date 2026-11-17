@@ -154,6 +154,8 @@ public class MeasureActivity extends Activity {
         NavajaUi.topMargin(rec, 12);
         c.addView(rec, new LinearLayout.LayoutParams(-1, -2));
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Elegir un video", v -> pick())));
+        c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Escáner con hoja impresa (experimental)",
+                v -> startActivity(new Intent(this, SheetActivity.class)))));
         TextView note = NavajaUi.text(this, "Todo se calcula en el teléfono; el video no sale de aquí. El que grabes se guarda en tu carpeta de guardado (junto al ZIP). Toma uno o dos minutos.",
                 NavajaUi.Style.MUTED);
         NavajaUi.topMargin(note, 12);
