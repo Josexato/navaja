@@ -141,4 +141,36 @@ public class SheetScanTest {
         assertEquals("ancho", 2 * BY, Math.min(b.ancho, b.prof), 3);
         assertEquals("largo", 2 * BX, Math.max(b.ancho, b.prof), 3);
     }
+
+    @Test
+    public void lasPistasQueSaltanCuadrosTambiénSeTriangulanYSeCuentanAparte() {
+        Random rnd = new Random(4);
+        List<Geometry.Pose> cams = orbit();
+        List<List<Markers.Marker>> ms = markers(cams, 0.4, rnd);
+        SheetScan.Report rep = new SheetScan.Report();
+        Lens lens = SheetScan.chooseLens(ms, 0, W, H, rep);
+        SheetPose.Fix[] fx = SheetScan.poses(ms, lens, rep);
+        List<Integer> keys = SheetScan.keyframes(fx);
+        for (int i = 1; i < keys.size(); i++) assertTrue(keys.get(i) - keys.get(i - 1) >= SheetScan.MIN_GAP);
+        // La mitad de las pistas, vista sólo en los cuadros clave (como las de XFeat)
+        List<Sfm.Track> all = new ArrayList<>(), klt = tracks(cams, rnd);
+        for (int i = 0; i < klt.size(); i++) {
+            Sfm.Track t = klt.get(i);
+            if (i % 2 == 0) { all.add(t); continue; }
+            List<Integer> fr = new ArrayList<>();
+            for (int k : keys) if (t.visible(k)) fr.add(k);
+            if (fr.size() < 3) continue;
+            int[] f = fr.stream().mapToInt(Integer::intValue).toArray();
+            float[] xs = new float[f.length], ys = new float[f.length];
+            for (int j = 0; j < f.length; j++) { xs[j] = t.x(f[j]); ys[j] = t.y(f[j]); }
+            all.add(Sfm.Track.sparse(f, xs, ys, t.color));
+        }
+        Sfm.Result r = SheetScan.build(all, fx, lens, W, H, rep);
+        assertNotNull(r);
+        assertEquals(rep.triangulated, rep.kltPoints + rep.xfeatPoints);
+        assertTrue("puntos XFeat " + rep.xfeatPoints, rep.xfeatPoints > 300);
+        assertTrue("puntos KLT " + rep.kltPoints, rep.kltPoints > 300);
+        Measure.Box b = SheetScan.measure(r).box;
+        assertEquals("alto", BZ, b.alto + b.separation, 3);
+    }
 }

@@ -37,6 +37,7 @@ import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
 import com.josexato.navaja.measure.core.Regions;
 import com.josexato.navaja.measure.core.Sfm;
+import com.josexato.navaja.measure.core.XFeatTracks;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
 import com.josexato.navaja.ui.NavajaUi;
@@ -48,11 +49,13 @@ import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -334,7 +337,18 @@ public class MeasureActivity extends Activity {
                             + "Graba con la hoja entera (o casi) en la imagen.");
                     rep.lens = lens;
                     SheetPose.Fix[] fx = SheetScan.poses(sheetMarkers, lens, rep);
-                    Sfm.Result sr = SheetScan.build(tr.tracks, fx, lens, dims[0], dims[1], rep);
+                    // Más puntos del objeto: XFeat + LighterGlue entre cuadros clave seguidos, sumados a las pistas KLT
+                    List<Sfm.Track> all = tr.tracks;
+                    List<Integer> keys = SheetScan.keyframes(fx);
+                    if (keys != null) {
+                        List<Sfm.Track> xt = xfeatTracks(uri, keys, fx, lens, dims, rep);
+                        if (cancel.get()) return;
+                        if (!xt.isEmpty()) {
+                            all = new ArrayList<>(tr.tracks);
+                            all.addAll(xt);
+                        }
+                    }
+                    Sfm.Result sr = SheetScan.build(all, fx, lens, dims[0], dims[1], rep);
                     sheetReport = rep;
                     if (sr == null) throw new IOException(String.format(Locale.getDefault(), "Con la hoja se ubicó el celular en %d de %d cuadros y salieron %d puntos: "
                             + "no alcanza. Graba más despacio y con la hoja a la vista.", rep.posed, rep.frames, rep.triangulated));
@@ -397,6 +411,54 @@ public class MeasureActivity extends Activity {
                 if (!cancel.get()) ui.post(() -> error(e.getMessage()));
             }
         });
+    }
+
+    /**
+     * Modo hoja: XFeat en los cuadros clave (otra lectura del video) y
+     * LighterGlue entre cada uno y el anterior; los pares que respetan la
+     * geometría de las poses de la hoja se unen en pistas. Si XFeat no
+     * carga o falla, se sigue sólo con KLT y queda anotado en el informe.
+     */
+    private List<Sfm.Track> xfeatTracks(Uri uri, List<Integer> keys, SheetPose.Fix[] fx, Lens lens, int[] dims, SheetScan.Report rep) {
+        List<Sfm.Track> none = new ArrayList<>();
+        XFeat xf;
+        try {
+            xf = new XFeat(this);
+        } catch (IOException | RuntimeException | LinkageError e) {
+            Log.w(TAG, "xfeat", e);
+            rep.xfeatNote = "⚠ XFeat no pudo cargarse (" + e + "): sólo puntos KLT";
+            return none;
+        }
+        Set<Integer> want = new HashSet<>(keys);
+        int last = keys.get(keys.size() - 1);
+        XFeatTracks.Linker lk = new XFeatTracks.Linker();
+        XFeatTracks.Frame[] prev = {null};
+        int[] idx = {-1}, done = {0};
+        try {
+            VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                if (cancel.get()) return false;
+                if (w != dims[0] || h != dims[1]) return true;
+                int fr = ++idx[0];
+                if (!want.contains(fr)) return fr < last;
+                XFeatTracks.Frame f = xf.detect(fr, argb, w, h);
+                if (prev[0] != null) lk.add(prev[0], f, xf.match(prev[0], f), fx[prev[0].frame].pose, fx[fr].pose, lens);
+                prev[0] = f;
+                done[0]++;
+                post(String.format(Locale.getDefault(), "2/3 · Más puntos con XFeat (%s): foto %d de %d", xf.netDelegate, done[0], keys.size()));
+                return fr < last;
+            });
+            List<Sfm.Track> out = lk.tracks(3);
+            rep.xfeatTracks = out.size();
+            rep.xfeatNote = xf.summary() + String.format(Locale.ROOT, " · pares de puntos %d → %d con la geometría de la hoja · pistas de 3 fotos o más: %d",
+                    lk.raw, lk.kept, out.size());
+            return out;
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            Log.w(TAG, "xfeat", e);
+            rep.xfeatNote = "⚠ XFeat falló (" + e + "): sólo puntos KLT · " + xf.summary();
+            return none;
+        } finally {
+            xf.close();
+        }
     }
 
     /**
@@ -601,8 +663,9 @@ public class MeasureActivity extends Activity {
         if (sheetMode) {
             card.addView(NavajaUi.text(this, "Escala desde la hoja", NavajaUi.Style.LABEL));
             card.addView(NavajaUi.text(this, sheetReport == null ? "Medidas en cm reales: la hoja impresa da la escala."
-                    : String.format(Locale.getDefault(), "Medidas en cm reales: la hoja ubicó el celular en %d de %d cuadros (esquinas a %.1f px). %s",
-                    sheetReport.posed, sheetReport.frames, sheetReport.rmsMedian, sheetReport.lensNote), NavajaUi.Style.BODY));
+                    : String.format(Locale.getDefault(), "Medidas en cm reales: la hoja ubicó el celular en %d de %d cuadros (esquinas a %.1f px). %s"
+                    + "\nPuntos 3D: %d con KLT + %d con XFeat.",
+                    sheetReport.posed, sheetReport.frames, sheetReport.rmsMedian, sheetReport.lensNote, sheetReport.kltPoints, sheetReport.xfeatPoints), NavajaUi.Style.BODY));
             c.addView(card);
         }
         if (!sheetMode) {
