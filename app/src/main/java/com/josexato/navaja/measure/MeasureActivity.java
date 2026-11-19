@@ -431,7 +431,8 @@ public class MeasureActivity extends Activity {
         Set<Integer> want = new HashSet<>(keys);
         int last = keys.get(keys.size() - 1);
         XFeatTracks.Linker lk = new XFeatTracks.Linker();
-        XFeatTracks.Frame[] prev = {null};
+        // Los dos cuadros clave anteriores: cada uno se empareja con ambos (pistas más largas, más ángulo entre vistas)
+        XFeatTracks.Frame[] prev = new XFeatTracks.Frame[XFeatTracks.LOOK_BACK];
         int[] idx = {-1}, done = {0};
         try {
             VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
@@ -440,7 +441,9 @@ public class MeasureActivity extends Activity {
                 int fr = ++idx[0];
                 if (!want.contains(fr)) return fr < last;
                 XFeatTracks.Frame f = xf.detect(fr, argb, w, h);
-                if (prev[0] != null) lk.add(prev[0], f, xf.match(prev[0], f), fx[prev[0].frame].pose, fx[fr].pose, lens);
+                for (int g = 0; g < prev.length; g++)
+                    if (prev[g] != null) lk.add(prev[g], f, xf.match(prev[g], f), fx[prev[g].frame].pose, fx[fr].pose, lens, g + 1);
+                System.arraycopy(prev, 0, prev, 1, prev.length - 1);
                 prev[0] = f;
                 done[0]++;
                 post(String.format(Locale.getDefault(), "2/3 · Más puntos con XFeat (%s): foto %d de %d", xf.netDelegate, done[0], keys.size()));
@@ -448,8 +451,8 @@ public class MeasureActivity extends Activity {
             });
             List<Sfm.Track> out = lk.tracks(3);
             rep.xfeatTracks = out.size();
-            rep.xfeatNote = xf.summary() + String.format(Locale.ROOT, " · pares de puntos %d → %d con la geometría de la hoja · pistas de 3 fotos o más: %d",
-                    lk.raw, lk.kept, out.size());
+            rep.xfeatNote = xf.summary() + String.format(Locale.ROOT, " · pares de puntos %d → %d con la geometría de la hoja · uniones contradictorias evitadas: %d"
+                    + " · pistas de 3 fotos o más: %d", lk.raw, lk.kept, lk.conflicts, out.size());
             return out;
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
             Log.w(TAG, "xfeat", e);

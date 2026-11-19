@@ -120,7 +120,7 @@ public class XFeatTracksTest {
         m0[3] = 5;                      // a un punto de relleno de b
         int[][] p = XFeatTracks.pairs(a, b, m0, m1, v0);
         assertEquals(1, p.length);
-        assertArrayEquals(new int[]{0, 2}, p[0]);
+        assertArrayEquals(new int[]{0, 2, 900}, p[0]);
     }
 
     @Test
@@ -179,6 +179,37 @@ public class XFeatTracksTest {
         boolean near = false;
         for (double[] p : pts) near |= Lin.norm(Lin.sub(p, x)) < 0.5;
         assertTrue(near);
+    }
+
+    @Test
+    public void unParContradictorioNoArruinaLaPista() {
+        List<Geometry.Pose> orbit = SheetScanTest.orbit();
+        Lens lens = new Lens(SheetScanTest.F, SheetScanTest.W / 2.0, SheetScanTest.H / 2.0);
+        int[] frames = {0, 4, 8};
+        double[] p = {10, -5, 20};
+        // Q está sobre el rayo de la cámara 0 que pasa por P: el par (P en 0, Q en 8) respeta la geometría epipolar, pero es otro punto
+        double[] c0 = orbit.get(0).center();
+        double[] q = Lin.add(p, Lin.scale(Lin.sub(p, c0), 0.15));
+        XFeatTracks.Frame[] f = new XFeatTracks.Frame[3];
+        for (int k = 0; k < 3; k++) {
+            f[k] = new XFeatTracks.Frame(frames[k]);
+            double[] xc = orbit.get(frames[k]).apply(p), xq = orbit.get(frames[k]).apply(q);
+            f[k].x[0] = (float) (lens.f * xc[0] / xc[2] + lens.cx);
+            f[k].y[0] = (float) (lens.f * xc[1] / xc[2] + lens.cy);
+            f[k].x[1] = (float) (lens.f * xq[0] / xq[2] + lens.cx);
+            f[k].y[1] = (float) (lens.f * xq[1] / xq[2] + lens.cy);
+            f[k].n = 2;
+        }
+        XFeatTracks.Linker lk = new XFeatTracks.Linker();
+        lk.add(f[0], f[1], new int[][]{{0, 0, 950}}, orbit.get(0), orbit.get(4), lens, 1);
+        lk.add(f[1], f[2], new int[][]{{0, 0, 950}}, orbit.get(4), orbit.get(8), lens, 1);
+        // El equivocado, con más confianza pero entre fotos más separadas: va después y choca
+        lk.add(f[0], f[2], new int[][]{{0, 1, 990}}, orbit.get(0), orbit.get(8), lens, 2);
+        assertEquals("pasa la geometría", 3, lk.kept);
+        List<Sfm.Track> tr = lk.tracks(3);
+        assertEquals(1, tr.size());
+        assertEquals(1, lk.conflicts);
+        assertEquals(f[2].x[0], tr.get(0).x(8), 0);
     }
 
     @Test

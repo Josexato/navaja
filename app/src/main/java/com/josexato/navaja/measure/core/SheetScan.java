@@ -27,6 +27,8 @@ public final class SheetScan {
     /** Usar que la hoja es plana (puntos del plano en Z = 0 y cámaras reajustadas con ellos) y cuántas vueltas de reajuste. */
     static boolean PLANE = true;
     static int PLANE_ROUNDS = 3;
+    /** Quitar la peor observación de una pista (y volver a triangular) en vez de descartarla entera. */
+    static boolean DROP_BAD_OBS = true;
 
     /** Desvío robusto (1,4826 × mediana de |x − mediana|); 0 sin datos. */
     static double robustSd(List<Double> v) {
@@ -61,6 +63,8 @@ public final class SheetScan {
          * cámaras (mm, mediana) y el error de las esquinas después (px, mediana).
          */
         public int planePoints, planeAnchors;
+        /** Observaciones malas quitadas de pistas (en vez de descartar la pista entera). */
+        public int droppedObs;
         public double sheetNoiseBefore, sheetNoiseAfter, poseShiftMm, cornerRmsAfter;
     }
 
@@ -215,7 +219,31 @@ public final class SheetScan {
                 double[] x = Geometry.triangulate(ps, ob);
                 if (x == null) continue;
                 double worst = SheetPlane.worst(ps, ob, x, lens.f);
-                if (worst > MAX_REPROJ) continue;
+                // Una observación mala (un par equivocado en una pista larga) se quita, no la pista entera
+                while (worst > MAX_REPROJ && ca.length > 3 && DROP_BAD_OBS) {
+                    int bad = 0;
+                    double be = -1;
+                    for (int i = 0; i < ca.length; i++) {
+                        double[] xc = ps[i].apply(x);
+                        double e = xc[2] <= 0 ? 1e9 : Math.hypot(xc[0] / xc[2] - ob[i][0], xc[1] / xc[2] - ob[i][1]);
+                        if (e > be) { be = e; bad = i; }
+                    }
+                    int[] nc = new int[ca.length - 1];
+                    double[][] no = new double[ca.length - 1][];
+                    for (int i = 0, j = 0; i < ca.length; i++) if (i != bad) { nc[j] = ca[i]; no[j++] = ob[i]; }
+                    ca = nc;
+                    ob = no;
+                    ps = new Geometry.Pose[ca.length];
+                    for (int i = 0; i < ca.length; i++) ps[i] = r.poses.get(ca[i]);
+                    x = Geometry.triangulate(ps, ob);
+                    if (x == null) break;
+                    worst = SheetPlane.worst(ps, ob, x, lens.f);
+                }
+                if (x == null || worst > MAX_REPROJ) continue;
+                if (ca.length != tCams.get(k).length) {
+                    tCams.set(k, ca);
+                    tObs.set(k, ob);
+                }
                 if (Geometry.angleDeg(x, ps[0].center(), ps[ps.length - 1].center()) < MIN_PARALLAX) continue;
                 double[] p = PLANE ? SheetPlane.snap(ps, ob, x, lens.f) : null;
                 if (p != null) {
@@ -294,7 +322,7 @@ public final class SheetScan {
         Arrays.sort(cr);
         rep.cornerRmsAfter = cr.length == 0 ? 0 : cr[cr.length / 2];
         r.sheetPlane = PLANE;
-        rep.kltPoints = rep.xfeatPoints = rep.planePoints = 0;
+        rep.kltPoints = rep.xfeatPoints = rep.planePoints = rep.droppedObs = 0;
         List<double[]> pts = new ArrayList<>();
         List<Integer> cols = new ArrayList<>(), nobs = new ArrayList<>();
         List<List<Sfm.Track>> ptTracks = new ArrayList<>();
@@ -306,7 +334,21 @@ public final class SheetScan {
             cols.add(t.color);
             nobs.add(tCams.get(k).length);
             List<Sfm.Track> l = new ArrayList<>();
-            l.add(t);
+            int[] ca = tCams.get(k);
+            int seen = 0;
+            for (int c = 0; c < r.camFrames.size(); c++) if (t.visible(r.camFrames.get(c))) seen++;
+            if (ca.length < seen) {
+                // Se quitaron observaciones malas: la pista que queda, sólo con las fotos usadas (para COLMAP, siluetas, etc.)
+                int[] fr = new int[ca.length];
+                float[] xs = new float[ca.length], ys = new float[ca.length];
+                for (int i = 0; i < ca.length; i++) {
+                    fr[i] = r.camFrames.get(ca[i]);
+                    xs[i] = t.x(fr[i]);
+                    ys[i] = t.y(fr[i]);
+                }
+                l.add(Sfm.Track.sparse(fr, xs, ys, t.color));
+                rep.droppedObs += seen - ca.length;
+            } else l.add(t);
             ptTracks.add(l);
             errs.add(errOf[k]);
             if (kind[k] == 1 || kind[k] == 2) rep.planePoints++;

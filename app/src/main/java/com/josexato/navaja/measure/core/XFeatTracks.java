@@ -33,6 +33,8 @@ public final class XFeatTracks {
     static final int GW = IN_W / 8, GH = IN_H / 8;
     /** Mapa de puntos mínimo (el de XFeat) y confianza mínima de un par (la de {@code match_lighterglue}). */
     static final float THRESHOLD = 0.05f, MIN_CONF = 0.1f;
+    /** Cuántos cuadros clave anteriores se emparejan con cada uno (1 = sólo el anterior). */
+    public static final int LOOK_BACK = 2;
     /** Distancia a la recta epipolar (px, Sampson) por encima de la cual un par se descarta: las poses de la hoja ya se conocen. */
     static final double MAX_EPIPOLAR = 2;
 
@@ -192,15 +194,16 @@ public final class XFeatTracks {
      * Pares del emparejador: {@code m0[i]} el mejor de b para el punto i de
      * a, {@code m1[j]} el mejor de a para j, {@code v0[i]} el log-puntaje de
      * i. Se quedan los mutuos, entre puntos reales y con confianza ≥
-     * {@link #MIN_CONF}. Devuelve {i, j} por par.
+     * {@link #MIN_CONF}. Devuelve {i, j, confianza × 1000} por par.
      */
     public static int[][] pairs(Frame a, Frame b, int[] m0, int[] m1, float[] v0) {
         List<int[]> out = new ArrayList<>();
         for (int i = 0; i < a.n; i++) {
             int j = m0[i];
             if (j < 0 || j >= b.n || m1[j] != i) continue;
-            if (Math.exp(v0[i]) < MIN_CONF) continue;
-            out.add(new int[]{i, j});
+            double conf = Math.exp(v0[i]);
+            if (conf < MIN_CONF) continue;
+            out.add(new int[]{i, j, (int) Math.round(1000 * Math.min(1, conf))});
         }
         return out.toArray(new int[0][]);
     }
@@ -208,19 +211,26 @@ public final class XFeatTracks {
     /**
      * Une los pares de cuadros clave en pistas: cada punto de cada cuadro es
      * un nodo y cada par (que pase la geometría epipolar con las poses de la
-     * hoja) une dos nodos. Una pista que pasa dos veces por el mismo cuadro
-     * (pares contradictorios) se descarta.
+     * hoja) es una arista. Los cuadros se emparejan con el siguiente y
+     * también con otros más adelante (pistas más largas, con más ángulo entre
+     * vistas). Las aristas se unen de la más confiable a la menos: primero
+     * las de cuadros más cercanos y, entre ellas, las de mayor confianza; una
+     * unión que dejaría dos puntos del mismo cuadro en una pista (pares
+     * contradictorios) no se hace, así una arista equivocada no arruina la
+     * pista entera.
      */
     public static final class Linker {
         private final Map<Integer, float[][]> pts = new HashMap<>();
         private final Map<Integer, int[]> colors = new HashMap<>();
         private final Map<Integer, Integer> base = new HashMap<>();
-        private int[] parent = new int[0];
+        private int[] parent = new int[0], frameOf = new int[0];
         private int nodes;
+        /** Aristas: {nodo a, nodo b, separación entre cuadros clave, confianza × 1000}. */
+        private final List<int[]> edges = new ArrayList<>();
         /** Pares leídos y los que pasaron la geometría epipolar. */
         public int raw, kept;
-        /** Pares de cuadros emparejados. */
-        public int framePairs;
+        /** Pares de cuadros emparejados; uniones descartadas por contradictorias. */
+        public int framePairs, conflicts;
 
         private int node(Frame f) {
             Integer b = base.get(f.frame);
@@ -233,8 +243,10 @@ public final class XFeatTracks {
                 int old = parent.length;
                 if (nodes > old) {
                     parent = Arrays.copyOf(parent, Math.max(nodes, old * 2));
+                    frameOf = Arrays.copyOf(frameOf, parent.length);
                     for (int i = old; i < parent.length; i++) parent[i] = i;
                 }
+                for (int i = b; i < nodes; i++) frameOf[i] = f.frame;
             }
             return b;
         }
@@ -247,8 +259,13 @@ public final class XFeatTracks {
             return i;
         }
 
-        /** Agrega los pares entre a y b (poses de la hoja pa y pb; lente l). */
+        /** Agrega los pares entre a y el cuadro clave siguiente b (poses de la hoja pa y pb; lente l). */
         public void add(Frame a, Frame b, int[][] pairs, Geometry.Pose pa, Geometry.Pose pb, Lens l) {
+            add(a, b, pairs, pa, pb, l, 1);
+        }
+
+        /** Igual, con b a {@code gap} cuadros clave de a (1 = el siguiente). */
+        public void add(Frame a, Frame b, int[][] pairs, Geometry.Pose pa, Geometry.Pose pb, Lens l, int gap) {
             int ba = node(a), bb = node(b);
             framePairs++;
             // Matriz esencial de a hacia b: E = [t]× R
@@ -261,8 +278,7 @@ public final class XFeatTracks {
                 double[] x0 = l.normalize(a.x[p[0]], a.y[p[0]]), x1 = l.normalize(b.x[p[1]], b.y[p[1]]);
                 if (sampson(e, x0, x1) * l.f > MAX_EPIPOLAR) continue;
                 kept++;
-                int u = find(ba + p[0]), v = find(bb + p[1]);
-                if (u != v) parent[u] = v;
+                edges.add(new int[]{ba + p[0], bb + p[1], gap, p.length > 2 ? p[2] : 1000});
             }
         }
 
@@ -275,8 +291,35 @@ public final class XFeatTracks {
             return Math.abs(num) / Math.sqrt(Math.max(den, 1e-24));
         }
 
+        /** Une las aristas (de la más confiable a la menos, sin contradicciones). */
+        private void link() {
+            for (int i = 0; i < nodes; i++) parent[i] = i;
+            conflicts = 0;
+            Map<Integer, java.util.Set<Integer>> framesOf = new HashMap<>();
+            List<int[]> es = new ArrayList<>(edges);
+            es.sort((p, q) -> p[2] != q[2] ? Integer.compare(p[2], q[2]) : Integer.compare(q[3], p[3]));
+            for (int[] ed : es) {
+                int u = find(ed[0]), v = find(ed[1]);
+                if (u == v) continue;
+                java.util.Set<Integer> fu = framesOf.get(u), fv = framesOf.get(v);
+                if (fu == null) { fu = new java.util.HashSet<>(); fu.add(frameOf[u]); }
+                if (fv == null) { fv = new java.util.HashSet<>(); fv.add(frameOf[v]); }
+                // El conjunto chico se recorre sobre el grande
+                java.util.Set<Integer> small = fu.size() <= fv.size() ? fu : fv, big = small == fu ? fv : fu;
+                boolean clash = false;
+                for (int f : small) if (big.contains(f)) { clash = true; break; }
+                if (clash) { conflicts++; continue; }
+                big.addAll(small);
+                int root = small == fu ? v : u, child = root == u ? v : u;
+                parent[child] = root;
+                framesOf.remove(child);
+                framesOf.put(root, big);
+            }
+        }
+
         /** Las pistas con al menos {@code minObs} cuadros. */
         public List<Sfm.Track> tracks(int minObs) {
+            link();
             Map<Integer, List<int[]>> groups = new HashMap<>();
             for (Map.Entry<Integer, Integer> fe : base.entrySet()) {
                 int fr = fe.getKey(), b0 = fe.getValue(), n = pts.get(fr)[0].length;
