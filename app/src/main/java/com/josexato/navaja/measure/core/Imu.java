@@ -26,6 +26,33 @@ public final class Imu {
 
     final List<double[]> rot = new ArrayList<>(), grav = new ArrayList<>();
     long start;
+    /** Cómo se grabó el lente ("fijo:ID", "lógica" o "" si no se anotó) y cada cambio de lente activo o de focal: {t_ns, lente, focal mm}. */
+    public String lensMode = "";
+    final List<String[]> lens = new ArrayList<>();
+
+    /** Cambios de lente (no de enfoque) durante el video. */
+    public int lensSwitches() {
+        int n = 0;
+        for (int i = 1; i < lens.size(); i++) if (!lens.get(i)[1].equals(lens.get(i - 1)[1])) n++;
+        return n;
+    }
+
+    /** Para el informe: qué lente se usó y si cambió (con el segundo del video). */
+    public String lensSummary() {
+        if (lensMode.isEmpty() && lens.isEmpty()) return "";
+        StringBuilder s = new StringBuilder(lensMode.startsWith("fijo:") ? "lente fijo (" + lensMode.substring(5) + ")" : "lente elegido por el teléfono");
+        if (!lens.isEmpty()) s.append(String.format(Locale.ROOT, ", focal %s mm", lens.get(0)[2]));
+        int sw = lensSwitches();
+        if (sw == 0) s.append(" · sin cambios de lente");
+        else {
+            s.append(String.format(Locale.ROOT, " · ⚠ cambió de lente %d veces:", sw));
+            for (int i = 1; i < lens.size(); i++)
+                if (!lens.get(i)[1].equals(lens.get(i - 1)[1]))
+                    s.append(String.format(Locale.ROOT, " %.1f s (%s → %s, %s mm)", (Long.parseLong(lens.get(i)[0]) - start) / 1e9, lens.get(i - 1)[1], lens.get(i)[1], lens.get(i)[2]));
+        }
+        return s.toString();
+    }
+
     /** Focal de la cámara en píxeles del video grabado (0 si no se guardó) y tamaño de ese video. */
     public double focalVideoPx;
     public int videoW, videoH;
@@ -47,6 +74,7 @@ public final class Imu {
             if (line.startsWith("#")) {
                 if (line.startsWith("#inicio_video_ns=")) m.start = Long.parseLong(line.substring(17).trim());
                 else if (line.startsWith("#f_video_px=")) m.focalVideoPx = Double.parseDouble(line.substring(12).trim());
+                else if (line.startsWith("#lente=")) m.lensMode = line.substring(7).trim();
                 else if (line.startsWith("#video=")) {
                     String[] wh = line.substring(7).trim().split("x");
                     if (wh.length == 2) { m.videoW = Integer.parseInt(wh[0].trim()); m.videoH = Integer.parseInt(wh[1].trim()); }
@@ -59,6 +87,8 @@ public final class Imu {
                     m.rot.add(new double[]{Long.parseLong(f[1]), d(f[2]), d(f[3]), d(f[4]), d(f[5])});
                 else if (f[0].equals("g") && f.length >= 5)
                     m.grav.add(new double[]{Long.parseLong(f[1]), d(f[2]), d(f[3]), d(f[4])});
+                else if (f[0].equals("l") && f.length >= 4)
+                    m.lens.add(new String[]{f[1], f[2], f[3]});
             } catch (NumberFormatException e) {
                 // línea cortada (p. ej. al final): se ignora
             }

@@ -73,6 +73,20 @@ public class ImuTest {
     }
 
     @Test
+    public void seVenLosCambiosDeLente() {
+        String csv = "#inicio_video_ns=1000000000\n#lente=lógica\nr,1000000000,0,0,0,1\nl,1000000000,2,5.400\nl,1500000000,2,5.410\n"
+                + "l,26000000000,3,2.200\nr,30000000000,0,0,0,1\n";
+        Imu imu = Imu.parse(csv);
+        assertNotNull(imu);
+        assertEquals(1, imu.lensSwitches());
+        String s = imu.lensSummary();
+        assertTrue(s, s.contains("25.0 s (2 → 3, 2.200 mm)"));
+        Imu fixed = Imu.parse("#inicio_video_ns=5\n#lente=fijo:2\nr,5,0,0,0,1\nl,5,2,5.400\n");
+        assertEquals(0, fixed.lensSwitches());
+        assertTrue(fixed.lensSummary(), fixed.lensSummary().startsWith("lente fijo (2)"));
+    }
+
+    @Test
     public void sinDatosNoHaySensores() {
         assertNull(Imu.parse("#navaja-sensores-1\n#inicio_video_ns=10\n"));
         assertNull(Imu.parse("r,1,0,0,0,1\n"));

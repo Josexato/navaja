@@ -281,6 +281,8 @@ final class MeasureReport {
                     + "sale de cómo se sostuvo el celular en las fotos.\n");
         else {
             s.append(String.format(Locale.ROOT, "- Grabado con sensores (%s).\n", d.imu));
+            String ls = d.imu.lensSummary();
+            if (!ls.isEmpty()) s.append("- Cámara: ").append(ls).append(". Sin estabilización digital (deforma cada cuadro distinto).\n");
             double[] g = Measure.gravityUp(r);
             if (g != null) {
                 double ang = Math.toDegrees(Math.acos(Math.min(1, Math.abs(Lin.dot(g, b.planeN)))));

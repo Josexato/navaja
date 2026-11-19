@@ -208,13 +208,21 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
             if (id == null) { fail("No hay cámara trasera"); return; }
             CameraCharacteristics ch = cm.getCameraCharacteristics(id);
             StreamConfigurationMap map = ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            // Cámara lógica con varios lentes (gran angular, ultra gran angular, tele): se fija el principal para que el
+            // teléfono no cambie de lente al acercarse (cambiaría la focal en medio del video)
+            physicalId = mainPhysical(cm, ch);
+            CameraCharacteristics lensCh = physicalId == null ? ch : cm.getCameraCharacteristics(physicalId);
+            if (physicalId != null) {
+                StreamConfigurationMap pm = lensCh.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                if (pm != null) map = pm;
+            }
             Integer so = ch.get(CameraCharacteristics.SENSOR_ORIENTATION);
             sensorOrientation = so == null ? 90 : so;
             Integer src = ch.get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE);
             realtimeClock = src != null && src == CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;
             size = pickSize(map == null ? null : map.getOutputSizes(MediaRecorder.class));
             if (size == null) { fail("La cámara no ofrece tamaños de video"); return; }
-            focalVideo(ch);
+            focalVideo(lensCh);
             // Vista previa con la proporción del video (vertical), sin estirar
             ui.post(() -> {
                 int w = ((View) preview.getParent()).getWidth();
@@ -229,6 +237,39 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
         } catch (CameraAccessException | SecurityException | IllegalArgumentException e) {
             fail("No se pudo abrir la cámara: " + e.getMessage());
         }
+    }
+
+    /** El lente físico fijado (null: la cámara lógica decide) y el último lente activo visto (para registrar cambios). */
+    private volatile String physicalId;
+    private volatile String lastActive = "";
+    private volatile float lastFocal = -1;
+
+    /**
+     * El lente principal de una cámara lógica: entre sus lentes físicos, el
+     * de campo de visión horizontal más cercano a 69° (un 26 mm equivalente,
+     * el lente "normal" de los teléfonos; el ultra gran angular ronda 110° y
+     * el tele 30°). Null si la cámara tiene un solo lente o Android es
+     * anterior a 9.
+     */
+    static String mainPhysical(CameraManager cm, CameraCharacteristics ch) {
+        if (android.os.Build.VERSION.SDK_INT < 28) return null;
+        java.util.Set<String> ids = ch.getPhysicalCameraIds();
+        if (ids == null || ids.size() < 2) return null;
+        String best = null;
+        double bestDiff = 1e9;
+        for (String pid : ids) {
+            try {
+                CameraCharacteristics pc = cm.getCameraCharacteristics(pid);
+                float[] fl = pc.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+                android.util.SizeF phys = pc.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+                if (fl == null || fl.length == 0 || phys == null) continue;
+                double hfov = Math.toDegrees(2 * Math.atan(phys.getWidth() / (2 * fl[0])));
+                if (Math.abs(hfov - 69) < bestDiff) { bestDiff = Math.abs(hfov - 69); best = pid; }
+            } catch (CameraAccessException | IllegalArgumentException e) {
+                Log.w(TAG, "lente " + pid, e);
+            }
+        }
+        return best;
     }
 
     /** Focal en píxeles del video (0 si la cámara no la informa) y de qué dato salió. */
@@ -298,7 +339,7 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
             SurfaceTexture st = preview.getSurfaceTexture();
             st.setDefaultBufferSize(size.getWidth(), size.getHeight());
             Surface pv = new Surface(st), rec = recorder.getSurface();
-            device.createCaptureSession(Arrays.asList(pv, rec), new CameraCaptureSession.StateCallback() {
+            CameraCaptureSession.StateCallback cb = new CameraCaptureSession.StateCallback() {
                 @Override public void onConfigured(CameraCaptureSession s) {
                     session = s;
                     try {
@@ -306,13 +347,18 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
                         rb.addTarget(pv);
                         rb.addTarget(rec);
                         rb.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+                        // Sin estabilización digital: recorta y deforma cada cuadro distinto, y la geometría deja de ser la de la cámara
+                        rb.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF);
+                        if (physicalId == null && android.os.Build.VERSION.SDK_INT >= 30) rb.set(CaptureRequest.CONTROL_ZOOM_RATIO, 1f);
                         s.setRepeatingRequest(rb.build(), new CameraCaptureSession.CaptureCallback() {
                             @Override public void onCaptureCompleted(CameraCaptureSession s2, CaptureRequest r, TotalCaptureResult res) {
-                                if (!recording || firstFrameNs != 0) return;
+                                if (!recording) return;
                                 Long ts = res.get(CaptureResult.SENSOR_TIMESTAMP);
                                 if (ts == null) return;
                                 // Al reloj de los sensores (desde el arranque, incluyendo reposo)
-                                firstFrameNs = realtimeClock ? ts : ts + (SystemClock.elapsedRealtimeNanos() - System.nanoTime());
+                                long t = realtimeClock ? ts : ts + (SystemClock.elapsedRealtimeNanos() - System.nanoTime());
+                                if (firstFrameNs == 0) firstFrameNs = t;
+                                logLens(res, t);
                             }
                         }, cam);
                     } catch (CameraAccessException | IllegalStateException e) {
@@ -325,10 +371,47 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
                     });
                 }
 
-                @Override public void onConfigureFailed(CameraCaptureSession s) { fail("La cámara no aceptó grabar"); }
-            }, cam);
+                @Override public void onConfigureFailed(CameraCaptureSession s) {
+                    if (physicalId != null) {
+                        // El teléfono no deja grabar desde un lente fijo: se vuelve a la cámara lógica (con zoom 1×)
+                        Log.w(TAG, "sin lente fijo " + physicalId);
+                        physicalId = null;
+                        recorder.release();
+                        recorder = null;
+                        startSession();
+                    } else fail("La cámara no aceptó grabar");
+                }
+            };
+            if (physicalId != null && android.os.Build.VERSION.SDK_INT >= 28) {
+                android.hardware.camera2.params.OutputConfiguration op = new android.hardware.camera2.params.OutputConfiguration(pv);
+                android.hardware.camera2.params.OutputConfiguration or = new android.hardware.camera2.params.OutputConfiguration(rec);
+                op.setPhysicalCameraId(physicalId);
+                or.setPhysicalCameraId(physicalId);
+                device.createCaptureSessionByOutputConfigurations(Arrays.asList(op, or), cb, cam);
+            } else device.createCaptureSession(Arrays.asList(pv, rec), cb, cam);
         } catch (IOException | RuntimeException | CameraAccessException e) {
             fail("No se pudo preparar la grabación: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Anota en los sensores el lente activo y su focal (mm) cuando cambian:
+     * {@code l,t_ns,lente,focal_mm}. Con lente fijo no debería cambiar; con
+     * la cámara lógica muestra si el teléfono pasó a otro lente.
+     */
+    private void logLens(TotalCaptureResult res, long t) {
+        String active = physicalId != null ? physicalId : "";
+        if (physicalId == null && android.os.Build.VERSION.SDK_INT >= 29) {
+            String a = res.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
+            if (a != null) active = a;
+        }
+        Float fl = res.get(CaptureResult.LENS_FOCAL_LENGTH);
+        float f = fl == null ? 0 : fl;
+        if (active.equals(lastActive) && Math.abs(f - lastFocal) < 0.01f) return;
+        lastActive = active;
+        lastFocal = f;
+        synchronized (lock) {
+            samples.append(String.format(Locale.ROOT, "l,%d,%s,%.3f\n", t, active.isEmpty() ? "-" : active, f));
         }
     }
 
@@ -345,6 +428,8 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
             try {
                 synchronized (lock) { samples.setLength(0); }
                 firstFrameNs = 0;
+                lastActive = "";
+                lastFocal = -1;
                 recorder.start();
                 recording = true;
                 startedMs = SystemClock.elapsedRealtime();
@@ -382,7 +467,8 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
             long start = firstFrameNs != 0 ? firstFrameNs : SystemClock.elapsedRealtimeNanos();
             header = "#navaja-sensores-1\n#inicio_video_ns=" + start + "\n#reloj_camara=" + (realtimeClock ? "realtime" : "monotonico")
                     + "\n#orientacion_sensor=" + sensorOrientation + "\n#video=" + size.getWidth() + "x" + size.getHeight() + "\n"
-                    + (fVideo > 0 ? String.format(Locale.ROOT, "#f_video_px=%.2f\n#f_fuente=%s\n", fVideo, fSource) : "");
+                    + (fVideo > 0 ? String.format(Locale.ROOT, "#f_video_px=%.2f\n#f_fuente=%s\n", fVideo, fSource) : "")
+                + "#lente=" + (physicalId != null ? "fijo:" + physicalId : "lógica") + "\n";
             try (FileOutputStream fo = new FileOutputStream(sensors)) {
                 fo.write(header.getBytes(StandardCharsets.UTF_8));
                 fo.write(samples.toString().getBytes(StandardCharsets.UTF_8));
