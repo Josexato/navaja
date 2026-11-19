@@ -314,6 +314,13 @@ public final class Sfm {
         public final List<int[]> parts = new ArrayList<>();
         /** "Arriba" de cada cámara según la gravedad (sensores), en coordenadas de la cámara; null si no se grabaron sensores. */
         public double[][] camUp;
+        /**
+         * Modo hoja: el plano Z = 0 es la hoja (y la mesa), así que los
+         * puntos densos que caen en él se dejan en el plano ({@link SheetPlane}).
+         */
+        public boolean sheetPlane;
+        /** Modo hoja: ruido de altura (mm, desvío robusto) de los puntos del plano triangulados libres, para separar el objeto del apoyo. */
+        public double sheetNoise;
     }
 
     public interface Progress {
@@ -409,6 +416,10 @@ public final class Sfm {
             }
             // Paralaje: entre la primera y la última cámara que lo ven
             if (!ok || Geometry.angleDeg(x, ps.get(0).center(), ps.get(ps.size() - 1).center()) < 2) continue;
+            if (r.sheetPlane) {
+                double[] s = SheetPlane.snap(ps.toArray(new Geometry.Pose[0]), ob.toArray(new double[0][]), x, f);
+                if (s != null) x = s;
+            }
             pts.add(x);
             cols.add(t.color);
             obsN.add(ps.size());

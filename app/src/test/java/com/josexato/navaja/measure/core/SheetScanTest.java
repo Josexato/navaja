@@ -143,6 +143,51 @@ public class SheetScanTest {
     }
 
     @Test
+    public void laHojaPlanaDejaLosPuntosEnZCeroYAfinaLasCamaras() {
+        Random rnd = new Random(5);
+        List<Geometry.Pose> cams = orbit();
+        // Marcas con más ruido (1,5 px): las poses de cada cuadro tiemblan
+        List<List<Markers.Marker>> ms = markers(cams, 1.5, rnd);
+        SheetScan.Report rep = new SheetScan.Report();
+        Lens lens = new Lens(F, W / 2.0, H / 2.0);
+        SheetPose.Fix[] fx = SheetScan.poses(ms, lens, rep);
+        List<Sfm.Track> tr = tracks(cams, rnd);
+        // Sin usar el plano
+        SheetScan.PLANE = false;
+        SheetScan.Report r0 = new SheetScan.Report();
+        Sfm.Result a;
+        try {
+            a = SheetScan.build(tr, fx, lens, W, H, r0);
+        } finally {
+            SheetScan.PLANE = true;
+        }
+        Sfm.Result b = SheetScan.build(tr, fx, lens, W, H, rep);
+        assertNotNull(a);
+        assertNotNull(b);
+        assertTrue("puntos del plano " + rep.planePoints, rep.planePoints > 500);
+        assertTrue("anclas " + rep.planeAnchors, rep.planeAnchors > 200);
+        // Los puntos del plano quedan exactamente en Z = 0; los del objeto, arriba
+        int onPlane = 0;
+        for (double[] p : b.points) if (p[2] == 0) onPlane++;
+        assertEquals(rep.planePoints, onPlane);
+        // Las cámaras afinadas quedan más cerca de las reales
+        assertTrue("error de cámara " + camErr(b, cams) + " mm (antes " + camErr(a, cams) + ")", camErr(b, cams) < camErr(a, cams));
+        assertTrue(rep.sheetNoiseAfter <= rep.sheetNoiseBefore);
+        Measure.Box box = SheetScan.measure(b).box;
+        assertEquals("alto", BZ, box.alto + box.separation, 3);
+        assertEquals("ancho", 2 * BY, Math.min(box.ancho, box.prof), 3);
+        assertEquals("largo", 2 * BX, Math.max(box.ancho, box.prof), 3);
+    }
+
+    /** Mediana de la distancia (mm) entre los centros de las cámaras de {@code r} y los reales. */
+    static double camErr(Sfm.Result r, List<Geometry.Pose> cams) {
+        double[] e = new double[r.poses.size()];
+        for (int c = 0; c < e.length; c++) e[c] = Lin.norm(Lin.sub(r.poses.get(c).center(), cams.get(r.camFrames.get(c)).center()));
+        java.util.Arrays.sort(e);
+        return e[e.length / 2];
+    }
+
+    @Test
     public void lasPistasQueSaltanCuadrosTambiénSeTriangulanYSeCuentanAparte() {
         Random rnd = new Random(4);
         List<Geometry.Pose> cams = orbit();

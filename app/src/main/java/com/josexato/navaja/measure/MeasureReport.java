@@ -196,6 +196,10 @@ final class MeasureReport {
             s.append(String.format(Locale.ROOT, "- Fotos (cuadros clave) entre los ubicados: %d · pistas seguidas: %d → puntos triangulados con esas poses: %d "
                     + "(error de reproyección mediano %.2f px): %d de pistas KLT y %d de pistas XFeat.%n", h.keyframes, h.tracks, h.triangulated, h.pointRms,
                     h.kltPoints, h.xfeatPoints));
+            s.append(String.format(Locale.ROOT, "- Hoja plana: %d puntos de la hoja y la mesa quedaron en Z = 0 (triangulados libres tenían ±%.1f mm de altura; "
+                    + "±%.1f mm después de afinar las cámaras). Cada cámara se afinó con las esquinas de las marcas y %d de esos puntos: se movió %.1f mm "
+                    + "(mediana); error de las esquinas después: %.2f px.%n", h.planePoints, h.sheetNoiseBefore, h.sheetNoiseAfter, h.planeAnchors,
+                    h.poseShiftMm, h.cornerRmsAfter));
             s.append("- XFeat + LighterGlue (puntos aprendidos, entre fotos clave seguidas): ")
                     .append(h.xfeatNote.isEmpty() ? "no corrió" : h.xfeatNote).append(".\n");
             s.append("- Qué mirar: muchos cuadros ubicados y error de esquinas bajo (≈1–2 px) = poses buenas; pocos puntos triangulados = el objeto "
