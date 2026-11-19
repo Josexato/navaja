@@ -22,6 +22,22 @@ public final class SheetScan {
     static final int MAX_CAMS = 150, MIN_GAP = 2;
     /** Error de reproyección (px) y paralaje (°) mínimos para aceptar un punto triangulado. */
     static final double MAX_REPROJ = 2, MIN_PARALLAX = 2;
+    /** Puntos del plano usados para reajustar las cámaras: paralaje mínimo (°). */
+    static final double ANCHOR_PARALLAX = 4;
+    /** Usar que la hoja es plana (puntos del plano en Z = 0 y cámaras reajustadas con ellos) y cuántas vueltas de reajuste. */
+    static boolean PLANE = true;
+    static int PLANE_ROUNDS = 3;
+
+    /** Desvío robusto (1,4826 × mediana de |x − mediana|); 0 sin datos. */
+    static double robustSd(List<Double> v) {
+        if (v.isEmpty()) return 0;
+        double[] a = v.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+        double m = a[a.length / 2];
+        double[] d = new double[a.length];
+        for (int i = 0; i < a.length; i++) d[i] = Math.abs(a[i] - m);
+        Arrays.sort(d);
+        return 1.4826 * d[d.length / 2];
+    }
 
     /** Lo que pasó al armar la reconstrucción (para el diagnóstico). */
     public static final class Report {
@@ -38,6 +54,14 @@ public final class SheetScan {
         /** XFeat: pistas que entraron (0 si no corrió) y cómo le fue (delegado, tiempos, pares; vacío si no corrió). */
         public int xfeatTracks;
         public String xfeatNote = "";
+        /**
+         * Hoja plana: puntos que quedaron en el plano Z = 0, cuántos anclaron el
+         * reajuste de las cámaras, su ruido de altura triangulados libres (mm,
+         * desvío robusto) antes y después del reajuste, cuánto se movieron las
+         * cámaras (mm, mediana) y el error de las esquinas después (px, mediana).
+         */
+        public int planePoints, planeAnchors;
+        public double sheetNoiseBefore, sheetNoiseAfter, poseShiftMm, cornerRmsAfter;
     }
 
     /**
@@ -150,47 +174,142 @@ public final class SheetScan {
         r.frames = fixes.length;
         for (int f : keys) {
             r.camFrames.add(f);
-            r.poses.add(fixes[f].pose);
+            r.poses.add(fixes[f].pose.copy()); // se afinan aquí: no tocar las de cada cuadro
         }
         rep.keyframes = r.poses.size();
         rep.tracks = tracks.size();
-        rep.kltPoints = rep.xfeatPoints = 0;
-        // Triangulación con las poses fijas (en mm)
+        // Observaciones de cada pista en los cuadros clave (una vez)
+        List<Sfm.Track> tks = new ArrayList<>();
+        List<int[]> tCams = new ArrayList<>();
+        List<double[][]> tObs = new ArrayList<>();
+        for (Sfm.Track t : tracks) {
+            List<Integer> cs = new ArrayList<>();
+            for (int c = 0; c < r.camFrames.size(); c++) if (t.visible(r.camFrames.get(c))) cs.add(c);
+            if (cs.size() < 3) continue;
+            int[] ca = cs.stream().mapToInt(Integer::intValue).toArray();
+            double[][] o = new double[ca.length][];
+            for (int i = 0; i < ca.length; i++) {
+                int fr = r.camFrames.get(ca[i]);
+                o[i] = lens.normalize(t.x(fr), t.y(fr));
+            }
+            tks.add(t);
+            tCams.add(ca);
+            tObs.add(o);
+        }
+        // Triangulación; con la hoja plana: los puntos del plano quedan en Z = 0 y anclan un reajuste de cada cámara
+        // (esquinas de las marcas + esos puntos), y se vuelve a triangular. Las marcas fijan el sistema: no se corre.
+        double[][] pos = new double[tks.size()][];
+        int[] kind = new int[tks.size()];
+        double[] errOf = new double[tks.size()];
+        double[][] c0 = new double[r.poses.size()][];
+        for (int c = 0; c < c0.length; c++) c0[c] = r.poses.get(c).center();
+        for (int round = 0; ; round++) {
+            List<Double> freeZ = new ArrayList<>();
+            for (int k = 0; k < tks.size(); k++) {
+                int[] ca = tCams.get(k);
+                Geometry.Pose[] ps = new Geometry.Pose[ca.length];
+                for (int i = 0; i < ca.length; i++) ps[i] = r.poses.get(ca[i]);
+                double[][] ob = tObs.get(k);
+                pos[k] = null;
+                kind[k] = 0;
+                double[] x = Geometry.triangulate(ps, ob);
+                if (x == null) continue;
+                double worst = SheetPlane.worst(ps, ob, x, lens.f);
+                if (worst > MAX_REPROJ) continue;
+                if (Geometry.angleDeg(x, ps[0].center(), ps[ps.length - 1].center()) < MIN_PARALLAX) continue;
+                double[] p = PLANE ? SheetPlane.snap(ps, ob, x, lens.f) : null;
+                if (p != null) {
+                    freeZ.add(x[2]);
+                    pos[k] = p;
+                    errOf[k] = SheetPlane.worst(ps, ob, p, lens.f);
+                    // Ancla para las cámaras sólo si está bien determinado: 4+ vistas y buen ángulo entre ellas
+                    kind[k] = ca.length >= 4 && Geometry.angleDeg(x, ps[0].center(), ps[ps.length - 1].center()) >= ANCHOR_PARALLAX ? 2 : 1;
+                    continue;
+                }
+                if (x[2] < -5) continue; // debajo de la hoja: un error
+                pos[k] = x;
+                errOf[k] = worst;
+                kind[k] = 3;
+            }
+            double noise = robustSd(freeZ);
+            if (round == 0) {
+                rep.sheetNoiseBefore = noise;
+                r.sheetNoise = noise;
+            }
+            rep.sheetNoiseAfter = noise;
+            if (!PLANE || round >= PLANE_ROUNDS) break;
+            // Reajuste de cada cámara: esquinas de las marcas (fijas) + puntos del plano que ve
+            List<List<double[]>> xs = new ArrayList<>(), os = new ArrayList<>();
+            for (int c = 0; c < r.poses.size(); c++) {
+                xs.add(new ArrayList<>());
+                os.add(new ArrayList<>());
+                SheetPose.Fix fx = fixes[r.camFrames.get(c)];
+                if (fx.sheetXs == null) continue;
+                for (int i = 0; i < fx.sheetXs.length; i++) {
+                    xs.get(c).add(fx.sheetXs[i]);
+                    os.get(c).add(fx.obs[i]);
+                }
+            }
+            int anchors = 0;
+            for (int k = 0; k < tks.size(); k++) {
+                if (kind[k] != 2) continue;
+                anchors++;
+                int[] ca = tCams.get(k);
+                for (int i = 0; i < ca.length; i++) {
+                    xs.get(ca[i]).add(pos[k]);
+                    os.get(ca[i]).add(tObs.get(k)[i]);
+                }
+            }
+            rep.planeAnchors = anchors;
+            for (int c = 0; c < r.poses.size(); c++) {
+                if (xs.get(c).size() < 8) continue;
+                Geometry.Pose p = r.poses.get(c), before = p.copy();
+                Geometry.refinePose(p, xs.get(c).toArray(new double[0][]), os.get(c).toArray(new double[0][]), lens.f, 2, 10);
+                // Un reajuste que mueve la cámara más de 2 cm o la pone detrás de la hoja no se acepta
+                if (Lin.norm(Lin.sub(p.center(), before.center())) > 20 || p.apply(new double[]{0, 0, 0})[2] <= 0) {
+                    p.r = before.r;
+                    p.t = before.t;
+                }
+            }
+        }
+        // Cuánto se movieron las cámaras al afinarlas (mediana, mm)
+        double[] mv = new double[c0.length];
+        for (int c = 0; c < c0.length; c++) mv[c] = Lin.norm(Lin.sub(r.poses.get(c).center(), c0[c]));
+        Arrays.sort(mv);
+        rep.poseShiftMm = mv.length == 0 ? 0 : mv[mv.length / 2];
+        // Error de las esquinas con las cámaras finales (mediana por cámara, px)
+        double[] cr = new double[r.poses.size()];
+        for (int c = 0; c < cr.length; c++) {
+            SheetPose.Fix fx = fixes[r.camFrames.get(c)];
+            double s2 = 0;
+            int n = 0;
+            if (fx.sheetXs != null)
+                for (int i = 0; i < fx.sheetXs.length; i++) {
+                    double[] xc = r.poses.get(c).apply(fx.sheetXs[i]);
+                    s2 += Math.pow(lens.f * (xc[0] / xc[2] - fx.obs[i][0]), 2) + Math.pow(lens.f * (xc[1] / xc[2] - fx.obs[i][1]), 2);
+                    n++;
+                }
+            cr[c] = n == 0 ? 0 : Math.sqrt(s2 / n);
+        }
+        Arrays.sort(cr);
+        rep.cornerRmsAfter = cr.length == 0 ? 0 : cr[cr.length / 2];
+        r.sheetPlane = PLANE;
+        rep.kltPoints = rep.xfeatPoints = rep.planePoints = 0;
         List<double[]> pts = new ArrayList<>();
         List<Integer> cols = new ArrayList<>(), nobs = new ArrayList<>();
         List<List<Sfm.Track>> ptTracks = new ArrayList<>();
         List<Double> errs = new ArrayList<>();
-        List<Geometry.Pose> ps = new ArrayList<>();
-        List<double[]> ob = new ArrayList<>();
-        for (Sfm.Track t : tracks) {
-            ps.clear();
-            ob.clear();
-            for (int c = 0; c < r.camFrames.size(); c++) {
-                int fr = r.camFrames.get(c);
-                if (!t.visible(fr)) continue;
-                ps.add(r.poses.get(c));
-                ob.add(lens.normalize(t.x(fr), t.y(fr)));
-            }
-            if (ps.size() < 3) continue;
-            double[] x = Geometry.triangulate(ps.toArray(new Geometry.Pose[0]), ob.toArray(new double[0][]));
-            if (x == null) continue;
-            double worst = 0;
-            boolean ok = true;
-            for (int i = 0; i < ps.size() && ok; i++) {
-                double[] xc = ps.get(i).apply(x);
-                if (xc[2] <= 0) { ok = false; break; }
-                worst = Math.max(worst, lens.f * Math.hypot(xc[0] / xc[2] - ob.get(i)[0], xc[1] / xc[2] - ob.get(i)[1]));
-            }
-            if (!ok || worst > MAX_REPROJ) continue;
-            if (Geometry.angleDeg(x, ps.get(0).center(), ps.get(ps.size() - 1).center()) < MIN_PARALLAX) continue;
-            if (x[2] < -5) continue; // debajo de la hoja: un error
-            pts.add(x);
+        for (int k = 0; k < tks.size(); k++) {
+            if (pos[k] == null) continue;
+            Sfm.Track t = tks.get(k);
+            pts.add(pos[k]);
             cols.add(t.color);
-            nobs.add(ps.size());
+            nobs.add(tCams.get(k).length);
             List<Sfm.Track> l = new ArrayList<>();
             l.add(t);
             ptTracks.add(l);
-            errs.add(worst);
+            errs.add(errOf[k]);
+            if (kind[k] == 1 || kind[k] == 2) rep.planePoints++;
             if (t.isSparse()) rep.xfeatPoints++;
             else rep.kltPoints++;
         }
@@ -219,13 +338,16 @@ public final class SheetScan {
      * al menos 1 mm). Null si no hay objeto.
      */
     public static Measure.Choice measure(Sfm.Result r) {
-        List<Double> near = new ArrayList<>();
-        for (double[] p : r.points) if (Math.abs(p[2]) < 5) near.add(Math.abs(p[2]));
         double thr = 1;
-        if (near.size() > 10) {
-            double[] z = near.stream().mapToDouble(Double::doubleValue).toArray();
-            Arrays.sort(z);
-            thr = Math.max(1, 3 * 1.4826 * z[z.length / 2]);
+        if (r.sheetPlane) thr = Math.max(1, 3 * r.sheetNoise); // los puntos del plano ya están en Z = 0: el ruido se midió antes
+        else {
+            List<Double> near = new ArrayList<>();
+            for (double[] p : r.points) if (Math.abs(p[2]) < 5) near.add(Math.abs(p[2]));
+            if (near.size() > 10) {
+                double[] z = near.stream().mapToDouble(Double::doubleValue).toArray();
+                Arrays.sort(z);
+                thr = Math.max(1, 3 * 1.4826 * z[z.length / 2]);
+            }
         }
         Measure.Box b = Measure.measureOnPlane(r, new double[]{0, 0, 1}, new double[]{0, 0, 0}, thr);
         if (b == null) return null;

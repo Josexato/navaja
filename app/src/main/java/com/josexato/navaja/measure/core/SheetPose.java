@@ -21,6 +21,8 @@ public final class SheetPose {
         public Geometry.Pose pose;
         public double rms;
         public int markers;
+        /** Las esquinas usadas: posición en la hoja (mm) y observación normalizada (para reajustar la pose después). */
+        public double[][] sheetXs, obs;
     }
 
     /** La pose con las marcas {@code ms} y el lente {@code l}; null con menos de 2 marcas o si no converge. */
@@ -50,6 +52,8 @@ public final class SheetPose {
         fx.pose = p;
         fx.rms = Math.sqrt(s / res.length);
         fx.markers = ms.size();
+        fx.sheetXs = xs;
+        fx.obs = obs;
         return fx;
     }
 }
