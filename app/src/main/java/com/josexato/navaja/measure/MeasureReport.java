@@ -179,8 +179,8 @@ final class MeasureReport {
         double k = d.scaleCm > 0 ? d.scaleCm : 1;
         String u = d.scaleCm > 0 ? "cm" : "u";
         StringBuilder s = new StringBuilder();
-        s.append("# Escáner 3D desde video — informe\n\n");
-        s.append("Generado por Navaja el ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(new Date())).append(".\n");
+        s.append(d.sheet != null ? "# Escáner 3D · video sobre la hoja con marcas — informe\n\n" : "# Escáner 3D · video alrededor del objeto — informe\n\n");
+        s.append("Generado por Navaja ").append(version()).append(" el ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(new Date())).append(".\n");
         s.append(d.scaleCm > 0 ? "Medidas en cm (escala con " + d.knownName + ").\n"
                 : "Sin medida conocida: las longitudes están en unidades del modelo (u), sólo valen las proporciones.\n");
         s.append("\n## 1. Video\n\n");
@@ -400,6 +400,14 @@ final class MeasureReport {
         for (int c = 0; c < o.length; c++) o[c] = c;
         java.util.Arrays.sort(o, (a, b) -> Integer.compare(r.camFrames.get(a), r.camFrames.get(b)));
         return o;
+    }
+
+    /** "1.0.42 (compilación 42 del CI, commit abc1234)", o "1.0.0 (compilación local)": para saber con qué versión salió un informe. */
+    static String version() {
+        String v = com.josexato.navaja.BuildConfig.VERSION_NAME;
+        String c = com.josexato.navaja.BuildConfig.COMMIT;
+        if ("local".equals(c)) return v + " (compilación local)";
+        return v + " (compilación " + v.substring(v.lastIndexOf('.') + 1) + " del CI, commit " + c + ")";
     }
 
     static String photoName(int frame) { return String.format(Locale.ROOT, "cuadro_%03d.jpg", frame); }

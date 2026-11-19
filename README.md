@@ -2,11 +2,11 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara (con escenario impreso o desde un video). Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara (tres modos: video alrededor del objeto, video sobre una hoja con marcas en mm, o fotos con base giratoria). Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D**, **Escáner 3D desde video**, **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso**, **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D: medir y modelar objetos** (abre un selector con los tres modos), **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso**, **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -132,7 +132,19 @@ Probado con fotos sintéticas de color, tamaños y fracciones conocidos (luz cá
 
 Límites: la cámara procesa la foto (tono, nitidez), así que el Lab es una buena aproximación, no un espectrofotómetro; las piedras minoritarias de colores parecidos (p. ej. azul y azul grisáceo) pueden quedar en un mismo grupo; granos de 1–2 px se promedian con la matriz (acerca el teléfono).
 
-## 📐 Escáner 3D desde video (botón «Escáner 3D desde video»)
+## 🧊 Escáner 3D (botón «Escáner 3D: medir y modelar objetos»)
+
+Una sola entrada con **tres modos de captura**; la pantalla del escáner explica cuál conviene. Guía completa (cómo capturar, opciones de cada pantalla y archivos): **[docs/ESCANER_3D.md](docs/ESCANER_3D.md)**.
+
+| | 1 · Video alrededor del objeto | 2 · Video sobre la hoja con marcas *(experimental)* | 3 · Fotos con base giratoria y trípode |
+|---|---|---|---|
+| Hay que imprimir | nada | 1 hoja A4 con marcas | tapete + disco |
+| Escala | proporciones (cm con una medida conocida) | mm | mm |
+| Posición del celular | fotogrametría del video | marcas de la hoja | marcadores del tapete + disco |
+| Resultado | medidas + ZIP (PLY, STL, OBJ con textura, COLMAP) | lo mismo, en mm, con puntos de XFeat | modelo en el visor (OBJ, PLY, STL) |
+| Android | 7+ | 7+ | 11+ |
+
+### Modo 1 · Video alrededor del objeto
 
 Mide el **alto, ancho y profundidad** de un objeto con sólo un video, sin escenario impreso ni base giratoria. Sirve para objetos colgados en una pared (una máscara, un cuadro con relieve) o apoyados en una mesa.
 
@@ -166,22 +178,11 @@ Con el video de la máscara las dos medidas coinciden: ancho 19,3 cm por puntos 
 
 Límites: hace falta una medida conocida para tener centímetros; movimientos bruscos o borrosos cortan el hilo (se mide con el tramo más largo); objetos lisos, brillantes o transparentes dan pocos puntos; la profundidad es la medida menos precisa (~±10 %). Las siluetas no ven concavidades (el hueco de atrás de una máscara) y, si todo el video se hace a la misma altura, el volumen sale algo más alto de la cuenta. El modelo MagicTouch (6 MB, Apache 2.0, licencia en `assets/modelos/`) y TensorFlow Lite agregan ~12 MB al APK.
 
-**Escáner con hoja (experimental, botón «Escáner con hoja impresa (experimental)» en «Medir desde video»):** se imprime una hoja A4 con 18 marcas en el borde y el objeto se pone en el centro. La posición del celular en cada cuadro sale de las marcas (no de la fotogrametría), así que todo queda en mm sin medida conocida. A los puntos KLT se suman los de **XFeat + LighterGlue** (red neuronal de puntos y emparejador, Apache 2.0, convertidos a TFLite con `tools/xfeat/exportar.py`; licencia en `assets/modelos/LICENCIA-xfeat.txt`): corre en la GPU si el teléfono la admite (si no, en la CPU) sobre las fotos clave, empareja cada una con la anterior y se queda con los pares que respetan la geometría de las poses de la hoja. Con una alcancía real de 140 × 70 × 80 mm: sólo KLT 136 × 56 × 65 mm; KLT + XFeat 140 × 58 × 80 mm (≈6× más puntos sobre el objeto). El informe dice dónde corrió XFeat, cuánto tardó y cuántos puntos dio cada método. XFeat agrega ~9,5 MB de modelos y ~3 MB de la GPU de TFLite al APK.
+### Modo 2 · Video sobre la hoja con marcas (experimental)
 
-## 🌐 Escáner de red local (botón «Red local», Android 11+)
+Se imprime una hoja A4 con 18 marcas en el borde y el objeto se pone en el centro. La posición del celular en cada cuadro sale de las marcas (no de la fotogrametría), así que todo queda en mm sin medida conocida. A los puntos KLT se suman los de **XFeat + LighterGlue** (red neuronal de puntos y emparejador, Apache 2.0, convertidos a TFLite con `tools/xfeat/exportar.py`; licencia en `assets/modelos/LICENCIA-xfeat.txt`): corre en la GPU si el teléfono la admite (si no, en la CPU) sobre las fotos clave, empareja cada una con la anterior y se queda con los pares que respetan la geometría de las poses de la hoja. Con una alcancía real de 140 × 70 × 80 mm: sólo KLT 136 × 56 × 65 mm; KLT + XFeat 140 × 58 × 80 mm (≈6× más puntos sobre el objeto). El informe dice dónde corrió XFeat, cuánto tardó y cuántos puntos dio cada método. XFeat agrega ~9,5 MB de modelos y ~3 MB de la GPU de TFLite al APK.
 
-Descubre los equipos conectados a tu **propia** red Wi‑Fi, al estilo de un barrido de descubrimiento. Útil para ver qué hay en la LAN sin instalar herramientas de terceros ni enviar datos a ningún servicio.
-
-- Muestra los **datos de tu red**: IP, máscara/CIDR, puerta de enlace, DNS e interfaz.
-- Barre en paralelo la subred (acotada a /24) probando puertos TCP conocidos para detectar equipos vivos, incluidos los que no responden a ping.
-- **Clasifica** cada equipo por sus puertos y por los servicios mDNS que anuncia: router, impresora, TV/Chromecast, iPhone/Mac, NAS, PC, servidor, cámara, domótica.
-- Al tocar un equipo, analiza sus **puertos abiertos** (con el nombre del servicio) y permite **abrirlo en el navegador** si expone una web.
-- Resuelve el **nombre** de cada equipo por DNS inverso cuando el router lo publica.
-- **Todo ocurre en el teléfono y sólo dentro de tu subred**; no se envía nada a internet. Usa los permisos `INTERNET` y `ACCESS_NETWORK_STATE` (conexiones TCP dentro de la LAN y lectura de la red actual), sin ubicación.
-
-El núcleo (`lan/core`) es Java puro y está cubierto por pruebas con una red simulada.
-
-## 📷 Escáner 3D (botón «Escanear 3D», Android 11+)
+### Modo 3 · Fotos con base giratoria y trípode (Android 11+)
 
 Genera un modelo 3D a partir de fotos tomadas cada segundo mientras giras el objeto sobre un **escenario impreso**, y lo abre en el visor 3D de Navaja (con medidas, volumen y peso PLA). Pensado para Galaxy S26 Ultra; puede usar varias cámaras físicas a la vez.
 
@@ -203,6 +204,19 @@ Genera un modelo 3D a partir de fotos tomadas cada segundo mientras giras el obj
 | Diagnóstico | botón «Diagnóstico de cámaras»: JSON con IDs físicos, focales, RAW10/12/16, DEPTH16, OIS y combinaciones simultáneas aceptadas |
 
 Límites: el casco visual no reproduce concavidades; objetos blancos sobre papel blanco o sombras fuertes empeoran la silueta; el color es aproximado (sin oclusión).
+
+## 🌐 Escáner de red local (botón «Red local», Android 11+)
+
+Descubre los equipos conectados a tu **propia** red Wi‑Fi, al estilo de un barrido de descubrimiento. Útil para ver qué hay en la LAN sin instalar herramientas de terceros ni enviar datos a ningún servicio.
+
+- Muestra los **datos de tu red**: IP, máscara/CIDR, puerta de enlace, DNS e interfaz.
+- Barre en paralelo la subred (acotada a /24) probando puertos TCP conocidos para detectar equipos vivos, incluidos los que no responden a ping.
+- **Clasifica** cada equipo por sus puertos y por los servicios mDNS que anuncia: router, impresora, TV/Chromecast, iPhone/Mac, NAS, PC, servidor, cámara, domótica.
+- Al tocar un equipo, analiza sus **puertos abiertos** (con el nombre del servicio) y permite **abrirlo en el navegador** si expone una web.
+- Resuelve el **nombre** de cada equipo por DNS inverso cuando el router lo publica.
+- **Todo ocurre en el teléfono y sólo dentro de tu subred**; no se envía nada a internet. Usa los permisos `INTERNET` y `ACCESS_NETWORK_STATE` (conexiones TCP dentro de la LAN y lectura de la red actual), sin ubicación.
+
+El núcleo (`lan/core`) es Java puro y está cubierto por pruebas con una red simulada.
 
 ## 📦 Descargar el APK
 
@@ -235,7 +249,10 @@ app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exp
 docs/spec/STJF_v1.0_SPEC.md      ← especificación del formato STJF
 docs/spec/RED_MOVIL_v1.1_SPEC.md ← especificación del modo ingeniería de red móvil
 docs/DISENO_UI.md                ← sistema de diseño de las pantallas nativas
-app/src/main/java/.../scan3d/            ← escáner 3D (Camera2, PDF, UI); scan3d/core = algoritmos en Java puro
+app/src/main/java/.../scan3d/            ← escáner 3D: selector de modos (Scan3dHubActivity) y modo 3, base giratoria (Camera2, PDF, UI); scan3d/core = algoritmos en Java puro
+app/src/main/java/.../measure/           ← escáner 3D, modos 1 y 2 (video y hoja con marcas, XFeat); measure/core = SfM, hoja, siluetas, mallas, textura
+docs/ESCANER_3D.md               ← guía de los tres modos del escáner 3D
+tools/xfeat/exportar.py          ← conversión de XFeat + LighterGlue a TFLite
 app/src/test/java/.../scan3d/core/       ← prueba de extremo a extremo con escena sintética (./gradlew :app:testDebugUnitTest)
 .github/workflows/build.yml      ← CI: compila y publica el APK en Releases
 ```

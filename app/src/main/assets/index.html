@@ -215,7 +215,6 @@
   .ico.puls { background: linear-gradient(135deg, #F06B7E, #C7364D); }
   .ico.pant { background: linear-gradient(135deg, #C86FD8, #8E3FB0); }
   .ico.sign { background: linear-gradient(135deg, #8A9BB5, #4E5F7A); }
-  .ico.meas { background: linear-gradient(135deg, #E8C547, #B8901E); }
   .card h3 { margin: 0; font-size: 1.05rem; }
   .card p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.4; }
   .card .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
@@ -282,18 +281,10 @@
         <div class="card" id="cardScan" role="button" tabindex="0">
           <span class="badge" hidden>Sólo en la app Android</span>
           <div class="ico scan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M12 7.5 16 9.7v4.6L12 16.5 8 14.3V9.7z"/><path d="M8 9.7l4 2.2 4-2.2M12 11.9v4.6"/></svg></div>
-          <h3>Escáner 3D</h3>
-          <p>Gira el objeto sobre el escenario impreso y obtén un modelo en mm (OBJ, PLY, STL).</p>
-          <div class="chips"><span class="chip">cámara</span><span class="chip">multicámara</span><span class="chip">en mm</span></div>
+          <h3>Escáner 3D: medir y modelar objetos</h3>
+          <p>Mide un objeto y saca su modelo 3D de tres formas: con un video rodeándolo, con un video sobre una hoja con marcas (en mm) o con fotos sobre una base giratoria.</p>
+          <div class="chips"><span class="chip">video</span><span class="chip">hoja en mm</span><span class="chip">base giratoria</span><span class="chip">STL · OBJ</span></div>
           <span class="go">Escanear →</span>
-        </div>
-        <div class="card" id="cardMeasure" role="button" tabindex="0">
-          <span class="badge" hidden>Sólo en la app Android</span>
-          <div class="ico meas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></div>
-          <h3>Escáner 3D desde video</h3>
-          <p>Sin escenario ni base giratoria: graba un video rodeando un objeto (contra una pared o sobre una mesa) y obtén sus medidas, su nube de puntos y su volumen.</p>
-          <div class="chips"><span class="chip">video</span><span class="chip">nube 3D</span><span class="chip">siluetas IA</span><span class="chip">STL</span></div>
-          <span class="go">Medir →</span>
         </div>
         <div class="card" id="cardTuner" role="button" tabindex="0">
           <span class="badge" hidden>Sólo en la app Android</span>
@@ -379,7 +370,7 @@
           <option value="solid" selected>Sólido</option>
           <option value="normals">Normales</option>
           <option value="vcolor" id="vcolorOpt" hidden>Color del escaneo</option>
-          <option value="test">Textura de prueba (para medir desde video)</option>
+          <option value="test">Textura de prueba (para el escáner 3D por video)</option>
         </select>
       </label>
       <label>Color <input type="color" id="colorPick" value="#9fb0c3"></label>
@@ -491,7 +482,7 @@
   });
 
   // Textura de prueba: manchas de colores fijas en la superficie (como un terrazo), para grabar la pieza en
-  // pantalla y probar «Escáner 3D desde video» con medidas exactas. Va por color de vértice: sirve para
+  // pantalla y probar el modo video del «Escáner 3D» con medidas exactas. Va por color de vértice: sirve para
   // cualquier pieza, también STL u OBJ sin coordenadas de textura.
   const testMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.0, roughness: 0.85, side: THREE.DoubleSide });
   const TEST_PALETTE = [[0.86, 0.22, 0.20], [0.98, 0.78, 0.18], [0.16, 0.55, 0.85], [0.15, 0.65, 0.35], [0.93, 0.93, 0.90], [0.55, 0.30, 0.70], [0.10, 0.10, 0.12]];
@@ -1127,7 +1118,6 @@
     ['cardPulse', () => window.NavajaNative.openPulse && window.NavajaNative.openPulse()],
     ['cardSign', () => window.NavajaNative.openSign && window.NavajaNative.openSign()],
     ['cardPant', () => window.NavajaNative.openPantonera && window.NavajaNative.openPantonera()],
-    ['cardMeasure', () => window.NavajaNative.openMeasure && window.NavajaNative.openMeasure()],
   ];
   for (const [id, open] of nativeCards) {
     const card = $(id);

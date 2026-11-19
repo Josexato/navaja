@@ -50,9 +50,11 @@ import java.util.zip.ZipOutputStream;
  * marcas y el celular moviéndose alrededor; las marcas dan la pose de la
  * cámara en cada cuadro.
  *
- * <p>Etapa 1: la hoja (PDF) y la prueba del detector de marcas sobre un
- * video: cuántas marcas se ven por cuadro, qué tan grandes, cuáles fallan, y
- * algunos cuadros con las marcas dibujadas.
+ * <p>Escáner 3D, modo 2 (ver docs/ESCANER_3D.md): esta pantalla da la hoja
+ * (PDF) y abre el escaneo, que corre en {@link MeasureActivity} con las poses
+ * de la hoja. En «Diagnóstico» queda la prueba del detector de marcas sobre
+ * un video: cuántas marcas se ven por cuadro, qué tan grandes, cuáles fallan,
+ * y algunos cuadros con las marcas dibujadas.
  */
 public class SheetActivity extends Activity {
 
@@ -82,24 +84,29 @@ public class SheetActivity extends Activity {
     }
 
     private void showIntro() {
-        NavajaUi.Screen scr = NavajaUi.screen(this, "Escáner con hoja", "Experimental · la hoja da la posición del celular y los mm", null, true);
+        NavajaUi.Screen scr = NavajaUi.screen(this, "Video sobre la hoja con marcas", "Escáner 3D · modo 2 (experimental) · la hoja da la posición del celular y los mm", null, true);
         LinearLayout c = scr.content;
         LinearLayout card = NavajaUi.card(this);
-        card.addView(NavajaUi.text(this, "Cómo probar", NavajaUi.Style.LABEL));
+        card.addView(NavajaUi.text(this, "Cómo se usa", NavajaUi.Style.LABEL));
         card.addView(NavajaUi.text(this, "1. Abre la hoja e imprímela en A4 al 100 % (sin «ajustar a la página»). Mide la barra de 100 mm con una regla.\n"
-                + "2. Ponla sobre la mesa y el objeto en el recuadro del centro.\n"
-                + "3. Graba 15–30 s rodeando el objeto, con la hoja entera o casi entera en la imagen.\n"
-                + "«Grabar y escanear» mide el objeto en mm con la hoja; «Probar sólo la detección» revisa cuántas marcas se ven.",
+                + "2. Ponla sobre la mesa y el objeto en el recuadro del centro (hasta ~11 × 19 cm de base).\n"
+                + "3. «Grabar y escanear»: graba 15–30 s rodeando el objeto, con la hoja entera o casi entera en la imagen.\n"
+                + "Las medidas salen en mm sin escribir ninguna medida. Para más puntos sobre el objeto se usa además XFeat (IA en el teléfono).",
                 NavajaUi.Style.BODY));
         c.addView(card);
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Abrir la hoja (PDF)", v -> openPdf())));
-        // Etapa 2: escanear con la hoja (pose desde las marcas, todo en mm) sobre el flujo del modo video
         c.addView(NavajaUi.text(this, "Escanear el objeto", NavajaUi.Style.LABEL));
         c.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "Grabar y escanear", v -> scan("grabar")),
                 NavajaUi.secondary(this, "Escanear un video", v -> scan("elegir"))));
-        c.addView(NavajaUi.text(this, "Probar sólo la detección de marcas", NavajaUi.Style.LABEL));
-        c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Grabar", v -> startActivityForResult(new Intent(this, SensorRecordActivity.class), REQ_RECORD)),
-                NavajaUi.secondary(this, "Elegir un video", v -> pick())));
+        // Diagnóstico: la prueba de la etapa 1 (sólo detecta las marcas y guarda las fotos anotadas)
+        LinearLayout dg = NavajaUi.card(this);
+        NavajaUi.topMargin(dg, 24);
+        dg.addView(NavajaUi.text(this, "Diagnóstico", NavajaUi.Style.LABEL));
+        dg.addView(NavajaUi.text(this, "Sólo revisa cuántas marcas de la hoja se ven en cada cuadro (no escanea el objeto) y guarda un ZIP con las marcas dibujadas. "
+                + "Útil si el escaneo dice que la hoja casi no se vio.", NavajaUi.Style.MUTED));
+        dg.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Probar marcas: grabar", v -> startActivityForResult(new Intent(this, SensorRecordActivity.class), REQ_RECORD)),
+                NavajaUi.secondary(this, "Probar marcas: elegir video", v -> pick())));
+        c.addView(dg);
         setContentView(scr.root);
     }
 
@@ -257,7 +264,7 @@ public class SheetActivity extends Activity {
     // ============================================================ resultado
 
     private void showResult(Stats st) {
-        NavajaUi.Screen scr = NavajaUi.screen(this, "Prueba de la hoja", "Etapa 1: detección de marcas", NavajaUi.headerAction(this, "Otro", v -> showIntro()), true);
+        NavajaUi.Screen scr = NavajaUi.screen(this, "Diagnóstico de la hoja", "Detección de marcas cuadro a cuadro", NavajaUi.headerAction(this, "Otro", v -> showIntro()), true);
         LinearLayout c = scr.content;
         String report = report(st);
         c.addView(NavajaUi.text(this, summary(st), NavajaUi.Style.BODY));

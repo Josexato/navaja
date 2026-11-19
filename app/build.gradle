@@ -10,8 +10,12 @@ android {
         applicationId 'com.josexato.navaja'
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        // Versión = número de compilación del CI (el mismo de la Release «Build N»); en una compilación local, 0
+        def ciRun = (System.getenv('GITHUB_RUN_NUMBER') ?: '0') as int
+        def ciSha = (System.getenv('GITHUB_SHA') ?: 'local').take(7)
+        versionCode Math.max(1, ciRun)
+        versionName "1.0.${ciRun}"
+        buildConfigField 'String', 'COMMIT', "\"${ciSha}\""
         // Sólo ARM (los celulares): las librerías de TFLite para emuladores x86 agregaban 9 MB
         ndk {
             abiFilters 'arm64-v8a', 'armeabi-v7a'
@@ -25,6 +29,10 @@ android {
             // APK del CI sea instalable sin configurar firmas propias.
             signingConfig signingConfigs.debug
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {

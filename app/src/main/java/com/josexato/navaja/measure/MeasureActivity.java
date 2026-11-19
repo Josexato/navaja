@@ -61,6 +61,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
+ * Escáner 3D, modos 1 y 2 (ver docs/ESCANER_3D.md; se elige en
+ * {@link com.josexato.navaja.scan3d.Scan3dHubActivity}).
  * Medir un objeto desde un video: el celular se mueve alrededor del objeto
  * (sin base giratoria ni escenario impreso), se siguen cientos de puntos
  * cuadro a cuadro, se reconstruye la escena en 3D y se mide la caja del
@@ -155,8 +157,8 @@ public class MeasureActivity extends Activity {
     // ============================================================== inicio
 
     private void showIntro() {
-        NavajaUi.Screen scr = sheetMode ? NavajaUi.screen(this, "Escáner con hoja", "Experimental · la hoja impresa da la posición del celular y los mm", null, true)
-                : NavajaUi.screen(this, "Escáner 3D desde video", "Sin escenario ni base giratoria: te mueves tú", null, true);
+        NavajaUi.Screen scr = sheetMode ? NavajaUi.screen(this, "Video sobre la hoja con marcas", "Escáner 3D · modo 2 (experimental) · la hoja da la posición del celular y los mm", null, true)
+                : NavajaUi.screen(this, "Video alrededor del objeto", "Escáner 3D · modo 1 · sin imprimir nada: te mueves tú", null, true);
         LinearLayout c = scr.content;
         LinearLayout card = NavajaUi.card(this);
         card.addView(NavajaUi.text(this, "Cómo filmar", NavajaUi.Style.LABEL));
@@ -173,9 +175,6 @@ public class MeasureActivity extends Activity {
         NavajaUi.topMargin(rec, 12);
         c.addView(rec, new LinearLayout.LayoutParams(-1, -2));
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Elegir un video", v -> pick())));
-        if (!sheetMode)
-            c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Escáner con hoja impresa (experimental)",
-                    v -> startActivity(new Intent(this, SheetActivity.class)))));
         TextView note = NavajaUi.text(this, "Todo se calcula en el teléfono; el video no sale de aquí. El que grabes se guarda en tu carpeta de guardado (junto al ZIP). Toma uno o dos minutos.",
                 NavajaUi.Style.MUTED);
         NavajaUi.topMargin(note, 12);
@@ -1085,7 +1084,7 @@ public class MeasureActivity extends Activity {
     }
 
     private void error(String msg) {
-        new AlertDialog.Builder(this).setTitle("Escáner 3D desde video").setMessage(msg)
+        new AlertDialog.Builder(this).setTitle(sheetMode ? "Video sobre la hoja con marcas" : "Video alrededor del objeto").setMessage(msg)
                 .setPositiveButton("OK", (d, w) -> showIntro()).show();
     }
 
