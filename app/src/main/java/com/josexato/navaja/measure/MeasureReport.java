@@ -179,7 +179,7 @@ final class MeasureReport {
         double k = d.scaleCm > 0 ? d.scaleCm : 1;
         String u = d.scaleCm > 0 ? "cm" : "u";
         StringBuilder s = new StringBuilder();
-        s.append("# Escáner 3D desde video — informe\n\n");
+        s.append(d.sheet != null ? "# Escáner 3D · video sobre la hoja con marcas — informe\n\n" : "# Escáner 3D · video alrededor del objeto — informe\n\n");
         s.append("Generado por Navaja ").append(version()).append(" el ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(new Date())).append(".\n");
         s.append(d.scaleCm > 0 ? "Medidas en cm (escala con " + d.knownName + ").\n"
                 : "Sin medida conocida: las longitudes están en unidades del modelo (u), sólo valen las proporciones.\n");

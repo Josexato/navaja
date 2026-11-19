@@ -45,11 +45,19 @@
             </intent-filter>
         </activity>
 
-        <!-- Escáner 3D por fotos sobre escenario impreso (Android 11+). -->
+        <!-- Escáner 3D: selector de los tres modos de captura (video, hoja con marcas, base giratoria). -->
+        <activity
+            android:name=".scan3d.Scan3dHubActivity"
+            android:exported="false"
+            android:label="Navaja · Escáner 3D"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Escáner 3D, modo 3: fotos con base giratoria sobre escenario impreso (Android 11+). -->
         <activity
             android:name=".scan3d.ScanActivity"
             android:exported="false"
-            android:label="Navaja · Escáner 3D"
+            android:label="Navaja · Escáner 3D · base giratoria"
             android:screenOrientation="landscape"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
@@ -116,7 +124,7 @@
         <activity
             android:name=".measure.MeasureActivity"
             android:exported="false"
-            android:label="Navaja · Escáner 3D desde video"
+            android:label="Navaja · Escáner 3D · video"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
@@ -124,7 +132,7 @@
         <activity
             android:name=".measure.SheetActivity"
             android:exported="false"
-            android:label="Navaja · Escáner con hoja"
+            android:label="Navaja · Escáner 3D · hoja con marcas"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 

@@ -3,7 +3,6 @@ package com.josexato.navaja;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -13,14 +12,13 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Toast;
 
+import com.josexato.navaja.scan3d.Scan3dHubActivity;
 import com.josexato.navaja.scan3d.ScanActivity;
 import com.josexato.navaja.cellular.CellularActivity;
 import com.josexato.navaja.compass.CompassActivity;
 import com.josexato.navaja.lan.LanActivity;
 import com.josexato.navaja.marker.MarkerActivity;
-import com.josexato.navaja.measure.MeasureActivity;
 import com.josexato.navaja.pantonera.PantoneraActivity;
 import com.josexato.navaja.pulse.PulseActivity;
 import com.josexato.navaja.sign.SignActivity;
@@ -63,14 +61,8 @@ public class MainActivity extends Activity {
     private final class NativeBridge {
         @JavascriptInterface
         public void openScanner() {
-            runOnUiThread(() -> {
-                if (Build.VERSION.SDK_INT < 30) {
-                    Toast.makeText(MainActivity.this, "El escáner 3D requiere Android 11 o superior",
-                            Toast.LENGTH_LONG).show();
-                    return;
-                }
-                startActivityForResult(new Intent(MainActivity.this, ScanActivity.class), REQ_SCAN);
-            });
+            // Selector de los tres modos de captura 3D; el de base giratoria devuelve su modelo (REQ_SCAN)
+            runOnUiThread(() -> startActivityForResult(new Intent(MainActivity.this, Scan3dHubActivity.class), REQ_SCAN));
         }
 
         @JavascriptInterface
@@ -115,7 +107,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void openMeasure() {
-            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, MeasureActivity.class)));
+            openScanner(); // la tarjeta vieja «Escáner 3D desde video» ahora es un modo del selector
         }
     }
 

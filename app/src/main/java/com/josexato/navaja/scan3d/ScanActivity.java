@@ -41,6 +41,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
+ * Escáner 3D, modo 3: fotos con base giratoria y trípode (ver
+ * docs/ESCANER_3D.md; se elige en {@link Scan3dHubActivity}).
  * Flujo:
  *  1) Imprimir el escenario (tapete + disco).
  *  2) Teléfono fijo (trípode) mirando el tapete. "Foto de fondo" SIN objeto:
