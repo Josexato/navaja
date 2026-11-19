@@ -68,13 +68,39 @@ public final class Sfm {
             return best;
         }
 
-        public int end() { return start + n - 1; }
+        /** Cuadros de cada observación, crecientes; null = cuadros seguidos desde {@code start} (pistas KLT). */
+        int[] frames;
 
-        public boolean visible(int frame) { return frame >= start && frame < start + n; }
+        /**
+         * Pista con observaciones en cuadros sueltos ({@code frames} crecientes),
+         * como las de XFeat entre cuadros clave.
+         */
+        public static Track sparse(int[] frames, float[] xs, float[] ys, int color) {
+            Track t = new Track(frames[0], xs[0], ys[0], color);
+            for (int i = 1; i < frames.length; i++) t.add(xs[i], ys[i]);
+            t.frames = frames.clone();
+            return t;
+        }
 
-        public float x(int frame) { return x[frame - start]; }
+        /** Si la pista salta cuadros (XFeat). */
+        public boolean isSparse() { return frames != null; }
 
-        public float y(int frame) { return y[frame - start]; }
+        /** Observaciones de la pista. */
+        public int observations() { return n; }
+
+        public int end() { return frames == null ? start + n - 1 : frames[n - 1]; }
+
+        private int at(int frame) {
+            if (frames == null) return frame >= start && frame < start + n ? frame - start : -1;
+            int i = Arrays.binarySearch(frames, 0, n, frame);
+            return i >= 0 ? i : -1;
+        }
+
+        public boolean visible(int frame) { return at(frame) >= 0; }
+
+        public float x(int frame) { return x[at(frame)]; }
+
+        public float y(int frame) { return y[at(frame)]; }
     }
 
     /**

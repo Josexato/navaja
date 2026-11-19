@@ -32,7 +32,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // El modelo de siluetas se lee mapeado en memoria: no comprimirlo dentro del APK
+    // Los modelos (siluetas, XFeat) se leen mapeados en memoria: no comprimirlos dentro del APK
     androidResources {
         noCompress 'tflite'
     }
@@ -53,6 +53,9 @@ dependencies {
     implementation 'androidx.core:core:1.13.1'
     // Medir desde video: siluetas del objeto con el modelo MagicTouch (Apache 2.0), en el teléfono y sin internet.
     implementation 'org.tensorflow:tensorflow-lite:2.16.1'
+    // Escáner con hoja: XFeat + LighterGlue (Apache 2.0) en la GPU cuando el teléfono la admite.
+    implementation 'org.tensorflow:tensorflow-lite-gpu:2.16.1'
+    implementation 'org.tensorflow:tensorflow-lite-gpu-api:2.16.1'
     testImplementation 'junit:junit:4.13.2'
     // Sólo en tests: decodifica los QR que genera Navaja para comprobar que son legibles.
     testImplementation 'com.google.zxing:core:3.5.3'

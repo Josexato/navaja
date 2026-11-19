@@ -194,7 +194,10 @@ final class MeasureReport {
             s.append(String.format(Locale.ROOT, "- Cuadros: %d analizados · %d con 4 marcas o más · %d ubicados (error de las esquinas: mediana %.2f px, p90 %.2f px; "
                     + "se descartan los de más de %.1f px).%n", h.frames, h.withMarkers, h.posed, h.rmsMedian, h.rmsP90, SheetPose.MAX_RMS));
             s.append(String.format(Locale.ROOT, "- Fotos (cuadros clave) entre los ubicados: %d · pistas seguidas: %d → puntos triangulados con esas poses: %d "
-                    + "(error de reproyección mediano %.2f px).%n", h.keyframes, h.tracks, h.triangulated, h.pointRms));
+                    + "(error de reproyección mediano %.2f px): %d de pistas KLT y %d de pistas XFeat.%n", h.keyframes, h.tracks, h.triangulated, h.pointRms,
+                    h.kltPoints, h.xfeatPoints));
+            s.append("- XFeat + LighterGlue (puntos aprendidos, entre fotos clave seguidas): ")
+                    .append(h.xfeatNote.isEmpty() ? "no corrió" : h.xfeatNote).append(".\n");
             s.append("- Qué mirar: muchos cuadros ubicados y error de esquinas bajo (≈1–2 px) = poses buenas; pocos puntos triangulados = el objeto "
                     + "tiene poca textura o el seguimiento se cortó.\n");
         }

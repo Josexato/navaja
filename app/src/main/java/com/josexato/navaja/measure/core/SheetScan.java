@@ -33,6 +33,11 @@ public final class SheetScan {
         public double pointRms;
         /** De dónde salió el lente y, si hubo que corregirlo, por qué (para el diagnóstico). */
         public String lensNote = "";
+        /** Puntos triangulados que salen de pistas KLT y de pistas XFeat. */
+        public int kltPoints, xfeatPoints;
+        /** XFeat: pistas que entraron (0 si no corrió) y cómo le fue (delegado, tiempos, pares; vacío si no corrió). */
+        public int xfeatTracks;
+        public String xfeatNote = "";
     }
 
     /**
@@ -102,6 +107,29 @@ public final class SheetScan {
     }
 
     /**
+     * Los cuadros clave: entre los ubicados, separados al menos {@code minGap}
+     * cuadros (más si hacen falta para no pasar de {@link #MAX_CAMS}). Null
+     * con menos de 8 cuadros ubicados.
+     */
+    public static List<Integer> keyframes(SheetPose.Fix[] fixes, int minGap) {
+        List<Integer> posed = new ArrayList<>();
+        for (int f = 0; f < fixes.length; f++) if (fixes[f] != null) posed.add(f);
+        if (posed.size() < 8) return null;
+        int gap = Math.max(minGap, (int) Math.ceil((double) (posed.get(posed.size() - 1) - posed.get(0) + 1) / MAX_CAMS));
+        List<Integer> out = new ArrayList<>();
+        int last = -1000;
+        for (int f : posed) {
+            if (f - last < gap) continue;
+            out.add(f);
+            last = f;
+        }
+        return out;
+    }
+
+    /** Los cuadros clave con la separación de siempre ({@link #MIN_GAP}). */
+    public static List<Integer> keyframes(SheetPose.Fix[] fixes) { return keyframes(fixes, MIN_GAP); }
+
+    /**
      * La reconstrucción: cuadros clave entre los ubicados (al menos
      * {@link #MIN_GAP} cuadros entre sí, a lo sumo {@link #MAX_CAMS}), y las
      * pistas trianguladas con esas poses. Null con menos de 8 cuadros
@@ -113,24 +141,20 @@ public final class SheetScan {
 
     /** Igual, con {@code minGap} cuadros como mínimo entre cuadros clave (1 si los cuadros ya son fotos espaciadas). */
     public static Sfm.Result build(List<Sfm.Track> tracks, SheetPose.Fix[] fixes, Lens lens, int w, int h, Report rep, int minGap) {
-        List<Integer> posed = new ArrayList<>();
-        for (int f = 0; f < fixes.length; f++) if (fixes[f] != null) posed.add(f);
-        if (posed.size() < 8) return null;
-        int gap = Math.max(minGap, (int) Math.ceil((double) (posed.get(posed.size() - 1) - posed.get(0) + 1) / MAX_CAMS));
+        List<Integer> keys = keyframes(fixes, minGap);
+        if (keys == null) return null;
         Sfm.Result r = new Sfm.Result();
         r.width = w;
         r.height = h;
         r.focal = lens.f;
         r.frames = fixes.length;
-        int last = -1000;
-        for (int f : posed) {
-            if (f - last < gap) continue;
+        for (int f : keys) {
             r.camFrames.add(f);
             r.poses.add(fixes[f].pose);
-            last = f;
         }
         rep.keyframes = r.poses.size();
         rep.tracks = tracks.size();
+        rep.kltPoints = rep.xfeatPoints = 0;
         // Triangulación con las poses fijas (en mm)
         List<double[]> pts = new ArrayList<>();
         List<Integer> cols = new ArrayList<>(), nobs = new ArrayList<>();
@@ -167,6 +191,8 @@ public final class SheetScan {
             l.add(t);
             ptTracks.add(l);
             errs.add(worst);
+            if (t.isSparse()) rep.xfeatPoints++;
+            else rep.kltPoints++;
         }
         rep.triangulated = pts.size();
         if (pts.size() < 50) return null;
