@@ -26,6 +26,15 @@ public final class Imu {
 
     final List<double[]> rot = new ArrayList<>(), grav = new ArrayList<>();
     long start;
+    /** Focal de la cámara en píxeles del video grabado (0 si no se guardó) y tamaño de ese video. */
+    public double focalVideoPx;
+    public int videoW, videoH;
+
+    /** Focal en píxeles de un cuadro de {@code w}×{@code h} (el video escalado), o 0 si no se conoce. */
+    public double focalFor(int w, int h) {
+        if (focalVideoPx <= 0 || videoW <= 0 || videoH <= 0) return 0;
+        return focalVideoPx * Math.max(w, h) / Math.max(videoW, videoH);
+    }
 
     private Imu() { }
 
@@ -37,6 +46,11 @@ public final class Imu {
             if (line.isEmpty()) continue;
             if (line.startsWith("#")) {
                 if (line.startsWith("#inicio_video_ns=")) m.start = Long.parseLong(line.substring(17).trim());
+                else if (line.startsWith("#f_video_px=")) m.focalVideoPx = Double.parseDouble(line.substring(12).trim());
+                else if (line.startsWith("#video=")) {
+                    String[] wh = line.substring(7).trim().split("x");
+                    if (wh.length == 2) { m.videoW = Integer.parseInt(wh[0].trim()); m.videoH = Integer.parseInt(wh[1].trim()); }
+                }
                 continue;
             }
             String[] f = line.split(",");

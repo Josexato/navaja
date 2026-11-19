@@ -82,20 +82,30 @@ public class SheetActivity extends Activity {
     }
 
     private void showIntro() {
-        NavajaUi.Screen scr = NavajaUi.screen(this, "Escáner con hoja", "Experimental · etapa 1: probar la hoja", null, true);
+        NavajaUi.Screen scr = NavajaUi.screen(this, "Escáner con hoja", "Experimental · la hoja da la posición del celular y los mm", null, true);
         LinearLayout c = scr.content;
         LinearLayout card = NavajaUi.card(this);
         card.addView(NavajaUi.text(this, "Cómo probar", NavajaUi.Style.LABEL));
         card.addView(NavajaUi.text(this, "1. Abre la hoja e imprímela en A4 al 100 % (sin «ajustar a la página»). Mide la barra de 100 mm con una regla.\n"
                 + "2. Ponla sobre la mesa y el objeto en el recuadro del centro.\n"
                 + "3. Graba 15–30 s rodeando el objeto, con la hoja entera o casi entera en la imagen.\n"
-                + "Por ahora sólo se revisa que las marcas se detecten bien: la pose y la nube vienen en las etapas siguientes.",
+                + "«Grabar y escanear» mide el objeto en mm con la hoja; «Probar sólo la detección» revisa cuántas marcas se ven.",
                 NavajaUi.Style.BODY));
         c.addView(card);
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Abrir la hoja (PDF)", v -> openPdf())));
-        c.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "Grabar", v -> startActivityForResult(new Intent(this, SensorRecordActivity.class), REQ_RECORD)),
+        // Etapa 2: escanear con la hoja (pose desde las marcas, todo en mm) sobre el flujo del modo video
+        c.addView(NavajaUi.text(this, "Escanear el objeto", NavajaUi.Style.LABEL));
+        c.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "Grabar y escanear", v -> scan("grabar")),
+                NavajaUi.secondary(this, "Escanear un video", v -> scan("elegir"))));
+        c.addView(NavajaUi.text(this, "Probar sólo la detección de marcas", NavajaUi.Style.LABEL));
+        c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Grabar", v -> startActivityForResult(new Intent(this, SensorRecordActivity.class), REQ_RECORD)),
                 NavajaUi.secondary(this, "Elegir un video", v -> pick())));
         setContentView(scr.root);
+    }
+
+    /** El escáner desde video en modo hoja, empezando por grabar o por elegir el video. */
+    private void scan(String start) {
+        startActivity(new Intent(this, MeasureActivity.class).putExtra(MeasureActivity.EXTRA_SHEET, true).putExtra(MeasureActivity.EXTRA_START, start));
     }
 
     private void openPdf() {

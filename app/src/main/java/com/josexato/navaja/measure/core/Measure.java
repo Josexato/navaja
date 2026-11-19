@@ -145,6 +145,26 @@ public final class Measure {
         double side = 0;
         for (Geometry.Pose ps : r.poses) side += Lin.dot(Lin.sub(ps.center(), bp), bn);
         if (side < 0) bn = Lin.scale(bn, -1);
+        return onPlane(r, bn, bp, thr, rnd);
+    }
+
+    /**
+     * Mide el objeto sobre un plano de apoyo ya conocido (normal {@code bn}
+     * hacia las cámaras, un punto {@code bp}, ruido {@code thr}): el modo
+     * "Hoja", donde el apoyo es la hoja (Z = 0) y no hace falta buscarlo.
+     */
+    public static Box measureOnPlane(Sfm.Result r, double[] bn, double[] bp, double thr) {
+        if (r.points.length < 50) return null;
+        return onPlane(r, bn, bp, thr, new Random(3));
+    }
+
+    private static Box onPlane(Sfm.Result r, double[] bn, double[] bp, double thr, Random rnd) {
+        double[][] p = r.points;
+        int n = p.length;
+        double[] med = median3(p);
+        double[] dist = new double[n];
+        for (int i = 0; i < n; i++) dist[i] = Lin.norm(Lin.sub(p[i], med));
+        double sc = percentile(dist, 50);
         // 2) Lo que sobresale del plano (más allá de 2× el ruido del plano)
         List<Integer> front = new ArrayList<>();
         for (int i = 0; i < n; i++) {
