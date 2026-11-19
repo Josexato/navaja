@@ -200,7 +200,9 @@ final class MeasureReport {
                     + "±%.1f mm después de afinar las cámaras). Cada cámara se afinó con las esquinas de las marcas y %d de esos puntos: se movió %.1f mm "
                     + "(mediana); error de las esquinas después: %.2f px.%n", h.planePoints, h.sheetNoiseBefore, h.sheetNoiseAfter, h.planeAnchors,
                     h.poseShiftMm, h.cornerRmsAfter));
-            s.append("- XFeat + LighterGlue (puntos aprendidos, entre fotos clave seguidas): ")
+            if (h.droppedObs > 0)
+                s.append(String.format(Locale.ROOT, "- Observaciones malas quitadas de pistas (un par equivocado en una pista larga se quita sin perder el punto): %d.%n", h.droppedObs));
+            s.append("- XFeat + LighterGlue (puntos aprendidos; cada foto clave con las 2 anteriores): ")
                     .append(h.xfeatNote.isEmpty() ? "no corrió" : h.xfeatNote).append(".\n");
             s.append("- Qué mirar: muchos cuadros ubicados y error de esquinas bajo (≈1–2 px) = poses buenas; pocos puntos triangulados = el objeto "
                     + "tiene poca textura o el seguimiento se cortó.\n");
