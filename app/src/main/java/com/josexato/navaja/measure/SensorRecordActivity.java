@@ -214,6 +214,7 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
             realtimeClock = src != null && src == CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;
             size = pickSize(map == null ? null : map.getOutputSizes(MediaRecorder.class));
             if (size == null) { fail("La cámara no ofrece tamaños de video"); return; }
+            focalVideo(ch);
             // Vista previa con la proporción del video (vertical), sin estirar
             ui.post(() -> {
                 int w = ((View) preview.getParent()).getWidth();
@@ -227,6 +228,40 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
             }, cam);
         } catch (CameraAccessException | SecurityException | IllegalArgumentException e) {
             fail("No se pudo abrir la cámara: " + e.getMessage());
+        }
+    }
+
+    /** Focal en píxeles del video (0 si la cámara no la informa) y de qué dato salió. */
+    private double fVideo;
+    private String fSource = "";
+
+    /**
+     * La focal en píxeles del video, desde la calibración de la cámara
+     * (Android 9+) o desde la focal en mm y el tamaño del sensor. El video
+     * 16:9 usa el ancho completo del sensor (4:3) y recorta arriba y abajo,
+     * así que la escala es ancho del video / ancho del sensor. La
+     * estabilización puede recortar algo más: por eso el modo "Hoja" la
+     * compara con la que explica la hoja.
+     */
+    private void focalVideo(CameraCharacteristics ch) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                float[] k = ch.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION);
+                android.graphics.Rect pre = ch.get(CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE);
+                if (k != null && k.length >= 2 && k[0] > 0 && pre != null && pre.width() > 0) {
+                    fVideo = k[0] * size.getWidth() / (double) pre.width();
+                    fSource = "calibración de la cámara";
+                    return;
+                }
+            }
+            float[] fl = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+            android.util.SizeF phys = ch.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+            if (fl != null && fl.length > 0 && phys != null && phys.getWidth() > 0) {
+                fVideo = fl[0] / phys.getWidth() * size.getWidth();
+                fSource = "focal en mm y tamaño del sensor";
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "focal", e);
         }
     }
 
@@ -346,7 +381,8 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
         synchronized (lock) {
             long start = firstFrameNs != 0 ? firstFrameNs : SystemClock.elapsedRealtimeNanos();
             header = "#navaja-sensores-1\n#inicio_video_ns=" + start + "\n#reloj_camara=" + (realtimeClock ? "realtime" : "monotonico")
-                    + "\n#orientacion_sensor=" + sensorOrientation + "\n#video=" + size.getWidth() + "x" + size.getHeight() + "\n";
+                    + "\n#orientacion_sensor=" + sensorOrientation + "\n#video=" + size.getWidth() + "x" + size.getHeight() + "\n"
+                    + (fVideo > 0 ? String.format(Locale.ROOT, "#f_video_px=%.2f\n#f_fuente=%s\n", fVideo, fSource) : "");
             try (FileOutputStream fo = new FileOutputStream(sensors)) {
                 fo.write(header.getBytes(StandardCharsets.UTF_8));
                 fo.write(samples.toString().getBytes(StandardCharsets.UTF_8));

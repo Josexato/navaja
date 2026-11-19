@@ -27,6 +27,10 @@ import androidx.core.content.FileProvider;
 import com.josexato.navaja.measure.core.Carve;
 import com.josexato.navaja.measure.core.Features;
 import com.josexato.navaja.measure.core.Imu;
+import com.josexato.navaja.measure.core.Lens;
+import com.josexato.navaja.measure.core.Markers;
+import com.josexato.navaja.measure.core.SheetPose;
+import com.josexato.navaja.measure.core.SheetScan;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Loop;
 import com.josexato.navaja.measure.core.Measure;
@@ -108,6 +112,12 @@ public class MeasureActivity extends Activity {
     private final List<int[]> perFrame = new ArrayList<>();
     /** Nitidez de cada cuadro analizado (varianza del laplaciano). */
     private final List<Float> sharpness = new ArrayList<>();
+    /** Modo "Hoja" (experimental): la pose sale de las marcas de la hoja impresa y todo queda en mm. */
+    static final String EXTRA_SHEET = "hoja", EXTRA_START = "empezar";
+    private boolean sheetMode;
+    /** Marcas de cada cuadro analizado (sólo en modo hoja) y lo que pasó al ubicar el celular con ellas. */
+    private final List<List<Markers.Marker>> sheetMarkers = new ArrayList<>();
+    private SheetScan.Report sheetReport;
     /** Intentos de unir tramos por cierre de bucle (para el informe). */
     private String loopLog = "";
     private boolean debug;
@@ -117,7 +127,12 @@ public class MeasureActivity extends Activity {
         super.onCreate(b);
         if (b != null && b.getString("rec") != null) recorded = new File(b.getString("rec"));
         if (b != null && b.getString("sen") != null) sensorsFile = new File(b.getString("sen"));
+        sheetMode = getIntent().getBooleanExtra(EXTRA_SHEET, false);
         showIntro();
+        // Desde la pantalla de la hoja se llega con la acción elegida (sólo la primera vez, no al recrear)
+        String start = getIntent().getStringExtra(EXTRA_START);
+        if (b == null && "grabar".equals(start)) record();
+        else if (b == null && "elegir".equals(start)) pick();
     }
 
     @Override
@@ -137,7 +152,8 @@ public class MeasureActivity extends Activity {
     // ============================================================== inicio
 
     private void showIntro() {
-        NavajaUi.Screen scr = NavajaUi.screen(this, "Escáner 3D desde video", "Sin escenario ni base giratoria: te mueves tú", null, true);
+        NavajaUi.Screen scr = sheetMode ? NavajaUi.screen(this, "Escáner con hoja", "Experimental · la hoja impresa da la posición del celular y los mm", null, true)
+                : NavajaUi.screen(this, "Escáner 3D desde video", "Sin escenario ni base giratoria: te mueves tú", null, true);
         LinearLayout c = scr.content;
         LinearLayout card = NavajaUi.card(this);
         card.addView(NavajaUi.text(this, "Cómo filmar", NavajaUi.Style.LABEL));
@@ -154,8 +170,9 @@ public class MeasureActivity extends Activity {
         NavajaUi.topMargin(rec, 12);
         c.addView(rec, new LinearLayout.LayoutParams(-1, -2));
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Elegir un video", v -> pick())));
-        c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Escáner con hoja impresa (experimental)",
-                v -> startActivity(new Intent(this, SheetActivity.class)))));
+        if (!sheetMode)
+            c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Escáner con hoja impresa (experimental)",
+                    v -> startActivity(new Intent(this, SheetActivity.class)))));
         TextView note = NavajaUi.text(this, "Todo se calcula en el teléfono; el video no sale de aquí. El que grabes se guarda en tu carpeta de guardado (junto al ZIP). Toma uno o dos minutos.",
                 NavajaUi.Style.MUTED);
         NavajaUi.topMargin(note, 12);
@@ -257,6 +274,8 @@ public class MeasureActivity extends Activity {
             try {
                 Sfm.Tracker tr = new Sfm.Tracker(MAX_POINTS);
                 perFrame.clear();
+                sheetMarkers.clear();
+                sheetReport = null;
                 int[] dims = new int[2];
                 long[] dur = new long[1];
                 // Silueta y regiones de color en los cuadros de puntos multiescala: ayudan a reconocer lugares entre
@@ -278,6 +297,7 @@ public class MeasureActivity extends Activity {
                         dur[0] = d;
                         tr.feed(argb, w, h);
                         perFrame.add(new int[]{tr.activeCount(), tr.lastLost, tr.lastNew});
+                        if (sheetMode) sheetMarkers.add(Markers.detect(argb, w, h));
                         Features.Set fs = tr.loopFeats.isEmpty() ? null : tr.loopFeats.get(tr.loopFeats.size() - 1);
                         if (model != null && fs != null && fs.frame == tr.frames() - 1) {
                             if (tapRef[0] == null) tapRef[0] = new double[]{w / 2.0, h / 2.0};
@@ -300,17 +320,38 @@ public class MeasureActivity extends Activity {
                 if (cancel.get()) return;
                 videoSeconds = dur[0] / 1e6;
                 if (tr.frames() < 20) throw new IOException("El video es muy corto: filma al menos 10 segundos");
-                Loop.LOG = new StringBuilder();
                 sharpness.clear();
                 sharpness.addAll(tr.sharpness);
-                List<Sfm.Result> segs = Sfm.reconstruct(tr.tracks, tr.loopFeats, tr.sharpness, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
-                        (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
-                loopLog = Loop.LOG.toString();
-                Loop.LOG = null;
-                // Con sensores: el "arriba" de cada foto según la gravedad (decide mesa o pared y orienta la caja)
                 imu = loadImu(sensorsFile);
-                if (imu != null) for (Sfm.Result sg : segs) sg.camUp = imu.cameraUps(sg, FPS);
-                Measure.Choice ch = Measure.best(segs);
+                List<Sfm.Result> segs;
+                Measure.Choice ch;
+                if (sheetMode) {
+                    // Modo hoja: la pose de cada cuadro sale de las marcas (en mm), no del SfM
+                    post("2/3 · Ubicando el celular con la hoja…");
+                    SheetScan.Report rep = new SheetScan.Report();
+                    Lens lens = SheetScan.chooseLens(sheetMarkers, imu == null ? 0 : imu.focalFor(dims[0], dims[1]), dims[0], dims[1], rep);
+                    if (lens == null) throw new IOException("La hoja casi no se vio: hacen falta al menos 8 cuadros con 4 marcas o más. "
+                            + "Graba con la hoja entera (o casi) en la imagen.");
+                    rep.lens = lens;
+                    SheetPose.Fix[] fx = SheetScan.poses(sheetMarkers, lens, rep);
+                    Sfm.Result sr = SheetScan.build(tr.tracks, fx, lens, dims[0], dims[1], rep);
+                    sheetReport = rep;
+                    if (sr == null) throw new IOException(String.format(Locale.getDefault(), "Con la hoja se ubicó el celular en %d de %d cuadros y salieron %d puntos: "
+                            + "no alcanza. Graba más despacio y con la hoja a la vista.", rep.posed, rep.frames, rep.triangulated));
+                    segs = new ArrayList<>();
+                    segs.add(sr);
+                    loopLog = "";
+                    ch = SheetScan.measure(sr);
+                } else {
+                    Loop.LOG = new StringBuilder();
+                    segs = Sfm.reconstruct(tr.tracks, tr.loopFeats, tr.sharpness, tr.frames(), dims[0], dims[1], 0.8 * Math.max(dims[0], dims[1]),
+                            (what, done, total) -> post("2/3 · " + what + ": " + done + " de ~" + total));
+                    loopLog = Loop.LOG.toString();
+                    Loop.LOG = null;
+                    // Con sensores: el "arriba" de cada foto según la gravedad (decide mesa o pared y orienta la caja)
+                    if (imu != null) for (Sfm.Result sg : segs) sg.camUp = imu.cameraUps(sg, FPS);
+                    ch = Measure.best(segs);
+                }
                 segInfo.clear();
                 // Un renglón por tramo original (en orden de tiempo): {desde s, hasta s, cámaras, puntos, pistas que cruzan
                 // al siguiente, usado (1/0), grupo, giro (°), escala y regiones emparejadas a través del corte}. Los tramos unidos por cierre de bucle comparten grupo.
@@ -347,7 +388,7 @@ public class MeasureActivity extends Activity {
                 if (cancel.get()) return;
                 ui.post(() -> {
                     choice = ch;
-                    scaleCm = 0;
+                    scaleCm = sheetMode ? 0.1 : 0; // con la hoja todo está en mm
                     zonePoint = -1;
                     showResult();
                 });
@@ -555,8 +596,16 @@ public class MeasureActivity extends Activity {
         mAncho = NavajaUi.metric(this, "Ancho");
         mProf = NavajaUi.metric(this, b.onWall ? "Profundidad" : "Largo");
         c.addView(NavajaUi.metricRow(this, mAlto, mAncho, mProf));
-        // Medida conocida → escala
+        // Medida conocida → escala (con la hoja no hace falta: todo sale en mm)
         LinearLayout card = NavajaUi.card(this);
+        if (sheetMode) {
+            card.addView(NavajaUi.text(this, "Escala desde la hoja", NavajaUi.Style.LABEL));
+            card.addView(NavajaUi.text(this, sheetReport == null ? "Medidas en cm reales: la hoja impresa da la escala."
+                    : String.format(Locale.getDefault(), "Medidas en cm reales: la hoja ubicó el celular en %d de %d cuadros (esquinas a %.1f px). %s",
+                    sheetReport.posed, sheetReport.frames, sheetReport.rmsMedian, sheetReport.lensNote), NavajaUi.Style.BODY));
+            c.addView(card);
+        }
+        if (!sheetMode) {
         card.addView(NavajaUi.text(this, "Una medida que conozcas", NavajaUi.Style.LABEL));
         LinearLayout chips = new LinearLayout(this);
         String[] names = {"Alto", "Ancho", b.onWall ? "Profundidad" : "Largo"};
@@ -581,6 +630,7 @@ public class MeasureActivity extends Activity {
         })));
         c.addView(card);
         if (tabs.length > 0) NavajaUi.setChip(tabs[known], true);
+        }
         // Segunda opinión: el volumen tallado con las siluetas (IA en el teléfono)
         if (hull != null) {
             LinearLayout hc = NavajaUi.card(this);
@@ -699,6 +749,7 @@ public class MeasureActivity extends Activity {
      * caja por igual en los tres ejes; las proporciones son lo comparable).
      */
     private double hullCmPerUnit() {
+        if (sheetMode) return scaleCm; // el volumen también está en mm
         Measure.Box b = choice.box;
         double pts = known == 0 ? pointsHeight(b) : known == 1 ? b.ancho : pointsThird(b);
         double hl = known == 0 ? hullHeight(b) : known == 1 ? hull.ancho : hullThird(b);
@@ -813,7 +864,8 @@ public class MeasureActivity extends Activity {
         d.hull = hull;
         d.scaleCm = scaleCm;
         d.hullCmPerUnit = hull != null && scaleCm > 0 ? hullCmPerUnit() : 0;
-        d.knownName = new String[]{"el alto", "el ancho", choice.box.onWall ? "la profundidad" : "el largo"}[known];
+        d.knownName = sheetMode ? "la hoja impresa" : new String[]{"el alto", "el ancho", choice.box.onWall ? "la profundidad" : "el largo"}[known];
+        d.sheet = sheetMode ? sheetReport : null;
         d.videoSeconds = videoSeconds;
         d.fps = FPS;
         d.tracks = trackCount;

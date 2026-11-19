@@ -13,6 +13,8 @@ import com.josexato.navaja.measure.core.Imu;
 import com.josexato.navaja.measure.core.Lin;
 import com.josexato.navaja.measure.core.Measure;
 import com.josexato.navaja.measure.core.Motion;
+import com.josexato.navaja.measure.core.SheetPose;
+import com.josexato.navaja.measure.core.SheetScan;
 import com.josexato.navaja.measure.core.Sfm;
 import com.josexato.navaja.measure.core.Texture;
 import com.josexato.navaja.scan3d.core.Decimate;
@@ -57,6 +59,8 @@ final class MeasureReport {
         List<double[]> segments = new ArrayList<>();
         /** Por cuadro analizado: puntos activos, perdidos y nuevos. */
         List<int[]> perFrame = new ArrayList<>();
+        /** Modo hoja: cómo se ubicó el celular con las marcas (null en el modo video). */
+        SheetScan.Report sheet;
         /** Sensores grabados con el video (null si no hay) y su archivo. */
         Imu imu;
         File sensorsFile;
@@ -182,6 +186,18 @@ final class MeasureReport {
         s.append("\n## 1. Video\n\n");
         s.append(String.format(Locale.ROOT, "- Duración: %.1f s · se analizan %.0f cuadros por segundo, %d × %d px.\n", d.videoSeconds, d.fps,
                 r.width, r.height));
+        if (d.sheet != null) {
+            SheetScan.Report h = d.sheet;
+            s.append("\n## Hoja impresa (modo experimental)\n\n");
+            s.append("La posición del celular en cada cuadro sale de las marcas de la hoja (no de la fotogrametría), así que todo está en mm.\n\n");
+            s.append("- Lente: ").append(h.lensNote).append(String.format(Locale.ROOT, " · focal usada %.1f px.%n", h.lens.f));
+            s.append(String.format(Locale.ROOT, "- Cuadros: %d analizados · %d con 4 marcas o más · %d ubicados (error de las esquinas: mediana %.2f px, p90 %.2f px; "
+                    + "se descartan los de más de %.1f px).%n", h.frames, h.withMarkers, h.posed, h.rmsMedian, h.rmsP90, SheetPose.MAX_RMS));
+            s.append(String.format(Locale.ROOT, "- Fotos (cuadros clave) entre los ubicados: %d · pistas seguidas: %d → puntos triangulados con esas poses: %d "
+                    + "(error de reproyección mediano %.2f px).%n", h.keyframes, h.tracks, h.triangulated, h.pointRms));
+            s.append("- Qué mirar: muchos cuadros ubicados y error de esquinas bajo (≈1–2 px) = poses buenas; pocos puntos triangulados = el objeto "
+                    + "tiene poca textura o el seguimiento se cortó.\n");
+        }
         s.append("\n## 2. Seguimiento de puntos y tramos\n\n");
         s.append("- Puntos seguidos cuadro a cuadro (pistas): ").append(d.tracks).append(".\n");
         s.append("- Si el seguimiento se corta (imagen movida, algo tapa la vista), el video se parte en tramos y se usa el mejor.\n");
