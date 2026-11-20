@@ -75,6 +75,8 @@ final class MeasureReport {
         byte[][] masks;
         /** Las siluetas usadas (null donde se descartó); null si no se validaron. */
         byte[][] masksUsed;
+        /** Siluetas de la IA sin corregir (modo hoja; null si no hay). */
+        byte[][] rawMasks;
         int maskW, maskH;
         private Cloud.Result cloud;
 
@@ -153,6 +155,10 @@ final class MeasureReport {
             byte[][] mk = d.masksUsed != null ? d.masksUsed : d.masks;
             for (int c = 0; mk != null && c < mk.length; c++)
                 if (mk[c] != null) put(zip, "colmap/mascaras/" + names[c] + ".png", Colmap.maskPng(mk[c], d.maskW, d.maskH, r.width, r.height));
+            // Con depuración: las siluetas tal como las dio la IA (todas, también las descartadas), para revisar errores
+            if (debug && d.rawMasks != null)
+                for (int c = 0; c < d.rawMasks.length; c++)
+                    if (d.rawMasks[c] != null) put(zip, "depuracion/siluetas_ia/" + names[c] + ".png", Colmap.maskPng(d.rawMasks[c], d.maskW, d.maskH, r.width, r.height));
             for (int c = 0; d.photos != null && c < d.photos.length; c++) {
                 File f = d.photos[c];
                 if (f == null || !f.exists()) continue;
@@ -223,6 +229,13 @@ final class MeasureReport {
             if (h.maskFixed > 0)
                 s.append(String.format(Locale.ROOT, "- Siluetas corregidas con la hoja (%d fotos): %d px borrados (fondo lejos del objeto, p. ej. la pared) · %d px agregados "
                         + "alrededor de %d puntos confiables del objeto (partes que la IA dejó afuera; sólo para tallar el volumen).%n", h.maskFixed, h.maskClipped, h.maskAdded, h.maskPoints));
+            if (h.maskIou > 0)
+                s.append(String.format(Locale.ROOT, "- Siluetas comparadas entre sí: cada una contra el contorno que predicen las demás (parecido típico %.0f %%). "
+                        + "%d no calzaron: %s.%n", 100 * h.maskIou, h.maskFlagged,
+                        h.maskFlagged == 0 ? "todas coherentes"
+                                : h.maskRepaired > 0 ? h.maskRepaired + " se reemplazaron por el contorno predicho"
+                                : h.maskDropped > 0 ? h.maskDropped + " se descartaron (la predicción no era buena como para reemplazarlas)"
+                                : "son más de la mitad, así que el consenso no es de fiar y no se tocó ninguna"));
             if (h.droppedObs > 0)
                 s.append(String.format(Locale.ROOT, "- Observaciones malas quitadas de pistas (un par equivocado en una pista larga se quita sin perder el punto): %d.%n", h.droppedObs));
             s.append("- XFeat + LighterGlue (puntos aprendidos; cada foto clave con las 2 anteriores): ")
