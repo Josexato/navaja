@@ -360,7 +360,7 @@ public class MeasureActivity extends Activity {
                     SheetPose.Fix[] fx = SheetScan.poses(sheetMarkers, lens, rep);
                     // Más puntos del objeto: XFeat + LighterGlue entre cuadros clave seguidos, sumados a las pistas KLT
                     List<Sfm.Track> all = tr.tracks;
-                    List<Integer> keys = SheetScan.keyframes(fx);
+                    List<Integer> keys = SheetScan.keyframes(fx, tr.sharpness);
                     if (keys != null) {
                         List<Sfm.Track> xt = xfeatTracks(uri, keys, fx, lens, dims, rep);
                         if (cancel.get()) return;
@@ -369,7 +369,7 @@ public class MeasureActivity extends Activity {
                             all.addAll(xt);
                         }
                     }
-                    Sfm.Result sr = SheetScan.build(all, fx, lens, dims[0], dims[1], rep);
+                    Sfm.Result sr = SheetScan.build(all, fx, lens, dims[0], dims[1], rep, keys);
                     sheetReport = rep;
                     if (sr == null) throw new IOException(String.format(Locale.getDefault(), "Con la hoja se ubicó el celular en %d de %d cuadros y salieron %d puntos: "
                             + "no alcanza. Graba más despacio y con la hoja a la vista.", rep.posed, rep.frames, rep.triangulated));
@@ -625,7 +625,8 @@ public class MeasureActivity extends Activity {
         }
         // Se validan de nuevo con la caja nueva (sus puntos son más del objeto)
         byte[][] used = model == null ? null : Carve.validate(r, ch.box, carveCuts != null ? carveCuts : cuts, mw, mh);
-        hull = model == null ? null : Carve.carve(r, ch.box, used, mw, mh);
+        // Modo hoja: el volumen se talla sólo con los contornos (los puntos 3D ruidosos lo dejaban hundido)
+        hull = model == null ? null : Carve.carve(r, ch.box, used, mw, mh, !sheetMode);
         masksUsed = used;
         if (hull != null) Measure.refineWithHull(r, ch.box, hull);
         photos = shots;

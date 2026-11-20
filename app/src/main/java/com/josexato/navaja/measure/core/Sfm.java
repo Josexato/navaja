@@ -415,7 +415,9 @@ public final class Sfm {
                 ok = xc[2] > 0 && f * Math.hypot(xc[0] / xc[2] - ob.get(i)[0], xc[1] / xc[2] - ob.get(i)[1]) < 2;
             }
             // Paralaje: entre la primera y la última cámara que lo ven
-            if (!ok || Geometry.angleDeg(x, ps.get(0).center(), ps.get(ps.size() - 1).center()) < 2) continue;
+            // (en el modo hoja, el mayor ángulo contra la primera: en una vuelta completa la primera y la última quedan juntas)
+            if (!ok || (r.sheetPlane ? SheetScan.parallax(x, ps.toArray(new Geometry.Pose[0]))
+                    : Geometry.angleDeg(x, ps.get(0).center(), ps.get(ps.size() - 1).center())) < 2) continue;
             if (r.sheetPlane) {
                 double[] s = SheetPlane.snap(ps.toArray(new Geometry.Pose[0]), ob.toArray(new double[0][]), x, f);
                 if (s != null) x = s;

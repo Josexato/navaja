@@ -32,6 +32,19 @@ public final class SheetScan {
     /** Quitar la peor observación de una pista (y volver a triangular) en vez de descartarla entera. */
     static boolean DROP_BAD_OBS = true;
 
+    /**
+     * Mayor ángulo (°) bajo el que dos de las cámaras ven el punto, medido
+     * contra la primera. No basta comparar la primera con la última: en una
+     * vuelta completa quedan casi juntas y un punto visto todo el tiempo
+     * parecería sin paralaje.
+     */
+    static double parallax(double[] x, Geometry.Pose[] ps) {
+        double[] c0 = ps[0].center();
+        double best = 0;
+        for (int i = 1; i < ps.length; i++) best = Math.max(best, Geometry.angleDeg(x, c0, ps[i].center()));
+        return best;
+    }
+
     /** Desvío robusto (1,4826 × mediana de |x − mediana|); 0 sin datos. */
     static double robustSd(List<Double> v) {
         if (v.isEmpty()) return 0;
@@ -68,6 +81,9 @@ public final class SheetScan {
         /** Siluetas corregidas con la hoja ({@link SheetMasks}): fotos, píxeles borrados y agregados, puntos que agregaron. */
         public int maskFixed, maskPoints;
         public long maskClipped, maskAdded;
+        /** Cobertura de las fotos clave: vuelta recorrida (°), altura de la cámara (°), paso entre fotos (°) y huecos {cuadro desde, cuadro hasta, grados}. */
+        public double turnDeg, elevMin, elevMax, stepMedian, stepMax;
+        public final List<double[]> gaps = new ArrayList<>();
         /** Observaciones malas quitadas de pistas (en vez de descartar la pista entera). */
         public int droppedObs;
         public double sheetNoiseBefore, sheetNoiseAfter, poseShiftMm, cornerRmsAfter;
@@ -166,43 +182,111 @@ public final class SheetScan {
         return out;
     }
 
+    /** Cambio de punto de vista (°, visto desde el centro de la hoja) entre cuadros clave, y a partir de cuánto es un hueco que se avisa. */
+    public static final double VIEW_STEP = 2.5, GAP_WARN = 10;
+    /** Punto que se mira para medir el cambio de vista: sobre el centro de la hoja, a media altura de un objeto típico (mm). */
+    static final double[] TARGET = {0, 0, 40};
+
+    /** Dirección desde el centro de la hoja hacia la cámara del cuadro f. */
+    private static double[] viewDir(SheetPose.Fix fx) { return Lin.unit(Lin.sub(fx.pose.center(), TARGET)); }
+
+    private static double angle(double[] a, double[] b) {
+        return Math.toDegrees(Math.acos(Math.max(-1, Math.min(1, Lin.dot(a, b)))));
+    }
+
     /**
-     * Los cuadros clave: entre los ubicados, separados al menos {@code minGap}
-     * cuadros (más si hacen falta para no pasar de {@link #MAX_CAMS}). Null
-     * con menos de 8 cuadros ubicados.
+     * Los cuadros clave, <b>por ángulo</b>: entre los cuadros ubicados, uno
+     * cada {@link #VIEW_STEP}° de cambio de punto de vista (más, si hace
+     * falta para no pasar de {@link #MAX_CAMS}); entre los cuadros que
+     * cumplen se toma el más nítido ({@code sharp}: nitidez por cuadro, o
+     * null). Así una pausa no gasta fotos repetidas y un tramo rápido usa
+     * todos los cuadros que tenga. Null con menos de 8 cuadros ubicados.
      */
-    public static List<Integer> keyframes(SheetPose.Fix[] fixes, int minGap) {
+    public static List<Integer> keyframes(SheetPose.Fix[] fixes, List<Float> sharp) {
         List<Integer> posed = new ArrayList<>();
         for (int f = 0; f < fixes.length; f++) if (fixes[f] != null) posed.add(f);
         if (posed.size() < 8) return null;
-        int gap = Math.max(minGap, (int) Math.ceil((double) (posed.get(posed.size() - 1) - posed.get(0) + 1) / MAX_CAMS));
+        double[][] dir = new double[posed.size()][];
+        for (int i = 0; i < dir.length; i++) dir[i] = viewDir(fixes[posed.get(i)]);
+        double total = 0;
+        for (int i = 1; i < dir.length; i++) total += angle(dir[i - 1], dir[i]);
+        double step = Math.max(VIEW_STEP, total / MAX_CAMS);
         List<Integer> out = new ArrayList<>();
-        int last = -1000;
-        for (int f : posed) {
-            if (f - last < gap) continue;
-            out.add(f);
-            last = f;
+        out.add(posed.get(0));
+        int last = 0;
+        for (int i = 1; i < dir.length; i++) {
+            if (angle(dir[last], dir[i]) < step) continue;
+            // Entre este y los siguientes que todavía están cerca del paso (hasta 1,4×), el más nítido
+            int best = i;
+            if (sharp != null)
+                for (int j = i + 1; j < dir.length && angle(dir[last], dir[j]) < 1.4 * step; j++)
+                    if (val(sharp, posed.get(j)) > val(sharp, posed.get(best))) best = j;
+            out.add(posed.get(best));
+            last = best;
+            i = best;
+        }
+        if (out.size() < 8) {
+            // Casi sin movimiento: al menos los cuadros repartidos en el tiempo (dará pocos puntos, pero se informa)
+            out.clear();
+            int gap = Math.max(MIN_GAP, posed.size() / 30);
+            for (int i = 0; i < posed.size(); i += gap) out.add(posed.get(i));
         }
         return out;
     }
 
-    /** Los cuadros clave con la separación de siempre ({@link #MIN_GAP}). */
-    public static List<Integer> keyframes(SheetPose.Fix[] fixes) { return keyframes(fixes, MIN_GAP); }
+    private static float val(List<Float> sharp, int f) { return f < sharp.size() ? sharp.get(f) : 0; }
+
+    /** Los cuadros clave por ángulo, sin mirar la nitidez. */
+    public static List<Integer> keyframes(SheetPose.Fix[] fixes) { return keyframes(fixes, null); }
 
     /**
-     * La reconstrucción: cuadros clave entre los ubicados (al menos
-     * {@link #MIN_GAP} cuadros entre sí, a lo sumo {@link #MAX_CAMS}), y las
-     * pistas trianguladas con esas poses. Null con menos de 8 cuadros
-     * ubicados o 50 puntos.
+     * Cobertura de los cuadros clave, para el informe: llena
+     * {@code rep.coverage} (vuelta recorrida alrededor de la hoja, altura de
+     * la cámara, paso típico) y {@code rep.gaps} (saltos de más de
+     * {@link #GAP_WARN}° entre fotos seguidas: {cuadro desde, cuadro hasta, grados}).
      */
-    public static Sfm.Result build(List<Sfm.Track> tracks, SheetPose.Fix[] fixes, Lens lens, int w, int h, Report rep) {
-        return build(tracks, fixes, lens, w, h, rep, MIN_GAP);
+    public static void coverage(SheetPose.Fix[] fixes, List<Integer> keys, Report rep) {
+        rep.gaps.clear();
+        if (keys == null || keys.size() < 2) return;
+        double[] steps = new double[keys.size() - 1];
+        double az0 = 0, azMin = 0, azMax = 0, prevAz = 0, elMin = 90, elMax = -90;
+        for (int i = 0; i < keys.size(); i++) {
+            double[] d = viewDir(fixes[keys.get(i)]);
+            double az = Math.toDegrees(Math.atan2(d[1], d[0])), el = Math.toDegrees(Math.asin(Math.max(-1, Math.min(1, d[2]))));
+            elMin = Math.min(elMin, el);
+            elMax = Math.max(elMax, el);
+            if (i == 0) { az0 = az; prevAz = az; continue; }
+            // Azimut continuo (sin saltos de 360°)
+            double da = az - (prevAz - Math.floor((prevAz + 180) / 360) * 360);
+            da -= 360 * Math.round(da / 360);
+            prevAz += da;
+            azMin = Math.min(azMin, prevAz - az0);
+            azMax = Math.max(azMax, prevAz - az0);
+            steps[i - 1] = angle(viewDir(fixes[keys.get(i - 1)]), d);
+            if (steps[i - 1] > GAP_WARN) rep.gaps.add(new double[]{keys.get(i - 1), keys.get(i), steps[i - 1]});
+        }
+        double[] st = steps.clone();
+        Arrays.sort(st);
+        rep.turnDeg = Math.min(360, azMax - azMin);
+        rep.elevMin = elMin;
+        rep.elevMax = elMax;
+        rep.stepMedian = st[st.length / 2];
+        rep.stepMax = st[st.length - 1];
     }
 
-    /** Igual, con {@code minGap} cuadros como mínimo entre cuadros clave (1 si los cuadros ya son fotos espaciadas). */
-    public static Sfm.Result build(List<Sfm.Track> tracks, SheetPose.Fix[] fixes, Lens lens, int w, int h, Report rep, int minGap) {
-        List<Integer> keys = keyframes(fixes, minGap);
+    /**
+     * La reconstrucción: cuadros clave por ángulo entre los ubicados (ver
+     * {@link #keyframes}) y las pistas trianguladas con esas poses. Null con
+     * menos de 8 cuadros ubicados o 50 puntos.
+     */
+    public static Sfm.Result build(List<Sfm.Track> tracks, SheetPose.Fix[] fixes, Lens lens, int w, int h, Report rep) {
+        return build(tracks, fixes, lens, w, h, rep, keyframes(fixes));
+    }
+
+    /** Igual, con los cuadros clave {@code keys} ya elegidos. */
+    public static Sfm.Result build(List<Sfm.Track> tracks, SheetPose.Fix[] fixes, Lens lens, int w, int h, Report rep, List<Integer> keys) {
         if (keys == null) return null;
+        coverage(fixes, keys, rep);
         Sfm.Result r = new Sfm.Result();
         r.width = w;
         r.height = h;
@@ -276,14 +360,14 @@ public final class SheetScan {
                     tCams.set(k, ca);
                     tObs.set(k, ob);
                 }
-                if (Geometry.angleDeg(x, ps[0].center(), ps[ps.length - 1].center()) < MIN_PARALLAX) continue;
+                if (parallax(x, ps) < MIN_PARALLAX) continue;
                 double[] p = PLANE ? SheetPlane.snap(ps, ob, x, lens.f) : null;
                 if (p != null) {
                     freeZ.add(x[2]);
                     pos[k] = p;
                     errOf[k] = SheetPlane.worst(ps, ob, p, lens.f);
                     // Ancla para las cámaras sólo si está bien determinado: 4+ vistas y buen ángulo entre ellas
-                    kind[k] = ca.length >= 4 && Geometry.angleDeg(x, ps[0].center(), ps[ps.length - 1].center()) >= ANCHOR_PARALLAX ? 2 : 1;
+                    kind[k] = ca.length >= 4 && parallax(x, ps) >= ANCHOR_PARALLAX ? 2 : 1;
                     continue;
                 }
                 if (x[2] < -5) continue; // debajo de la hoja: un error

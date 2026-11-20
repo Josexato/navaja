@@ -196,7 +196,7 @@ public class SheetScanTest {
         Lens lens = SheetScan.chooseLens(ms, 0, W, H, rep);
         SheetPose.Fix[] fx = SheetScan.poses(ms, lens, rep);
         List<Integer> keys = SheetScan.keyframes(fx);
-        for (int i = 1; i < keys.size(); i++) assertTrue(keys.get(i) - keys.get(i - 1) >= SheetScan.MIN_GAP);
+        assertTrue("fotos clave " + keys.size(), keys.size() > 100 && keys.size() <= SheetScan.MAX_CAMS);
         // La mitad de las pistas, vista sólo en los cuadros clave (como las de XFeat)
         List<Sfm.Track> all = new ArrayList<>(), klt = tracks(cams, rnd);
         for (int i = 0; i < klt.size(); i++) {
@@ -236,5 +236,53 @@ public class SheetScanTest {
         }
         int t = SheetScan.uprightTurn(markers(side, 0.4, rnd), H, W);
         assertTrue("giro " + t, t == 90 || t == 270);
+    }
+
+    @Test
+    public void lasFotosClaveSeEligenPorAnguloYSeAvisanLosHuecos() {
+        // Un recorrido desparejo: lento (0,25° por cuadro) 200 cuadros, una pausa de 60 cuadros, rápido (3° por cuadro) 40 cuadros,
+        // y un salto de 30° sin cuadros ubicados
+        List<Geometry.Pose> cams = new ArrayList<>();
+        double a = 0;
+        for (int f = 0; f < 200; f++, a += 0.25) cams.add(at(a));
+        for (int f = 0; f < 60; f++) cams.add(at(a));
+        for (int f = 0; f < 40; f++, a += 4) cams.add(at(a));
+        a += 30;
+        for (int f = 0; f < 40; f++, a += 1) cams.add(at(a));
+        SheetPose.Fix[] fx = new SheetPose.Fix[cams.size()];
+        List<Float> sharp = new ArrayList<>();
+        for (int f = 0; f < fx.length; f++) {
+            fx[f] = new SheetPose.Fix();
+            fx[f].pose = cams.get(f);
+            sharp.add(f % 7 == 3 ? 500f : 100f);
+        }
+        List<Integer> keys = SheetScan.keyframes(fx, sharp);
+        // Tramo lento: 50° en 200 cuadros → unas 20 fotos (no 50 como cada 4 cuadros)
+        int slow = 0, pause = 0, fast = 0;
+        for (int k : keys) {
+            if (k < 200) slow++;
+            else if (k < 260) pause++;
+            else if (k < 300) fast++;
+        }
+        assertTrue("lento " + slow, slow >= 14 && slow <= 22);
+        assertTrue("pausa " + pause, pause <= 1);
+        assertEquals("rápido: todos los cuadros", 40, fast, 1);
+        // Entre los que cumplen el paso se prefiere el nítido
+        int sharpOnes = 0;
+        for (int k : keys) if (k < 200 && k % 7 == 3) sharpOnes++;
+        assertTrue("nítidos " + sharpOnes + " de " + slow, sharpOnes >= slow / 2);
+        SheetScan.Report rep = new SheetScan.Report();
+        SheetScan.coverage(fx, keys, rep);
+        assertEquals(1, rep.gaps.size());
+        assertEquals(300, rep.gaps.get(0)[1], 0.5);
+        assertTrue("hueco " + rep.gaps.get(0)[2], rep.gaps.get(0)[2] > 20);
+        assertEquals(50 + 160 + 30 + 39, rep.turnDeg, 6);
+    }
+
+    /** Cámara a 30 cm del centro de la hoja, 35° sobre la mesa, en el azimut {@code deg}. */
+    static Geometry.Pose at(double deg) {
+        double az = Math.toRadians(deg), el = Math.toRadians(35);
+        double[] c = {300 * Math.cos(el) * Math.cos(az), 300 * Math.cos(el) * Math.sin(az), 40 + 300 * Math.sin(el)};
+        return MarkersTest.look(c, new double[]{0, 0, 40}, new double[]{0, 0, 1});
     }
 }

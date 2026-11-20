@@ -201,6 +201,21 @@ final class MeasureReport {
             if (d.frameTurn != 0)
                 s.append(String.format(Locale.ROOT, "- Celular apaisado: los cuadros se giraron %d° para verse derechos (%s).%n", d.frameTurn,
                         d.imu != null ? "según los sensores" : "según la hoja: el video no trae sensores"));
+            s.append(String.format(Locale.ROOT, "- Fotos clave elegidas por ángulo (una cada ~%.1f° de cambio de vista, la más nítida de cada paso): recorrido de %.0f° "
+                    + "alrededor del objeto, cámara entre %.0f° y %.0f° sobre la mesa; paso típico %.1f°, máximo %.1f°.%n", SheetScan.VIEW_STEP, h.turnDeg, h.elevMin,
+                    h.elevMax, h.stepMedian, h.stepMax));
+            if (h.turnDeg < 300)
+                s.append(String.format(Locale.ROOT, "- ⚠ No se rodeó todo el objeto: faltan unos %.0f° de la vuelta. Lo que no se filmó no se puede reconstruir.%n", 360 - h.turnDeg));
+            if (h.elevMax - h.elevMin < 10)
+                s.append("- ⚠ Toda la toma fue casi a la misma altura: subir y bajar el celular (unos 20–30°) mejora la parte de arriba del volumen.\n");
+            if (!h.gaps.isEmpty()) {
+                s.append("- ⚠ Huecos (más de ").append((int) SheetScan.GAP_WARN).append("° entre dos fotos seguidas; ahí la hoja no se pudo ubicar o el celular pasó muy rápido): ");
+                for (int g = 0; g < h.gaps.size() && g < 8; g++) {
+                    double[] gp = h.gaps.get(g);
+                    s.append(String.format(Locale.ROOT, "%s%.1f–%.1f s (%.0f°)", g > 0 ? ", " : "", gp[0] / d.fps, gp[1] / d.fps, gp[2]));
+                }
+                s.append(h.gaps.size() > 8 ? "…\n" : ".\n");
+            }
             s.append(String.format(Locale.ROOT, "- Hoja plana: %d puntos de la hoja y la mesa quedaron en Z = 0 (triangulados libres tenían ±%.1f mm de altura; "
                     + "±%.1f mm después de afinar las cámaras). Cada cámara se afinó con las esquinas de las marcas y %d de esos puntos: se movió %.1f mm "
                     + "(mediana); error de las esquinas después: %.2f px.%n", h.planePoints, h.sheetNoiseBefore, h.sheetNoiseAfter, h.planeAnchors,
