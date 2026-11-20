@@ -52,6 +52,18 @@ public final class Carve {
      * @return null si hay menos de 8 siluetas o no queda volumen
      */
     public static Result carve(Sfm.Result r, Measure.Box b, byte[][] masks, int mw, int mh) {
+        return carve(r, b, masks, mw, mh, true);
+    }
+
+    /**
+     * Igual; con {@code freeSpace} false se talla sólo con las siluetas (el
+     * contorno del objeto en cada foto), sin quitar lo que queda delante de
+     * los puntos 3D. En el modo hoja los puntos son muchos pero más ruidosos
+     * (XFeat), y en superficies lisas hay pocos: un punto mal ubicado dentro
+     * del objeto lo dejaba hundido. Sin ese paso no se ven las concavidades,
+     * pero el contorno sale limpio.
+     */
+    public static Result carve(Sfm.Result r, Measure.Box b, byte[][] masks, int mw, int mh, boolean freeSpace) {
         int views = 0;
         for (byte[] m : masks) if (m != null) views++;
         if (views < 8) return null;
@@ -110,7 +122,7 @@ public final class Carve {
                         if (m[(int) v * mw + (int) u] == 0) bad[row + i]++;
                         // 2) Espacio libre: claramente delante del punto más cercano que vio esta cámara en esa zona
                         double dz = depth[(int) (fv / CELL) * gw + (int) (fu / CELL)];
-                        if (dz > 0 && z < dz - margin) free[row + i]++;
+                        if (freeSpace && dz > 0 && z < dz - margin) free[row + i]++;
                     }
                 }
         }
