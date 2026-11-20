@@ -19,9 +19,10 @@ public final class BuildFacts {
      * Un hecho importante de hace 100 años, elegido a mano por quien escribe
      * el código: <b>se cambia en cada entrega</b> (cada cambio que se sube a
      * la rama principal), por uno cercano a la fecha de ese día cien años
-     * atrás. Así el texto del inicio distingue una versión de otra de un vistazo.
+     * atrás, comprobado en Wikipedia (la fecha tiene que constar en el texto del
+     * artículo). Así el texto del inicio distingue una versión de otra de un vistazo.
      */
-    static final String FACT = "el 15 de noviembre de 1926 empezó a transmitir la NBC, la primera gran cadena de radio de Estados Unidos";
+    static final String FACT = "el 15 de noviembre de 1926 los primeros ministros del Imperio británico aprobaron la Declaración Balfour, que reconoció a Canadá, Australia y los demás dominios como iguales al Reino Unido";
 
     /** El texto completo para la versión {@code version}, con el código terminado en {@code codeTime} (ms) y {@code buildsToday} compilaciones ese día. */
     public static String line(String version, long codeTime, int buildsToday) {
