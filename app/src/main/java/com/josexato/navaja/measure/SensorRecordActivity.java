@@ -366,7 +366,7 @@ public class SensorRecordActivity extends Activity implements SensorEventListene
                         return;
                     }
                     ui.post(() -> {
-                        status.setText("Rodea el objeto despacio, con el celular vertical. Máximo " + MAX_SECONDS + " s.");
+                        status.setText("Rodea el objeto despacio (el celular vertical u horizontal, sin girarlo a mitad). Máximo " + MAX_SECONDS + " s.");
                         button.setEnabled(true);
                     });
                 }
