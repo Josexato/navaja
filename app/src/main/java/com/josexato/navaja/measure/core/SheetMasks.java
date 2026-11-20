@@ -74,10 +74,155 @@ public final class SheetMasks {
         return out;
     }
 
+    /** Consenso: vóxeles por lado, parte de las siluetas que deben contener un vóxel, y cuánto menos que las buenas debe parecerse (IoU) una silueta a la predicción para ser mala (al menos). */
+    static final int VOTE_N = 72;
+    static final double VOTE_SHARE = 0.7, STRICT_SHARE = 0.9, MIN_DROP = 0.2;
+    /** Parte de las siluetas que como mucho puede salir mala para confiar en el consenso. */
+    static final double MAX_BAD_SHARE = 0.5;
+    /** Parecido mediano a partir del cual la predicción es buena como para reemplazar una silueta mala (si no, sólo se descarta). */
+    static final double GOOD_IOU = 0.78;
+
+    /**
+     * Compara cada silueta con lo que predicen las demás y repara las que no
+     * calzan. Con las fotos clave a pocos grados una de otra, el contorno
+     * real cambia poco entre vecinas: una silueta muy distinta es un error
+     * de la IA (se desbordó a la mesa o cortó un pedazo del objeto).
+     *
+     * <p>La predicción sale de un volumen por votación: un vóxel del espacio
+     * del objeto queda si está dentro de al menos {@link #VOTE_SHARE} de las
+     * siluetas que lo ven (las malas, mientras sean minoría, pierden la
+     * votación). Ese volumen se proyecta en cada foto; si la silueta de la
+     * foto se parece a la proyección mucho menos que las demás, es mala: se
+     * reemplaza por la proyección si la predicción es buena en general
+     * (parecido mediano ≥ {@link #GOOD_IOU}) o, si no, se descarta (null).
+     * Anota en {@code st.repaired} y {@code st.dropped} cuáles.
+     */
+    public static byte[][] consensus(Sfm.Result r, Measure.Box b, byte[][] masks, int mw, int mh, Stats st) {
+        double[] reg = region(r, b);
+        int views = 0;
+        for (byte[] m : masks) if (m != null) views++;
+        if (reg == null || views < 8) return masks;
+        // Dos vueltas: la segunda vota sin las que la primera encontró malas (la predicción mejora)
+        boolean[] bad = new boolean[masks.length];
+        byte[][] preds = null;
+        double med = 0;
+        for (int round = 0; round < 2; round++) {
+            byte[][] voters = masks.clone();
+            for (int c = 0; c < voters.length; c++) if (bad[c]) voters[c] = null;
+            List<double[]> vox = new ArrayList<>();
+            // (ya sin las malas, se exige casi unanimidad: el volumen queda ajustado y la predicción no engorda)
+            double step = vote(r, reg, voters, mw, mh, vox, round == 0 ? VOTE_SHARE : STRICT_SHARE);
+            st.voteVoxels = vox.size();
+            if (vox.size() < 50) return masks;
+            preds = new byte[masks.length][];
+            double[] ious = new double[masks.length];
+            List<Double> all = new ArrayList<>();
+            for (int c = 0; c < masks.length; c++) {
+                if (masks[c] == null) continue;
+                preds[c] = project(r, vox, step, c, mw, mh);
+                int inter = 0, union = 0;
+                for (int i = 0; i < preds[c].length; i++) {
+                    boolean a = masks[c][i] != 0, q = preds[c][i] != 0;
+                    if (a && q) inter++;
+                    if (a || q) union++;
+                }
+                ious[c] = union == 0 ? 0 : (double) inter / union;
+                all.add(ious[c]);
+            }
+            // Mala = se parece a la predicción mucho menos que las buenas. "Las buenas" son la mitad de arriba (así
+            // aguanta que casi la mitad esté mal); no se usa un umbral fijo porque con pocas fotos la predicción es
+            // pobre para todas.
+            double[] so = all.stream().mapToDouble(Double::doubleValue).sorted().toArray();
+            double[] top = Arrays.copyOfRange(so, so.length / 2, so.length);
+            double tm = top[top.length / 2];
+            double[] dev = new double[top.length];
+            for (int i = 0; i < top.length; i++) dev[i] = Math.abs(top[i] - tm);
+            Arrays.sort(dev);
+            double cut = tm - MIN_DROP;
+            med = tm;
+            for (int c = 0; c < masks.length; c++) bad[c] = masks[c] != null && ious[c] < cut;
+        }
+        st.iouMedian = med;
+        int nBad = 0;
+        for (boolean x : bad) if (x) nBad++;
+        st.flagged = nBad;
+        // Si la mayoría no calza, el consenso no es de fiar (pocas fotos, o las malas son demasiadas): no se toca nada
+        if (nBad > MAX_BAD_SHARE * views) return masks;
+        byte[][] out = masks.clone();
+        for (int c = 0; c < masks.length; c++) {
+            if (!bad[c]) continue;
+            // Con una predicción buena, se usa en su lugar; si no, la silueta sólo se descarta
+            if (med >= GOOD_IOU) {
+                out[c] = preds[c];
+                st.repaired.add(c);
+            } else {
+                out[c] = null;
+                st.dropped.add(c);
+            }
+        }
+        return out;
+    }
+
+    /** Volumen por votación de las siluetas {@code masks} (centros de los vóxeles en {@code vox}); devuelve el lado del vóxel. */
+    private static double vote(Sfm.Result r, double[] reg, byte[][] masks, int mw, int mh, List<double[]> vox, double share) {
+        double z0 = 0, ext = Math.max(reg[1] - reg[0], Math.max(reg[3] - reg[2], reg[5] - z0));
+        double step = ext / VOTE_N;
+        int nx = (int) Math.ceil((reg[1] - reg[0]) / step), ny = (int) Math.ceil((reg[3] - reg[2]) / step), nz = (int) Math.ceil((reg[5] - z0) / step);
+        short[] seen = new short[nx * ny * nz], in = new short[nx * ny * nz];
+        double sx = (double) mw / r.width, sy = (double) mh / r.height, cx = r.width / 2.0, cy = r.height / 2.0, f = r.focal;
+        int views = 0;
+        for (int c = 0; c < masks.length; c++) {
+            byte[] m = masks[c];
+            if (m == null) continue;
+            views++;
+            Geometry.Pose p = r.poses.get(c);
+            for (int k = 0, id = 0; k < nz; k++)
+                for (int j = 0; j < ny; j++)
+                    for (int i = 0; i < nx; i++, id++) {
+                        double[] xc = p.apply(new double[]{reg[0] + (i + 0.5) * step, reg[2] + (j + 0.5) * step, z0 + (k + 0.5) * step});
+                        if (xc[2] <= 1) continue;
+                        int u = (int) Math.floor((f * xc[0] / xc[2] + cx) * sx), v = (int) Math.floor((f * xc[1] / xc[2] + cy) * sy);
+                        if (u < 0 || v < 0 || u >= mw || v >= mh) continue;
+                        seen[id]++;
+                        if (m[v * mw + u] != 0) in[id]++;
+                    }
+        }
+        int minSeen = Math.max(5, views / 3);
+        for (int k = 0, id = 0; k < nz; k++)
+            for (int j = 0; j < ny; j++)
+                for (int i = 0; i < nx; i++, id++)
+                    if (seen[id] >= minSeen && in[id] >= share * seen[id])
+                        vox.add(new double[]{reg[0] + (i + 0.5) * step, reg[2] + (j + 0.5) * step, z0 + (k + 0.5) * step});
+        return step;
+    }
+
+    /** La silueta que predicen los vóxeles {@code vox} en la cámara {@code c}. */
+    private static byte[] project(Sfm.Result r, List<double[]> vox, double step, int c, int mw, int mh) {
+        double sx = (double) mw / r.width, sy = (double) mh / r.height, cx = r.width / 2.0, cy = r.height / 2.0, f = r.focal;
+        Geometry.Pose p = r.poses.get(c);
+        byte[] pred = new byte[mw * mh];
+        for (double[] x : vox) {
+            double[] xc = p.apply(x);
+            if (xc[2] <= 1) continue;
+            double u = (f * xc[0] / xc[2] + cx) * sx, v = (f * xc[1] / xc[2] + cy) * sy;
+            // El vóxel ocupa unos píxeles: se marca su huella
+            int rad = (int) Math.ceil(0.5 * step * f / xc[2] * sx);
+            for (int yy = (int) Math.floor(v) - rad; yy <= (int) Math.floor(v) + rad; yy++)
+                for (int xx = (int) Math.floor(u) - rad; xx <= (int) Math.floor(u) + rad; xx++)
+                    if (xx >= 0 && yy >= 0 && xx < mw && yy < mh) pred[yy * mw + xx] = 1;
+        }
+        return pred;
+    }
+
     /** Cuántos píxeles de silueta se borraron y se agregaron (en todas las fotos). */
     public static final class Stats {
         public long clipped, added;
         public int masks, addPoints;
+        /** Consenso: cámaras cuya silueta se reemplazó por la que predicen las demás, vóxeles del volumen votado y parecido (IoU) acumulado. */
+        public final List<Integer> repaired = new ArrayList<>();
+        public final List<Integer> dropped = new ArrayList<>();
+        public int voteVoxels, flagged;
+        public double iouMedian;
     }
 
     /** El espacio del objeto: {xmin, xmax, ymin, ymax, zmin, zmax} en mm; null sin puntos. */

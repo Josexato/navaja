@@ -81,6 +81,9 @@ public final class SheetScan {
         /** Siluetas corregidas con la hoja ({@link SheetMasks}): fotos, píxeles borrados y agregados, puntos que agregaron. */
         public int maskFixed, maskPoints;
         public long maskClipped, maskAdded;
+        /** Consenso entre siluetas: parecido mediano (IoU) con lo que predicen las demás, cuántas no calzaron, cuántas se repararon y cuántas se descartaron. */
+        public double maskIou;
+        public int maskFlagged, maskRepaired, maskDropped;
         /** Cobertura de las fotos clave: vuelta recorrida (°), altura de la cámara (°), paso entre fotos (°) y huecos {cuadro desde, cuadro hasta, grados}. */
         public double turnDeg, elevMin, elevMax, stepMedian, stepMax;
         public final List<double[]> gaps = new ArrayList<>();
