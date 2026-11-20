@@ -65,6 +65,7 @@ public class ImuTest {
     public void unaPoseMalaSeNota() {
         Sfm.Result r = orbit();
         Imu imu = Imu.parse(csv(r, Lin.rodrigues(new double[]{0.3, 0.2, 0.1}), 5_000_000_000L, 15, true));
+        imu.turn = 0; // el celular sintético queda de lado, pero las cámaras de la prueba son las de los cuadros sin girar
         // La cámara 10 girada 8° de más: la diferencia máxima con los sensores lo muestra
         r.poses.get(10).r = Lin.mul(Lin.rodrigues(new double[]{0, Math.toRadians(8), 0}), r.poses.get(10).r);
         double[] agree = imu.poseAgreement(r, 15);
@@ -92,5 +93,25 @@ public class ImuTest {
         assertNull(Imu.parse("r,1,0,0,0,1\n"));
         Sfm.Result r = orbit();
         assertNull(Measure.gravityUp(r));
+    }
+    @Test
+    public void conElCelularApaisadoLosCuadrosSeGiranYArribaSigueArriba() {
+        // Celular girado 90° antihorario (la parte de arriba del celular hacia la izquierda), mirando de frente:
+        // la gravedad (hacia arriba, como el acelerómetro) va por +x del celular
+        StringBuilder csv = new StringBuilder("#inicio_video_ns=1000000000\n");
+        for (int k = 0; k < 30; k++) csv.append(String.format(java.util.Locale.ROOT, "g,%d,9.8,0.3,0.2%n", 1_000_000_000L + k * 20_000_000L));
+        Imu imu = Imu.parse(csv.toString());
+        org.junit.Assert.assertEquals(270, imu.turn);
+        double[] up = imu.upCamera(0.2);
+        // En los cuadros girados (derechos), arriba es −y de la imagen
+        org.junit.Assert.assertEquals(0, up[0], 0.05);
+        org.junit.Assert.assertEquals(-1, up[1], 0.05);
+        // Vertical de siempre: sin giro
+        Imu v = Imu.parse("#inicio_video_ns=1000000000\ng,1000000000,0.1,9.8,0.2\ng,1020000000,0.1,9.8,0.2\n");
+        org.junit.Assert.assertEquals(0, v.turn);
+        org.junit.Assert.assertEquals(-1, v.upCamera(0)[1], 0.05);
+        // Celular acostado sobre la mesa: no se gira
+        Imu f = Imu.parse("#inicio_video_ns=1000000000\ng,1000000000,0.1,0.2,9.8\n");
+        org.junit.Assert.assertEquals(0, f.turn);
     }
 }

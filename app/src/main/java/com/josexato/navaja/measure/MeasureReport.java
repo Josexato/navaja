@@ -200,6 +200,9 @@ final class MeasureReport {
                     + "±%.1f mm después de afinar las cámaras). Cada cámara se afinó con las esquinas de las marcas y %d de esos puntos: se movió %.1f mm "
                     + "(mediana); error de las esquinas después: %.2f px.%n", h.planePoints, h.sheetNoiseBefore, h.sheetNoiseAfter, h.planeAnchors,
                     h.poseShiftMm, h.cornerRmsAfter));
+            if (h.maskFixed > 0)
+                s.append(String.format(Locale.ROOT, "- Siluetas corregidas con la hoja (%d fotos): %d px borrados (fondo lejos del objeto, p. ej. la pared) · %d px agregados "
+                        + "alrededor de %d puntos confiables del objeto (partes que la IA dejó afuera; sólo para tallar el volumen).%n", h.maskFixed, h.maskClipped, h.maskAdded, h.maskPoints));
             if (h.droppedObs > 0)
                 s.append(String.format(Locale.ROOT, "- Observaciones malas quitadas de pistas (un par equivocado en una pista larga se quita sin perder el punto): %d.%n", h.droppedObs));
             s.append("- XFeat + LighterGlue (puntos aprendidos; cada foto clave con las 2 anteriores): ")

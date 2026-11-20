@@ -28,6 +28,11 @@ final class VideoFrames {
     }
 
     static void read(Context ctx, Uri uri, double fps, int longSide, Sink sink) throws IOException {
+        read(ctx, uri, fps, longSide, 0, sink);
+    }
+
+    /** Igual, girando además cada cuadro {@code turn} grados en sentido horario (celular apaisado, ver {@code Imu.turn}). */
+    static void read(Context ctx, Uri uri, double fps, int longSide, int turn, Sink sink) throws IOException {
         MediaExtractor ex = new MediaExtractor();
         MediaCodec codec = null;
         try {
@@ -45,7 +50,7 @@ final class VideoFrames {
             }
             if (track < 0) throw new IOException("El archivo no tiene video");
             ex.selectTrack(track);
-            int rotation = fmt.containsKey(MediaFormat.KEY_ROTATION) ? fmt.getInteger(MediaFormat.KEY_ROTATION) : 0;
+            int rotation = (fmt.containsKey(MediaFormat.KEY_ROTATION) ? fmt.getInteger(MediaFormat.KEY_ROTATION) : 0) + turn;
             long duration = fmt.containsKey(MediaFormat.KEY_DURATION) ? fmt.getLong(MediaFormat.KEY_DURATION) : 0;
             codec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME));
             fmt.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);

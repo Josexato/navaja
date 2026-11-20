@@ -53,6 +53,16 @@ public final class Imu {
         return s.toString();
     }
 
+    /**
+     * Cómo se sostuvo el celular (giro horario desde vertical: 0, 90, 180 o
+     * 270), el más frecuente según la gravedad. La pantalla de grabación
+     * guarda el video siempre como si el celular estuviera vertical: si se
+     * grabó apaisado, los cuadros se giran esto (horario) para verse
+     * derechos, y las direcciones de la cámara de este objeto ya están en
+     * los cuadros girados.
+     */
+    public int turn;
+
     /** Focal de la cámara en píxeles del video grabado (0 si no se guardó) y tamaño de ese video. */
     public double focalVideoPx;
     public int videoW, videoH;
@@ -94,10 +104,40 @@ public final class Imu {
             }
         }
         if (m.start == 0 || (m.rot.isEmpty() && m.grav.isEmpty())) return null;
+        m.turn = dominantTurn(m.grav);
         return m;
     }
 
     private static double d(String s) { return Double.parseDouble(s); }
+
+    /**
+     * Giro horario del celular desde vertical, el más frecuente (como
+     * OrientationEventListener, redondeado a 90°); sólo cuentan las muestras
+     * con el celular bastante parado (no acostado sobre la mesa).
+     */
+    static int dominantTurn(List<double[]> grav) {
+        int[] votes = new int[4];
+        for (double[] g : grav) {
+            if (Math.hypot(g[1], g[2]) < 3) continue;
+            double x = -g[1], y = -g[2];
+            int o = (int) (90 - Math.round(Math.toDegrees(Math.atan2(-y, x))));
+            o = ((o % 360) + 360) % 360;
+            votes[((o + 45) / 90) % 4]++;
+        }
+        int best = 0;
+        for (int k = 1; k < 4; k++) if (votes[k] > votes[best]) best = k;
+        return 90 * best;
+    }
+
+    /** Lleva un vector de la cámara del video vertical a la de los cuadros girados {@link #turn}. */
+    double[] toTurned(double[] v) {
+        switch (turn) {
+            case 90: return new double[]{-v[1], v[0], v[2]};
+            case 180: return new double[]{-v[0], -v[1], v[2]};
+            case 270: return new double[]{v[1], -v[0], v[2]};
+            default: return v;
+        }
+    }
 
     public boolean hasRotation() { return rot.size() >= 2; }
 
@@ -117,7 +157,7 @@ public final class Imu {
         } else return null;
         double l = Lin.norm(up);
         if (l < 1e-6) return null;
-        return new double[]{up[0] / l, -up[1] / l, -up[2] / l};
+        return toTurned(new double[]{up[0] / l, -up[1] / l, -up[2] / l});
     }
 
     /**
@@ -134,8 +174,17 @@ public final class Imu {
     /** Rotación cámara → mundo de los sensores en el segundo {@code t}. */
     double[] cameraToWorld(double t) {
         double[] r = matrix(interp(rot, start + (long) (t * 1e9), true));
-        // cámara → celular: x igual, y y z al revés
-        return Lin.mul(r, new double[]{1, 0, 0, 0, -1, 0, 0, 0, -1});
+        // cámara → celular: x igual, y y z al revés; si los cuadros se giraron, antes se deshace ese giro (Tᵀ)
+        double[] c = Lin.mul(r, new double[]{1, 0, 0, 0, -1, 0, 0, 0, -1});
+        if (turn == 0) return c;
+        double[] tt = new double[9];
+        for (int j = 0; j < 3; j++) {
+            double[] e = new double[3];
+            e[j] = 1;
+            double[] col = toTurned(e); // columna j de T = fila j de Tᵀ
+            for (int i = 0; i < 3; i++) tt[j * 3 + i] = col[i];
+        }
+        return Lin.mul(c, tt);
     }
 
     /** Matriz celular → mundo (por filas) del cuaternión {x, y, z, w}. */
@@ -209,6 +258,7 @@ public final class Imu {
 
     @Override
     public String toString() {
-        return String.format(Locale.ROOT, "%d orientaciones, %d gravedades", rot.size(), grav.size());
+        return String.format(Locale.ROOT, "%d orientaciones, %d gravedades", rot.size(), grav.size())
+                + (turn != 0 ? String.format(Locale.ROOT, "; celular apaisado: los cuadros se giraron %d° para verse derechos", turn) : "");
     }
 }

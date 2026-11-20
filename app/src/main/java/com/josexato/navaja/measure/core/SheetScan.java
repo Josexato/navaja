@@ -24,6 +24,8 @@ public final class SheetScan {
     static final double MAX_REPROJ = 2, MIN_PARALLAX = 2;
     /** Puntos del plano usados para reajustar las cámaras: paralaje mínimo (°). */
     static final double ANCHOR_PARALLAX = 4;
+    /** Cuánto (mm) puede salirse el objeto del borde de la hoja. */
+    static final double PAGE_MARGIN = 30;
     /** Usar que la hoja es plana (puntos del plano en Z = 0 y cámaras reajustadas con ellos) y cuántas vueltas de reajuste. */
     static boolean PLANE = true;
     static int PLANE_ROUNDS = 3;
@@ -63,6 +65,9 @@ public final class SheetScan {
          * cámaras (mm, mediana) y el error de las esquinas después (px, mediana).
          */
         public int planePoints, planeAnchors;
+        /** Siluetas corregidas con la hoja ({@link SheetMasks}): fotos, píxeles borrados y agregados, puntos que agregaron. */
+        public int maskFixed, maskPoints;
+        public long maskClipped, maskAdded;
         /** Observaciones malas quitadas de pistas (en vez de descartar la pista entera). */
         public int droppedObs;
         public double sheetNoiseBefore, sheetNoiseAfter, poseShiftMm, cornerRmsAfter;
@@ -391,7 +396,9 @@ public final class SheetScan {
                 thr = Math.max(1, 3 * 1.4826 * z[z.length / 2]);
             }
         }
-        Measure.Box b = Measure.measureOnPlane(r, new double[]{0, 0, 1}, new double[]{0, 0, 0}, thr);
+        // El objeto está sobre la hoja: lo que sobresale fuera de ella (con un margen, por si el objeto se sale un poco) es el fondo
+        double mx = Sheet.PAGE_W / 2.0 + PAGE_MARGIN, my = Sheet.PAGE_H / 2.0 + PAGE_MARGIN;
+        Measure.Box b = Measure.measureOnPlane(r, new double[]{0, 0, 1}, new double[]{0, 0, 0}, thr, new double[]{-mx, mx, -my, my});
         if (b == null) return null;
         Measure.Choice c = new Measure.Choice();
         c.result = r;

@@ -29,6 +29,7 @@ import com.josexato.navaja.measure.core.Features;
 import com.josexato.navaja.measure.core.Imu;
 import com.josexato.navaja.measure.core.Lens;
 import com.josexato.navaja.measure.core.Markers;
+import com.josexato.navaja.measure.core.SheetMasks;
 import com.josexato.navaja.measure.core.SheetPose;
 import com.josexato.navaja.measure.core.SheetScan;
 import com.josexato.navaja.measure.core.Lin;
@@ -120,6 +121,8 @@ public class MeasureActivity extends Activity {
     /** Modo "Hoja" (experimental): la pose sale de las marcas de la hoja impresa y todo queda en mm. */
     static final String EXTRA_SHEET = "hoja", EXTRA_START = "empezar";
     private boolean sheetMode;
+    /** Giro horario de los cuadros (celular apaisado al grabar con sensores; 0 si no). */
+    private int frameTurn;
     /** Marcas de cada cuadro analizado (sólo en modo hoja) y lo que pasó al ubicar el celular con ellas. */
     private final List<List<Markers.Marker>> sheetMarkers = new ArrayList<>();
     private SheetScan.Report sheetReport;
@@ -282,6 +285,9 @@ public class MeasureActivity extends Activity {
                 long[] dur = new long[1];
                 // Silueta y regiones de color en los cuadros de puntos multiescala: ayudan a reconocer lugares entre
                 // tramos. El toque va al centro de la silueta anterior (al principio, al centro de la imagen).
+                // Sensores antes de leer: si el celular estuvo apaisado, los cuadros se giran para verse derechos
+                imu = loadImu(sensorsFile);
+                frameTurn = imu == null ? 0 : imu.turn;
                 Silhouettes sil = null;
                 try {
                     sil = new Silhouettes(this);
@@ -291,7 +297,7 @@ public class MeasureActivity extends Activity {
                 Silhouettes model = sil;
                 double[][] tapRef = {null};
                 try {
-                    VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                    VideoFrames.read(this, uri, FPS, LONG_SIDE, frameTurn, (argb, w, h, t, d) -> {
                         if (cancel.get()) return false;
                         if (dims[0] != 0 && (dims[0] != w || dims[1] != h)) return true; // cuadro de otro tamaño: se ignora
                         dims[0] = w;
@@ -324,7 +330,6 @@ public class MeasureActivity extends Activity {
                 if (tr.frames() < 20) throw new IOException("El video es muy corto: filma al menos 10 segundos");
                 sharpness.clear();
                 sharpness.addAll(tr.sharpness);
-                imu = loadImu(sensorsFile);
                 List<Sfm.Result> segs;
                 Measure.Choice ch;
                 if (sheetMode) {
@@ -435,7 +440,7 @@ public class MeasureActivity extends Activity {
         XFeatTracks.Frame[] prev = new XFeatTracks.Frame[XFeatTracks.LOOK_BACK];
         int[] idx = {-1}, done = {0};
         try {
-            VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+            VideoFrames.read(this, uri, FPS, LONG_SIDE, frameTurn, (argb, w, h, t, d) -> {
                 if (cancel.get()) return false;
                 if (w != dims[0] || h != dims[1]) return true;
                 int fr = ++idx[0];
@@ -490,7 +495,7 @@ public class MeasureActivity extends Activity {
                 Sfm.Tracker zt = new Sfm.Tracker(ZONE_POINTS, new Sfm.Zone(r, c0, radius, r.startFrame), ZONE_CELL);
                 int[] idx = {-1};
                 int span = r.endFrame - r.startFrame + 1;
-                VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                VideoFrames.read(this, uri, FPS, LONG_SIDE, frameTurn, (argb, w, h, t, d) -> {
                     if (cancel.get()) return false;
                     if (w != dims[0] || h != dims[1]) return true;
                     if (++idx[0] < r.startFrame) return true;
@@ -554,7 +559,7 @@ public class MeasureActivity extends Activity {
         int[] idx = {-1};
         int span = r.endFrame - r.startFrame + 1;
         try {
-            VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+            VideoFrames.read(this, uri, FPS, LONG_SIDE, frameTurn, (argb, w, h, t, d) -> {
                 if (cancel.get()) return false;
                 if (w != dims[0] || h != dims[1]) return true;
                 if (++idx[0] < r.startFrame) return true;
@@ -575,6 +580,22 @@ public class MeasureActivity extends Activity {
             if (model != null) model.close();
         }
         if (cancel.get()) return;
+        // Modo hoja: las siluetas se recortan a lo que puede ser el objeto (sobre la hoja) y, sólo para tallar el volumen,
+        // se completan con los puntos confiables del objeto (partes que MagicTouch dejó afuera: un tallo, un costado)
+        byte[][] carveCuts = null;
+        if (sheetMode && model != null) {
+            SheetMasks.Stats st = new SheetMasks.Stats();
+            Measure.Box b0 = ch.box;
+            byte[][] clipped = SheetMasks.refineAll(r, b0, cuts, mw, mh, st, false);
+            carveCuts = SheetMasks.refineAll(r, b0, clipped, mw, mh, st, true);
+            System.arraycopy(clipped, 0, cuts, 0, cuts.length);
+            if (sheetReport != null) {
+                sheetReport.maskFixed = st.masks / 2;
+                sheetReport.maskClipped = st.clipped;
+                sheetReport.maskAdded = st.added;
+                sheetReport.maskPoints = st.addPoints;
+            }
+        }
         // El casco usa sólo los puntos ralos (con sus pistas): se talla antes de sumar los densos
         // Con siluetas se sabe mejor qué puntos son del objeto: los que caen dentro de la silueta en casi todas
         // las vistas (la agrupación por cercanía puede quedarse con una parte). Con ellos, caja nueva y tallado.
@@ -586,7 +607,7 @@ public class MeasureActivity extends Activity {
             }
         }
         // Se validan de nuevo con la caja nueva (sus puntos son más del objeto)
-        byte[][] used = model == null ? null : Carve.validate(r, ch.box, cuts, mw, mh);
+        byte[][] used = model == null ? null : Carve.validate(r, ch.box, carveCuts != null ? carveCuts : cuts, mw, mh);
         hull = model == null ? null : Carve.carve(r, ch.box, used, mw, mh);
         masksUsed = used;
         if (hull != null) Measure.refineWithHull(r, ch.box, hull);

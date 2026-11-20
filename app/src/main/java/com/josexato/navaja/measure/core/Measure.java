@@ -154,11 +154,24 @@ public final class Measure {
      * "Hoja", donde el apoyo es la hoja (Z = 0) y no hace falta buscarlo.
      */
     public static Box measureOnPlane(Sfm.Result r, double[] bn, double[] bp, double thr) {
+        return measureOnPlane(r, bn, bp, thr, null);
+    }
+
+    /**
+     * Igual, considerando como objeto sólo lo que está sobre el rectángulo
+     * {@code xy} = {xmin, xmax, ymin, ymax} (en el modo hoja: la hoja con un
+     * margen; lo de afuera es el fondo). Null = sin límite.
+     */
+    public static Box measureOnPlane(Sfm.Result r, double[] bn, double[] bp, double thr, double[] xy) {
         if (r.points.length < 50) return null;
-        return onPlane(r, bn, bp, thr, new Random(3));
+        return onPlane(r, bn, bp, thr, new Random(3), xy);
     }
 
     private static Box onPlane(Sfm.Result r, double[] bn, double[] bp, double thr, Random rnd) {
+        return onPlane(r, bn, bp, thr, rnd, null);
+    }
+
+    private static Box onPlane(Sfm.Result r, double[] bn, double[] bp, double thr, Random rnd, double[] xy) {
         double[][] p = r.points;
         int n = p.length;
         double[] med = median3(p);
@@ -169,6 +182,7 @@ public final class Measure {
         List<Integer> front = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             double d = Lin.dot(Lin.sub(p[i], bp), bn);
+            if (xy != null && (p[i][0] < xy[0] || p[i][0] > xy[1] || p[i][1] < xy[2] || p[i][1] > xy[3])) continue;
             if (d > 2 * thr && dist[i] < 4 * sc) front.add(i);
         }
         if (front.size() < 20) return null;
