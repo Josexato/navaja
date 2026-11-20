@@ -63,6 +63,8 @@ final class MeasureReport {
         SheetScan.Report sheet;
         /** Sensores grabados con el video (null si no hay) y su archivo. */
         Imu imu;
+        /** Giro horario aplicado a los cuadros (0 si ninguno). */
+        int frameTurn;
         File sensorsFile;
         /** Nitidez de cada cuadro analizado (varianza del laplaciano); vacía si no se midió. */
         List<Float> sharpness = new ArrayList<>();
@@ -196,6 +198,9 @@ final class MeasureReport {
             s.append(String.format(Locale.ROOT, "- Fotos (cuadros clave) entre los ubicados: %d · pistas seguidas: %d → puntos triangulados con esas poses: %d "
                     + "(error de reproyección mediano %.2f px): %d de pistas KLT y %d de pistas XFeat.%n", h.keyframes, h.tracks, h.triangulated, h.pointRms,
                     h.kltPoints, h.xfeatPoints));
+            if (d.frameTurn != 0)
+                s.append(String.format(Locale.ROOT, "- Celular apaisado: los cuadros se giraron %d° para verse derechos (%s).%n", d.frameTurn,
+                        d.imu != null ? "según los sensores" : "según la hoja: el video no trae sensores"));
             s.append(String.format(Locale.ROOT, "- Hoja plana: %d puntos de la hoja y la mesa quedaron en Z = 0 (triangulados libres tenían ±%.1f mm de altura; "
                     + "±%.1f mm después de afinar las cámaras). Cada cámara se afinó con las esquinas de las marcas y %d de esos puntos: se movió %.1f mm "
                     + "(mediana); error de las esquinas después: %.2f px.%n", h.planePoints, h.sheetNoiseBefore, h.sheetNoiseAfter, h.planeAnchors,

@@ -121,7 +121,9 @@ public class MeasureActivity extends Activity {
     /** Modo "Hoja" (experimental): la pose sale de las marcas de la hoja impresa y todo queda en mm. */
     static final String EXTRA_SHEET = "hoja", EXTRA_START = "empezar";
     private boolean sheetMode;
-    /** Giro horario de los cuadros (celular apaisado al grabar con sensores; 0 si no). */
+    /** Cuadros del principio que se miran para saber, con la hoja, cómo se sostuvo el celular (sin sensores). */
+    private static final int TURN_FRAMES = 30;
+    /** Giro horario de los cuadros (celular apaisado: por los sensores o, en el modo hoja, por la hoja; 0 si no). */
     private int frameTurn;
     /** Marcas de cada cuadro analizado (sólo en modo hoja) y lo que pasó al ubicar el celular con ellas. */
     private final List<List<Markers.Marker>> sheetMarkers = new ArrayList<>();
@@ -288,6 +290,21 @@ public class MeasureActivity extends Activity {
                 // Sensores antes de leer: si el celular estuvo apaisado, los cuadros se giran para verse derechos
                 imu = loadImu(sensorsFile);
                 frameTurn = imu == null ? 0 : imu.turn;
+                // Modo hoja sin sensores (un video de la galería): la hoja dice dónde es "arriba" en los primeros segundos
+                if (sheetMode && imu == null) {
+                    post("Revisando cómo se sostuvo el celular…");
+                    List<List<Markers.Marker>> first = new ArrayList<>();
+                    int[] wh = new int[2];
+                    VideoFrames.read(this, uri, FPS, LONG_SIDE, (argb, w, h, t, d) -> {
+                        if (cancel.get()) return false;
+                        wh[0] = w;
+                        wh[1] = h;
+                        first.add(Markers.detect(argb, w, h));
+                        return first.size() < TURN_FRAMES;
+                    });
+                    if (cancel.get()) return;
+                    frameTurn = SheetScan.uprightTurn(first, wh[0], wh[1]);
+                }
                 Silhouettes sil = null;
                 try {
                     sil = new Silhouettes(this);
@@ -960,6 +977,7 @@ public class MeasureActivity extends Activity {
         d.loopLog = loopLog;
         d.sharpness.addAll(sharpness);
         d.imu = imu;
+        d.frameTurn = frameTurn;
         d.sensorsFile = imu != null ? sensorsFile : null;
         d.photos = photos;
         d.masks = masks;
