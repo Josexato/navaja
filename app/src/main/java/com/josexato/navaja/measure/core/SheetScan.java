@@ -114,6 +114,33 @@ public final class SheetScan {
     }
 
     /**
+     * Cómo girar los cuadros (grados, horario: 0, 90, 180 o 270) para que la
+     * hoja quede "derecha": que la vertical del mundo (+Z de la hoja) apunte
+     * hacia arriba en la imagen. Sirve cuando no hay sensores (un video de
+     * la galería grabado con el celular apaisado). Con una focal aproximada
+     * alcanza: sólo importa hacia dónde apunta "arriba". 0 si la hoja no se
+     * vio en ningún cuadro.
+     */
+    public static int uprightTurn(List<List<Markers.Marker>> markers, int w, int h) {
+        Lens l = new Lens(0.85 * Math.max(w, h), w / 2.0, h / 2.0);
+        int[] votes = new int[4];
+        for (List<Markers.Marker> ms : markers) {
+            if (ms.size() < Lens.MIN_MARKERS) continue;
+            SheetPose.Fix fx = SheetPose.solve(ms, l);
+            if (fx == null) continue;
+            // "Arriba" del mundo en la cámara (y de la imagen crece hacia abajo)
+            double[] up = Lin.mulV(fx.pose.r, new double[]{0, 0, 1});
+            if (Math.hypot(up[0], up[1]) < 0.3) continue; // mirando casi derecho hacia abajo: no se sabe
+            double a = Math.toDegrees(Math.atan2(up[0], -up[1])); // 0 = hacia arriba, 90 = hacia la derecha
+            int q = (int) Math.round(a / 90);
+            votes[((-q % 4) + 4) % 4]++;
+        }
+        int best = 0;
+        for (int k = 1; k < 4; k++) if (votes[k] > votes[best]) best = k;
+        return votes[best] == 0 ? 0 : 90 * best;
+    }
+
+    /**
      * La pose de cada cuadro ({@code markers.get(f)}: las marcas del cuadro
      * f); null donde no se pudo. Llena los conteos de {@code rep}.
      */

@@ -218,4 +218,23 @@ public class SheetScanTest {
         Measure.Box b = SheetScan.measure(r).box;
         assertEquals("alto", BZ, b.alto + b.separation, 3);
     }
+
+    @Test
+    public void laHojaDiceComoSeSostuvoElCelular() {
+        Random rnd = new Random(8);
+        List<Geometry.Pose> cams = orbit().subList(0, 20);
+        // Derecho: sin giro
+        assertEquals(0, SheetScan.uprightTurn(markers(cams, 0.4, rnd), W, H));
+        // El celular girado 90° (la imagen acostada): las cámaras giradas sobre su eje; hay que girar los cuadros 270°
+        List<Geometry.Pose> side = new ArrayList<>();
+        double[] rz = {0, -1, 0, 1, 0, 0, 0, 0, 1}; // x' = −y, y' = x
+        for (Geometry.Pose p : cams) {
+            Geometry.Pose q = new Geometry.Pose();
+            q.r = Lin.mul(rz, p.r);
+            q.t = Lin.mulV(rz, p.t);
+            side.add(q);
+        }
+        int t = SheetScan.uprightTurn(markers(side, 0.4, rnd), H, W);
+        assertTrue("giro " + t, t == 90 || t == 270);
+    }
 }
