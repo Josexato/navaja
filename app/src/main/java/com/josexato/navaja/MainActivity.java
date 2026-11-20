@@ -65,6 +65,12 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> startActivityForResult(new Intent(MainActivity.this, Scan3dHubActivity.class), REQ_SCAN));
         }
 
+        /** Qué versión es, para la pantalla de inicio (ver {@link BuildFacts}). */
+        @JavascriptInterface
+        public String buildInfo() {
+            return BuildFacts.line(BuildConfig.VERSION_NAME, BuildConfig.CODE_TIME, BuildConfig.BUILDS_TODAY);
+        }
+
         @JavascriptInterface
         public void openTuner() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, TunerActivity.class)));

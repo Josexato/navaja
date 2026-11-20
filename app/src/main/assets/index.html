@@ -206,6 +206,7 @@
   .card .ico { width: 48px; height: 48px; border-radius: 13px; display: grid; place-items: center; color: #fff; }
   .card .ico svg { width: 28px; height: 28px; }
   .ico.viewer { background: linear-gradient(135deg, #F2B544, #D9902A); }
+  .build-info { font-size: 12px; opacity: .7; margin-top: 6px; }
   .ico.scan { background: linear-gradient(135deg, #EE5A4F, #C9322C); }
   .ico.tuner { background: linear-gradient(135deg, #3DD6C6, #1FA597); }
   .ico.lan { background: linear-gradient(135deg, #6E8BF0, #3F5AD0); }
@@ -267,6 +268,7 @@
         <div>
           <h2>Navaja <span>◆</span></h2>
           <p>Tu navaja suiza en el bolsillo: visor de archivos, escáner 3D, afinador, red local, red móvil, marcador, brújula, nivel, pulso y pantonera. Todo funciona sin internet.</p>
+          <p id="buildInfo" class="build-info" hidden></p>
         </div>
       </div>
       <div class="cards">
@@ -1089,6 +1091,10 @@
   /* ================= Pantalla de inicio ================= */
   const home = $('home');
   const native = !!window.NavajaNative;
+  // Qué versión es: fecha del código, un hecho de hace 100 años y las compilaciones del día (lo arma la app)
+  if (native && window.NavajaNative.buildInfo) {
+    try { const b = $('buildInfo'); b.textContent = window.NavajaNative.buildInfo(); b.hidden = false; } catch (e) { /* sin dato */ }
+  }
   function showHome(on) {
     home.hidden = !on;
     $('homeBtn').hidden = on;
