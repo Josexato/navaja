@@ -1,14 +1,17 @@
 package com.josexato.navaja.measure;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.res.AssetFileDescriptor;
 import android.util.Log;
 
+import com.josexato.navaja.BuildConfig;
 import com.josexato.navaja.measure.core.XFeatTracks;
 
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.gpu.CompatibilityList;
 import org.tensorflow.lite.gpu.GpuDelegate;
+import org.tensorflow.lite.nnapi.NnApiDelegate;
 
 import java.io.Closeable;
 import java.io.FileInputStream;
@@ -26,9 +29,10 @@ import java.util.Map;
 /**
  * XFeat (puntos y descriptores) y LighterGlue (emparejador) en el teléfono,
  * con TFLite: Apache-2.0, vienen dentro del APK (ver
- * modelos/LICENCIA-xfeat.txt), sin internet. Intenta la GPU y, si el
- * teléfono no la admite o falla, usa la CPU (XNNPACK). Anota cuál usó y
- * cuánto tarda, para el diagnóstico.
+ * modelos/LICENCIA-xfeat.txt), sin internet. Al cargar prueba en el
+ * teléfono la CPU (XNNPACK), la GPU y la NPU (NNAPI) y se queda con la más
+ * rápida que dé lo mismo que la CPU (ver {@link Engine}). Anota cuál usó,
+ * cuánto tarda y cómo le fue a cada una, para el diagnóstico.
  */
 final class XFeat implements Closeable {
 
@@ -37,9 +41,11 @@ final class XFeat implements Closeable {
     private static final int N = XFeatTracks.N;
 
     private final Interpreter net, glue;
-    private final GpuDelegate gpuNet, gpuGlue;
-    /** "GPU" o "CPU (n hilos)", para cada modelo. */
+    private final AutoCloseable accNet, accGlue;
+    /** Dónde corre cada modelo: "GPU", "NPU (NNAPI)" o "CPU (n hilos)". */
     final String netDelegate, glueDelegate;
+    /** Cómo se eligió: el tiempo de cada opción probada en este teléfono (para el diagnóstico). */
+    final String choiceNote;
 
     private final float[] image = new float[XFeatTracks.IN_W * XFeatTracks.IN_H];
     private final FloatBuffer in, outDesc, outHeat, outRel, gk0, gk1, gd0, gd1, outV;
@@ -52,13 +58,6 @@ final class XFeat implements Closeable {
 
     XFeat(Context c) throws IOException {
         int threads = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
-        Object[] a = open(c, BACKBONE, threads), b = open(c, GLUE, threads);
-        net = (Interpreter) a[0];
-        gpuNet = (GpuDelegate) a[1];
-        netDelegate = (String) a[2];
-        glue = (Interpreter) b[0];
-        gpuGlue = (GpuDelegate) b[1];
-        glueDelegate = (String) b[2];
         int gw = XFeatTracks.IN_W / 8, gh = XFeatTracks.IN_H / 8;
         in = floats(image.length);
         desc = new float[gh * gw * XFeatTracks.DIM];
@@ -77,47 +76,178 @@ final class XFeat implements Closeable {
         v0 = new float[N];
         m0 = new int[N];
         m1 = new int[N];
+        // Entradas de prueba: una imagen con textura y dos juegos de puntos que son los mismos en otro orden
+        // (así el emparejador tiene pares verdaderos y se puede comparar lo que da cada acelerador con la CPU)
+        java.util.Random rnd = new java.util.Random(1);
+        for (int i = 0; i < image.length; i++) {
+            int x = i % XFeatTracks.IN_W, y = i / XFeatTracks.IN_W;
+            image[i] = ((x / 16 + y / 16) % 2 == 0 ? 60 : 190) + rnd.nextInt(30);
+        }
+        in.put(image).rewind();
+        float[] k = new float[2 * N], d = new float[XFeatTracks.DIM * N], k2 = new float[2 * N], d2 = new float[XFeatTracks.DIM * N];
+        for (int i = 0; i < N; i++) {
+            k[2 * i] = rnd.nextFloat() - 0.5f;
+            k[2 * i + 1] = 1.6f * (rnd.nextFloat() - 0.5f);
+            double nn = 0;
+            for (int j = 0; j < XFeatTracks.DIM; j++) { d[i * XFeatTracks.DIM + j] = (float) rnd.nextGaussian(); nn += d[i * XFeatTracks.DIM + j] * d[i * XFeatTracks.DIM + j]; }
+            for (int j = 0; j < XFeatTracks.DIM; j++) d[i * XFeatTracks.DIM + j] /= (float) Math.sqrt(nn);
+        }
+        for (int i = 0; i < N; i++) {
+            int o = (i * 7 + 3) % N; // el punto i de la segunda foto es el o de la primera, corrido un poco
+            k2[2 * i] = k[2 * o] + 0.01f;
+            k2[2 * i + 1] = k[2 * o + 1] + 0.01f;
+            System.arraycopy(d, o * XFeatTracks.DIM, d2, i * XFeatTracks.DIM, XFeatTracks.DIM);
+        }
+        gk0.put(k).rewind();
+        gk1.put(k2).rewind();
+        gd0.put(d).rewind();
+        gd1.put(d2).rewind();
+        StringBuilder note = new StringBuilder();
+        // XFeat: se compara el mapa de puntos; LighterGlue: los pares que elige
+        Engine a = Engine.pick(c, BACKBONE, "XFeat", threads, it -> { runNet(it); return heat.clone(); },
+                (ref, got) -> { double s = 0; for (int i = 0; i < ref.length; i++) s += Math.abs(ref[i] - got[i]); return s / ref.length < 0.02; }, note);
+        note.append(" · ");
+        Engine b = Engine.pick(c, GLUE, "LighterGlue", threads, it -> { runGlue(it); float[] o = new float[N]; for (int i = 0; i < N; i++) o[i] = m0[i]; return o; },
+                (ref, got) -> { int same = 0; for (int i = 0; i < ref.length; i++) if (ref[i] == got[i]) same++; return same >= 0.9 * ref.length; }, note);
+        net = a.it;
+        accNet = a.delegate;
+        netDelegate = a.name;
+        glue = b.it;
+        accGlue = b.delegate;
+        glueDelegate = b.name;
+        choiceNote = note.toString();
     }
 
     private static FloatBuffer floats(int n) {
         return ByteBuffer.allocateDirect(4 * n).order(ByteOrder.nativeOrder()).asFloatBuffer();
     }
 
-    /** {intérprete, delegado GPU o null, descripción}: primero con GPU; si no se puede, en CPU. */
-    private static Object[] open(Context c, String asset, int threads) throws IOException {
-        MappedByteBuffer model;
-        try (AssetFileDescriptor fd = c.getAssets().openFd(asset);
-             FileInputStream fis = new FileInputStream(fd.getFileDescriptor())) {
-            model = fis.getChannel().map(FileChannel.MapMode.READ_ONLY, fd.getStartOffset(), fd.getDeclaredLength());
-        }
-        try {
-            CompatibilityList cl = new CompatibilityList();
-            if (cl.isDelegateSupportedOnThisDevice()) {
-                GpuDelegate g = new GpuDelegate(cl.getBestOptionsForThisDevice());
-                try {
-                    Interpreter.Options o = new Interpreter.Options();
-                    o.addDelegate(g);
-                    o.setNumThreads(threads); // para las operaciones que la GPU no hace
-                    return new Object[]{new Interpreter(model, o), g, "GPU"};
-                } catch (RuntimeException e) {
-                    g.close();
-                    throw e;
-                }
+    private interface Runner { float[] run(Interpreter it); }
+
+    private interface Same { boolean ok(float[] cpu, float[] got); }
+
+    /**
+     * Un modelo cargado en un acelerador. {@link #pick} prueba en este
+     * teléfono la CPU, la GPU y la NPU (NNAPI), mide cuánto tarda cada una
+     * con una entrada de prueba, descarta la que falla o no da lo mismo que
+     * la CPU, y se queda con la más rápida.
+     *
+     * <p>La GPU se prueba aunque el teléfono no figure en la lista de
+     * compatibles de TFLite (la lista es vieja). Como un controlador malo
+     * puede colgar la app en vez de dar un error, antes de probar cada
+     * acelerador se anota "probando"; si al volver a abrir sigue anotado,
+     * es que colgó y no se prueba más en esta versión de la app.
+     */
+    private static final class Engine {
+        Interpreter it;
+        AutoCloseable delegate;
+        String name;
+        double ms;
+
+        static Engine pick(Context c, String asset, String label, int threads, Runner run, Same same, StringBuilder note) throws IOException {
+            MappedByteBuffer model;
+            try (AssetFileDescriptor fd = c.getAssets().openFd(asset);
+                 FileInputStream fis = new FileInputStream(fd.getFileDescriptor())) {
+                model = fis.getChannel().map(FileChannel.MapMode.READ_ONLY, fd.getStartOffset(), fd.getDeclaredLength());
             }
-        } catch (RuntimeException | LinkageError e) {
-            Log.w(TAG, "GPU no disponible para " + asset, e);
+            SharedPreferences sp = c.getSharedPreferences("xfeat_aceleradores", Context.MODE_PRIVATE);
+            String ver = BuildConfig.VERSION_CODE + ":" + asset + ":";
+            Engine cpu = new Engine();
+            Interpreter.Options o = new Interpreter.Options();
+            o.setNumThreads(threads);
+            cpu.it = new Interpreter(model, o);
+            cpu.name = "CPU (" + threads + " hilos)";
+            float[] ref = run.run(cpu.it);
+            cpu.ms = time(cpu.it, run);
+            note.append(label).append(": CPU ").append(Math.round(cpu.ms)).append(" ms");
+            Engine best = cpu;
+            for (String kind : new String[]{"GPU", "NPU"}) {
+                String key = ver + kind, state = sp.getString(key, "");
+                if (state.equals("probando")) {
+                    sp.edit().putString(key, "colgó").apply();
+                    state = "colgó";
+                }
+                if (state.equals("colgó") || state.startsWith("falla")) {
+                    note.append(", ").append(kind).append(state.equals("colgó") ? " colgó la app antes (no se usa)" : " no sirve (" + state.substring(5).trim() + ")");
+                    continue;
+                }
+                sp.edit().putString(key, "probando").commit();
+                Engine e = new Engine();
+                String fail = null;
+                try {
+                    Interpreter.Options op = new Interpreter.Options();
+                    op.setNumThreads(threads); // para las operaciones que el acelerador no hace
+                    if (kind.equals("GPU")) {
+                        CompatibilityList cl = new CompatibilityList();
+                        GpuDelegate g = cl.isDelegateSupportedOnThisDevice() ? new GpuDelegate(cl.getBestOptionsForThisDevice()) : new GpuDelegate();
+                        e.delegate = g;
+                        op.addDelegate(g);
+                        e.name = "GPU";
+                    } else {
+                        NnApiDelegate.Options no = new NnApiDelegate.Options();
+                        no.setAllowFp16(true);
+                        no.setUseNnapiCpu(false); // sin la "CPU de NNAPI": si no hay chip de IA, que no simule uno
+                        no.setExecutionPreference(NnApiDelegate.Options.EXECUTION_PREFERENCE_SUSTAINED_SPEED);
+                        NnApiDelegate n = new NnApiDelegate(no);
+                        e.delegate = n;
+                        op.addDelegate(n);
+                        e.name = "NPU (NNAPI)";
+                    }
+                    e.it = new Interpreter(model, op);
+                    float[] got = run.run(e.it);
+                    boolean finite = true;
+                    for (float v : got) if (Float.isNaN(v) || Float.isInfinite(v)) { finite = false; break; }
+                    if (!finite || !same.ok(ref, got)) fail = "no da lo mismo que la CPU";
+                    else e.ms = time(e.it, run);
+                } catch (RuntimeException | LinkageError ex) {
+                    Log.w(TAG, kind + " no disponible para " + asset, ex);
+                    String m = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+                    fail = m.length() > 80 ? m.substring(0, 80) + "…" : m;
+                }
+                if (fail != null) {
+                    e.close();
+                    sp.edit().putString(key, "falla " + fail.replace('\n', ' ')).apply();
+                    note.append(", ").append(kind).append(" no sirve (").append(fail.replace('\n', ' ')).append(")");
+                    continue;
+                }
+                sp.edit().putString(key, "ok").apply();
+                note.append(", ").append(kind).append(' ').append(Math.round(e.ms)).append(" ms");
+                // Se cambia sólo si gana con claridad (15 %)
+                if (e.ms < 0.85 * best.ms) {
+                    if (best != cpu) best.close();
+                    best = e;
+                } else e.close();
+            }
+            if (best != cpu) cpu.close();
+            // Lo que haya quedado de la prueba en las salidas no importa: cada uso las vuelve a llenar
+            note.append(" → ").append(best.name);
+            return best;
         }
-        Interpreter.Options o = new Interpreter.Options();
-        o.setNumThreads(threads);
-        return new Object[]{new Interpreter(model, o), null, "CPU (" + threads + " hilos)"};
+
+        /** Tiempo (ms) de una corrida: la menor de dos, después de la primera (que incluye preparar el acelerador). */
+        private static double time(Interpreter it, Runner run) {
+            double best = Double.MAX_VALUE;
+            for (int k = 0; k < 2; k++) {
+                long t0 = System.nanoTime();
+                run.run(it);
+                best = Math.min(best, (System.nanoTime() - t0) / 1e6);
+            }
+            return best;
+        }
+
+        void close() {
+            try {
+                if (it != null) it.close();
+                if (delegate != null) delegate.close();
+            } catch (Exception ex) {
+                Log.w(TAG, "cerrar", ex);
+            }
+        }
     }
 
-    /** Puntos y descriptores de un cuadro. */
-    XFeatTracks.Frame detect(int frame, int[] argb, int w, int h) {
-        long t0 = System.nanoTime();
-        XFeatTracks.input(argb, w, h, image);
+    /** Corre XFeat sobre lo que hay en {@code in}; deja las salidas en desc, heat y rel. */
+    private void runNet(Interpreter it) {
         in.rewind();
-        in.put(image).rewind();
         Map<String, Object> ins = new HashMap<>();
         ins.put("args_0", in);
         Map<String, Object> outs = new HashMap<>();
@@ -127,13 +257,49 @@ final class XFeat implements Closeable {
         outs.put("output_0", outDesc);
         outs.put("output_1", outHeat);
         outs.put("output_2", outRel);
-        net.runSignature(ins, outs);
+        it.runSignature(ins, outs);
         outDesc.rewind();
         outDesc.get(desc);
         outHeat.rewind();
         outHeat.get(heat);
         outRel.rewind();
         outRel.get(rel);
+    }
+
+    /** Corre LighterGlue sobre lo que hay en gk0, gk1, gd0 y gd1; deja las salidas en m0, m1 y v0. */
+    private void runGlue(Interpreter it) {
+        gk0.rewind();
+        gk1.rewind();
+        gd0.rewind();
+        gd1.rewind();
+        Map<String, Object> ins = new HashMap<>();
+        ins.put("args_0", gk0);
+        ins.put("args_1", gk1);
+        ins.put("args_2", gd0);
+        ins.put("args_3", gd1);
+        Map<String, Object> outs = new HashMap<>();
+        outM0.rewind();
+        outM1.rewind();
+        outV.rewind();
+        outs.put("output_0", outM0);
+        outs.put("output_1", outM1);
+        outs.put("output_2", outV);
+        it.runSignature(ins, outs);
+        outM0.rewind();
+        outM0.get(m0);
+        outM1.rewind();
+        outM1.get(m1);
+        outV.rewind();
+        outV.get(v0);
+    }
+
+    /** Puntos y descriptores de un cuadro. */
+    XFeatTracks.Frame detect(int frame, int[] argb, int w, int h) {
+        long t0 = System.nanoTime();
+        XFeatTracks.input(argb, w, h, image);
+        in.rewind();
+        in.put(image).rewind();
+        runNet(net);
         XFeatTracks.Frame f = XFeatTracks.select(frame, desc, heat, rel, argb, w, h);
         detectMs += (System.nanoTime() - t0) / 1e6;
         detected++;
@@ -151,42 +317,29 @@ final class XFeat implements Closeable {
         gd0.put(a.desc).rewind();
         gd1.rewind();
         gd1.put(b.desc).rewind();
-        Map<String, Object> ins = new HashMap<>();
-        ins.put("args_0", gk0);
-        ins.put("args_1", gk1);
-        ins.put("args_2", gd0);
-        ins.put("args_3", gd1);
-        Map<String, Object> outs = new HashMap<>();
-        outM0.rewind();
-        outM1.rewind();
-        outV.rewind();
-        outs.put("output_0", outM0);
-        outs.put("output_1", outM1);
-        outs.put("output_2", outV);
-        glue.runSignature(ins, outs);
-        outM0.rewind();
-        outM0.get(m0);
-        outM1.rewind();
-        outM1.get(m1);
-        outV.rewind();
-        outV.get(v0);
+        runGlue(glue);
         int[][] p = XFeatTracks.pairs(a, b, m0, m1, v0);
         matchMs += (System.nanoTime() - t0) / 1e6;
         matched++;
         return p;
     }
 
-    /** Para el diagnóstico: dónde corrió y cuánto tardó. */
+    /** Para el diagnóstico: dónde corrió, cuánto tardó y cómo se eligió. */
     String summary() {
-        return String.format(Locale.ROOT, "XFeat en %s: %.0f ms por foto (%d fotos) · LighterGlue en %s: %.0f ms por par (%d pares)",
-                netDelegate, detected == 0 ? 0 : detectMs / detected, detected, glueDelegate, matched == 0 ? 0 : matchMs / matched, matched);
+        return String.format(Locale.ROOT, "XFeat en %s: %.0f ms por foto (%d fotos) · LighterGlue en %s: %.0f ms por par (%d pares) · "
+                        + "elegidos probando en este teléfono (%s)",
+                netDelegate, detected == 0 ? 0 : detectMs / detected, detected, glueDelegate, matched == 0 ? 0 : matchMs / matched, matched, choiceNote);
     }
 
     @Override
     public void close() {
-        net.close();
-        glue.close();
-        if (gpuNet != null) gpuNet.close();
-        if (gpuGlue != null) gpuGlue.close();
+        try {
+            net.close();
+            glue.close();
+            if (accNet != null) accNet.close();
+            if (accGlue != null) accGlue.close();
+        } catch (Exception e) {
+            Log.w(TAG, "cerrar", e);
+        }
     }
 }
