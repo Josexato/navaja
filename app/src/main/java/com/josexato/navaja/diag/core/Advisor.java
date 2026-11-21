@@ -55,8 +55,9 @@ public final class Advisor {
         List<String> out = new ArrayList<>();
         switch (v) {
             case QUALCOMM:
-                out.add((has(found, "QNN") ? "✔ " : "• ") + "NPU: delegado QNN de Qualcomm (AI Engine Direct), vía LiteRT. "
-                        + (has(found, "QNN") ? "El sistema trae las librerías QNN." : "No se ven las librerías QNN del sistema: habría que empaquetarlas en la app."));
+                out.add("✔ NPU: delegado QNN de Qualcomm (AI Engine Direct). "
+                        + (has(found, "QNN") ? "El sistema trae las librerías QNN" : "El sistema no deja ver las librerías QNN")
+                        + "; Navaja trae las suyas en el APK (para Snapdragon 8 Elite y posteriores) y las prueba abajo como «NPU Qualcomm».");
                 break;
             case MEDIATEK:
                 out.add((has(found, "NeuroPilot") ? "✔ " : "• ") + "NPU: delegado NeuroPilot de MediaTek, vía LiteRT. "

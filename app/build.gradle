@@ -47,6 +47,18 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // La NPU carga su parte (libQnnHtpV..Skel.so) desde un archivo: las librerías tienen que quedar
+            // extraídas al instalar, no dentro del APK.
+            useLegacyPackaging true
+            // De QNN sólo va la NPU (HTP) de los Snapdragon 8 recientes: V79 (8 Elite), V81 (8 Elite Gen 5) y V85.
+            // Fuera quedan su GPU, el DSP viejo y las NPU anteriores, que sumaban unos 30 MB.
+            excludes += ['**/libQnnGpu.so', '**/libQnnDsp*.so', '**/libQnnHtpV68*.so', '**/libQnnHtpV69*.so',
+                         '**/libQnnHtpV73*.so', '**/libQnnHtpV75*.so']
+        }
+    }
+
     buildFeatures {
         buildConfig true
     }
@@ -80,6 +92,10 @@ dependencies {
     // Escáner con hoja: XFeat + LighterGlue (Apache 2.0) en la GPU cuando el teléfono la admite.
     implementation 'org.tensorflow:tensorflow-lite-gpu:2.16.1'
     implementation 'org.tensorflow:tensorflow-lite-gpu-api:2.16.1'
+    // NPU de los chips Qualcomm (delegado QNN, AI Engine Direct). Las librerías son de Qualcomm (licencia propia, se
+    // distribuyen sólo dentro de la app, en binario); las dos versiones tienen que ser la misma.
+    implementation 'com.qualcomm.qti:qnn-runtime:2.52.0'
+    implementation 'com.qualcomm.qti:qnn-litert-delegate:2.52.0'
     testImplementation 'junit:junit:4.13.2'
     // Sólo en tests: decodifica los QR que genera Navaja para comprobar que son legibles.
     testImplementation 'com.google.zxing:core:3.5.3'
