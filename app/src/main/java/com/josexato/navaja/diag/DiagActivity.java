@@ -342,7 +342,10 @@ public class DiagActivity extends Activity {
                 content.addView(bc);
             }
         }
-        content.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Compartir el informe", v -> share())));
+        content.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "Copiar el informe", v -> copy()),
+                NavajaUi.secondary(this, "Compartir como archivo", v -> share())));
+        content.addView(NavajaUi.text(this, "El informe es texto con una explicación al principio, listo para pegarlo en un asistente de IA y "
+                + "preguntarle qué librería conviene.", NavajaUi.Style.SECONDARY));
         content.addView(NavajaUi.text(this, "No se pide ningún permiso y nada sale del teléfono si no lo compartes.", NavajaUi.Style.MUTED));
     }
 
@@ -372,12 +375,26 @@ public class DiagActivity extends Activity {
     /** El informe como texto (Markdown simple). */
     private String text() {
         StringBuilder s = new StringBuilder("# Diagnóstico del teléfono — Navaja\n\n");
-        s.append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(new Date())).append("\n");
+        s.append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(new Date())).append("\n\n");
+        // Contexto para quien lo lea sin conocer la app (por ejemplo, un asistente de IA)
+        s.append("Contexto para quien lea esto: es el informe de hardware de un teléfono Android, generado por la app Navaja con lo que ")
+                .append("el sistema deja leer a una app sin permisos (\"no se ve\" no siempre significa que no exista). Navaja corre dos ")
+                .append("modelos TFLite en el teléfono (XFeat, una red convolucional de 512×960, y LighterGlue, un transformer con 1024 puntos ")
+                .append("por imagen) con TFLite 2.16 y los delegados XNNPACK (CPU), GPU y NNAPI. La pregunta es qué librería o delegado de ")
+                .append("aceleración conviene para este chip y qué habría que cambiar para usarlo. Si está la sección \"Prueba real de ")
+                .append("aceleradores\", son tiempos medidos en este teléfono con esos dos modelos.\n");
         for (Map.Entry<String, List<String>> e : report.entrySet()) {
             s.append("\n## ").append(e.getKey()).append("\n\n");
             for (String l : e.getValue()) for (String line : l.split("\n")) s.append("- ").append(line).append('\n');
         }
         return s.toString();
+    }
+
+    private void copy() {
+        if (report.isEmpty()) return;
+        android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("Diagnóstico del teléfono", text()));
+        Toast.makeText(this, "Informe copiado: pégalo donde quieras", Toast.LENGTH_SHORT).show();
     }
 
     private void share() {

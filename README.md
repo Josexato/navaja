@@ -229,7 +229,7 @@ Lee qué hardware tiene el celular y qué librerías de aceleración de IA trae,
 - **Chip de IA y librerías del sistema:** busca en `/vendor` y `/system` las de Qualcomm (QNN, SNPE), MediaTek (NeuroPilot), Samsung (ENN/Eden), Google (Edge TPU), OpenCL y NNAPI.
 - **Qué librería conviene:** según el fabricante del chip y lo que se encontró, de lo más prometedor a lo menos.
 - **Prueba real de aceleradores** (a pedido): carga los modelos del escáner 3D en CPU, GPU y NPU y mide cuánto tarda cada uno.
-- **Compartir** guarda el informe como texto (`diagnostico_<modelo>.md`).
+- **Copiar** o **Compartir** entregan el informe como texto (`diagnostico_<modelo>.md`), con una explicación al principio para pegarlo en un asistente de IA y preguntarle qué librería conviene.
 
 El núcleo (`diag/core`) es Java puro y tiene pruebas.
 
