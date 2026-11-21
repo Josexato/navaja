@@ -254,11 +254,11 @@
 <body>
 <header>
   <h1><svg class="logo" viewBox="18 18 72 72" aria-hidden="true"><defs><radialGradient id="lg" cx="54" cy="46" r="76" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#34496A"/><stop offset="1" stop-color="#161F2C"/></radialGradient></defs><rect x="18" y="18" width="72" height="72" rx="16" fill="url(#lg)"/><g transform="translate(55 58) scale(0.8) rotate(-28) translate(-56 -63)"><path transform="rotate(-70 36 64)" fill="#3DD6C6" d="M34,66 L34,62 L52,62 L52,59 L66,59 Q68,59 68,61 L54,61 L54,63 L68,63 Q68,65 66,65 L52,65 L52,66 Z"/><path transform="rotate(-52 74 64)" fill="#F2B544" d="M73,66.5 L73,61.5 L94,61.5 L97,64 L94,66.5 Z"/><g transform="rotate(-24 32 64)"><path fill="#EEF2F6" d="M28,66 L28,56 L70,56 C79,56 87,59.5 93,66 Z"/><path fill="#B7C3CF" d="M28,66 L28,62.5 L86,62.5 C88.6,63.4 91,64.6 93,66 Z"/></g><rect x="20" y="59" width="68" height="18" rx="9" fill="#E2413B"/><rect x="26" y="60.6" width="56" height="4.2" rx="2.1" fill="#FF8A7E" opacity="0.55"/><circle cx="29" cy="68" r="2.4" fill="#F8D7D3"/><circle cx="79" cy="68" r="2.4" fill="#F8D7D3"/><path fill="#FFF" d="M54,62 L60,68 L54,74 L48,68 Z"/></g></svg>Navaja <span>◆</span></h1>
-  <span id="fileLabel">pieza de ejemplo — abre GAG · SVG · STL · OBJ · PDF</span>
+  <span id="fileLabel">pieza de ejemplo — abre GAG · SVG · STL · OBJ · PLY · PDF</span>
   <span class="spacer"></span>
   <button class="btn" id="homeBtn" title="Volver al inicio" aria-label="Inicio">⌂ Inicio</button>
   <button class="btn primary" id="openBtn">Abrir archivo</button>
-  <input type="file" id="fileInput" accept=".gag,.sdjf,.svg,.stl,.obj,.pdf,application/pdf,image/svg+xml">
+  <input type="file" id="fileInput" accept=".gag,.sdjf,.svg,.stl,.obj,.ply,.pdf,application/pdf,image/svg+xml">
 </header>
 
 <div id="stage">
@@ -276,7 +276,7 @@
         <div class="card" id="cardViewer" role="button" tabindex="0">
           <div class="ico viewer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 2.8 20 7.2v9.6L12 21.2 4 16.8V7.2z"/><path d="M4 7.2 12 11.6l8-4.4M12 11.6v9.6"/></svg></div>
           <h3>Visor de archivos</h3>
-          <p>Modelos 3D con medidas y peso para imprimir, diagramas AlmaGag, SVG y PDF.</p>
+          <p>Modelos 3D (STL, OBJ) con medidas y peso para imprimir, nubes de puntos PLY, diagramas AlmaGag, SVG y PDF.</p>
           <div class="chips"><span class="chip">STL</span><span class="chip">OBJ</span><span class="chip">GAG</span><span class="chip">SDJF</span><span class="chip">SVG</span><span class="chip">PDF</span></div>
           <span class="go">Abrir archivo →</span>
           <button class="linkbtn" id="sampleBtn" type="button">o ver la pieza de ejemplo</button>
@@ -419,6 +419,7 @@
 <script src="lib/OrbitControls.js"></script>
 <script src="lib/STLLoader.js"></script>
 <script src="lib/OBJLoader.js"></script>
+<script src="lib/PLYLoader.js"></script>
 <script src="lib/pdf.min.js"></script>
 <script>
 (function () {
@@ -613,7 +614,8 @@
       payload.traverse((o) => { if (o.isMesh) { o.material = currentMaterial(); if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals(); } });
     }
     modelGroup.add(payload);
-    payload.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    let cloudPoints = 0;
+    payload.traverse((o) => { if (o.isMesh) meshes.push(o); else if (o.isPoints) cloudPoints += o.geometry.attributes.position.count; });
     for (const m of meshes) applyMaterial(m);
 
     const box = new THREE.Box3().setFromObject(payload);
@@ -637,6 +639,18 @@
     rebuildGrid();
     fitCamera(size);
 
+    if (cloudPoints && !meshes.length) {
+      // Nube de puntos: el tamaño de cada punto sigue al de la nube; no hay volumen ni peso que calcular
+      payload.traverse((o) => { if (o.isPoints) o.material.size = modelRadius / 55; });
+      setStats('Nube de puntos', [
+        ['Puntos', fmtInt.format(cloudPoints)],
+        ['Tamaño (unidades del archivo)', `${fmt.format(size.x)} × ${fmt.format(size.y)} × ${fmt.format(size.z)}`],
+        ['Color', payload.userData.hasColor ? 'el del archivo' : 'no trae: se usa el del visor']
+      ]);
+      fileLabel.textContent = label;
+      setMode('3d');
+      return;
+    }
     const s = compute3dStats();
     const cm3 = s.volume / 1000;
     setStats('Pieza', [
@@ -1058,6 +1072,38 @@
         } catch (e) { showError('OBJ no válido: ' + e.message); }
       };
       reader.readAsText(file);
+    } else if (ext === 'ply') {
+      reader.onload = () => {
+        try {
+          const geo = new THREE.PLYLoader().parse(reader.result);
+          if (!geo.attributes.position || !geo.attributes.position.count) throw new Error('sin puntos');
+          const hasColor = !!geo.attributes.color;
+          if (hasColor) {
+            // El lector pasa los colores a espacio lineal, pero este visor dibuja sin esa conversión: se devuelven a sRGB
+            const col = geo.attributes.color, k = new THREE.Color();
+            for (let i = 0; i < col.count; i++) { k.fromBufferAttribute(col, i).convertLinearToSRGB(); col.setXYZ(i, k.r, k.g, k.b); }
+          }
+          // Los PLY de Navaja vienen con Z hacia arriba (distancia al apoyo); el visor usa Y hacia arriba
+          const head = new TextDecoder().decode(new Uint8Array(reader.result, 0, Math.min(600, reader.result.byteLength)));
+          const zUp = /comment\s+Navaja/i.test(head);
+          let obj;
+          if (geo.index && geo.index.count >= 3) {
+            // PLY con caras: una malla, como un STL
+            geo.computeVertexNormals();
+            obj = new THREE.Mesh(geo, currentMaterial());
+            if (hasColor) { $('vcolorOpt').hidden = false; $('matSelect').value = 'vcolor'; }
+          } else {
+            obj = new THREE.Points(geo, new THREE.PointsMaterial({ size: 1, sizeAttenuation: true, vertexColors: hasColor,
+              color: hasColor ? 0xffffff : new THREE.Color(cssVar('--accent')) }));
+          }
+          const group = new THREE.Group();
+          if (zUp) group.rotation.x = -Math.PI / 2;
+          group.add(obj);
+          group.userData.hasColor = hasColor;
+          setModel(group, file.name);
+        } catch (e) { showError('PLY no válido: ' + e.message); }
+      };
+      reader.readAsArrayBuffer(file);
     } else if (ext === 'svg') {
       reader.onload = () => loadSVG(reader.result, file);
       reader.readAsText(file);
@@ -1068,7 +1114,7 @@
       reader.onload = () => loadPDF(reader.result, file);
       reader.readAsArrayBuffer(file);
     } else {
-      showError('Formato no soportado. Abre .gag, .sdjf, .svg, .stl, .obj o .pdf.');
+      showError('Formato no soportado. Abre .gag, .sdjf, .svg, .stl, .obj, .ply o .pdf.');
     }
   }
 
