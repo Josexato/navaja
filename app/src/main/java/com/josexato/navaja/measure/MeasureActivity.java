@@ -777,7 +777,8 @@ public class MeasureActivity extends Activity {
             hc.addView(NavajaUi.text(this, "Segunda opinión: siluetas", NavajaUi.Style.LABEL));
             hullText = NavajaUi.text(this, "", NavajaUi.Style.BODY);
             hc.addView(hullText);
-            hc.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Compartir volumen (STL)", v -> exportStl())));
+            hc.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Compartir volumen (STL)", v -> exportStl()),
+                    NavajaUi.secondary(this, "Compartir modelo (GLB)", v -> exportGlb())));
             c.addView(hc);
         } else {
             hullText = null;
@@ -819,7 +820,7 @@ public class MeasureActivity extends Activity {
         // Guardar todo en una carpeta elegida (también la raíz de Archivos)
         LinearLayout sc = NavajaUi.card(this);
         sc.addView(NavajaUi.text(this, "Guardar", NavajaUi.Style.LABEL));
-        sc.addView(NavajaUi.text(this, "Un ZIP con el informe paso a paso, la nube (PLY), el volumen (STL), modelos simplificados para Blender (OBJ con textura de las fotos) y las fotos usadas.",
+        sc.addView(NavajaUi.text(this, "Un ZIP con el informe paso a paso, la nube (PLY), el volumen (STL), modelos simplificados para Blender (OBJ y GLB con textura de las fotos) y las fotos usadas.",
                 NavajaUi.Style.SECONDARY));
         CheckBox dbg = new CheckBox(this);
         dbg.setText("Depuración: dibujar la silueta y 5 puntos clave en cada foto");
@@ -947,6 +948,35 @@ public class MeasureActivity extends Activity {
         Intent i = new Intent(Intent.ACTION_SEND).setType("model/stl").putExtra(Intent.EXTRA_STREAM, u)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(Intent.createChooser(i, "Compartir volumen (STL)"));
+    }
+
+    /** Comparte el modelo base con su textura como GLB (un solo archivo). */
+    private void exportGlb() {
+        if (hull == null) return;
+        MeasureReport.Data d = reportData();
+        toast("Armando el modelo…");
+        work.execute(() -> {
+            try {
+                byte[] glb = MeasureReport.baseGlb(d);
+                if (glb == null) throw new IOException("sin volumen");
+                File dir = new File(getExternalFilesDir(null), "medidas");
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                File f = new File(dir, "modelo_" + System.currentTimeMillis() + ".glb");
+                try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) {
+                    fo.write(glb);
+                }
+                ui.post(() -> {
+                    if (scaleCm <= 0) toast("Sin medida conocida: el modelo tiene el alto = 100 mm");
+                    Uri u = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+                    startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("model/gltf-binary").putExtra(Intent.EXTRA_STREAM, u)
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Compartir modelo (GLB)"));
+                });
+            } catch (IOException | RuntimeException e) {
+                Log.w(TAG, "glb", e);
+                ui.post(() -> toast("No se pudo armar el modelo: " + e.getMessage()));
+            }
+        });
     }
 
     private String cm(double modelUnits) { return cmOf(modelUnits * scaleCm); }
