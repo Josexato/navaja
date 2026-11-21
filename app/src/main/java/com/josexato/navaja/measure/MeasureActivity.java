@@ -446,6 +446,7 @@ public class MeasureActivity extends Activity {
         List<Sfm.Track> none = new ArrayList<>();
         XFeat xf;
         try {
+            post("2/3 · Probando la tarjeta gráfica y el chip de IA para XFeat…");
             xf = new XFeat(this);
         } catch (IOException | RuntimeException | LinkageError e) {
             Log.w(TAG, "xfeat", e);
