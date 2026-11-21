@@ -6,7 +6,7 @@ App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL
 
 ## 🏠 Pantalla de inicio
 
-Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D: medir y modelar objetos** (abre un selector con los tres modos), **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso**, **Pantonera** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
+Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Escáner 3D: medir y modelar objetos** (abre un selector con los tres modos), **Afinador**, **Red local**, **Red móvil**, **Marcador**, **Brújula y nivel**, **Pulso**, **Pantonera**, **Diagnóstico del teléfono** (en la versión web las nativas se muestran como «sólo en la app Android»). El botón **⌂ Inicio** de la cabecera y el botón *Atrás* de Android vuelven a este panel.
 
 ## ✨ Qué abre
 
@@ -218,6 +218,21 @@ Descubre los equipos conectados a tu **propia** red Wi‑Fi, al estilo de un bar
 
 El núcleo (`lan/core`) es Java puro y está cubierto por pruebas con una red simulada.
 
+## 🩺 Diagnóstico del teléfono (botón «Diagnóstico del teléfono»)
+
+Lee qué hardware tiene el celular y qué librerías de aceleración de IA trae, para saber cuál conviene usar. No es una prueba de rendimiento general y no pide permisos.
+
+- **Equipo y chip:** marca, modelo, Android, fabricante y modelo del chip (SoC), placa y arquitecturas.
+- **Procesador:** núcleos agrupados por frecuencia máxima, tipos de núcleo e instrucciones útiles para IA (NEON, producto punto, media precisión).
+- **Memoria y almacenamiento**, **pantalla**, **cámaras** (megapíxeles, focal, sensor, nivel de Camera2) y **sensores**.
+- **Tarjeta gráfica:** modelo y versión de OpenGL (con un contexto fuera de pantalla), Vulkan y si hay OpenCL.
+- **Chip de IA y librerías del sistema:** busca en `/vendor` y `/system` las de Qualcomm (QNN, SNPE), MediaTek (NeuroPilot), Samsung (ENN/Eden), Google (Edge TPU), OpenCL y NNAPI.
+- **Qué librería conviene:** según el fabricante del chip y lo que se encontró, de lo más prometedor a lo menos.
+- **Prueba real de aceleradores** (a pedido): carga los modelos del escáner 3D en CPU, GPU y NPU y mide cuánto tarda cada uno.
+- **Compartir** guarda el informe como texto (`diagnostico_<modelo>.md`).
+
+El núcleo (`diag/core`) es Java puro y tiene pruebas.
+
 ## 📦 Descargar el APK
 
 Cada push a `main` compila el APK con GitHub Actions y lo publica en [**Releases**](../../releases). Descarga el `app-release.apk` más reciente e instálalo (Android 7.0+; hay que permitir "instalar apps desconocidas" porque va firmado con clave debug).
@@ -245,6 +260,7 @@ app/src/main/java/.../sign/              ← firma (lápiz, página, Keystore, h
 app/src/main/java/.../pulse/             ← pulso (Camera2, vista); pulse/core = magnificación euleriana, POS, espectro, RMSSD
 app/src/main/java/.../compass/           ← brújula y nivel (sensores, vistas); compass/core = ángulos, rumbo, inclinación, calibración
 app/src/main/java/.../marker/            ← marcador (GPS, cámara, exportar); marker/core = waypoints, EXIF GPS, KMZ/GPX
+app/src/main/java/.../diag/              ← diagnóstico del teléfono (hardware, librerías de IA); diag/core = fabricante del chip y consejo
 app/src/main/java/.../pantonera/         ← pantonera (cámara, biblioteca, exportar); pantonera/core = color, STJF, análisis, glTF/GPL
 docs/spec/STJF_v1.0_SPEC.md      ← especificación del formato STJF
 docs/spec/RED_MOVIL_v1.1_SPEC.md ← especificación del modo ingeniería de red móvil

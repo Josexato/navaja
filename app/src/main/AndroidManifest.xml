@@ -78,6 +78,14 @@
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Diagnóstico del teléfono: hardware y librerías de IA (no pide permisos). -->
+        <activity
+            android:name=".diag.DiagActivity"
+            android:exported="false"
+            android:label="Navaja · Diagnóstico del teléfono"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- Pantonera: color y composición de una muestra sobre hoja blanca (usa la app de cámara). -->
         <activity
             android:name=".pantonera.PantoneraActivity"
