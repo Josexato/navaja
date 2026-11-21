@@ -30,6 +30,9 @@ public class Scan3dHubActivity extends Activity {
         NavajaUi.window(this);
         NavajaUi.Screen scr = NavajaUi.screen(this, "Escáner 3D", "Medir un objeto y sacar su modelo 3D: elige cómo capturarlo", null, true);
         LinearLayout c = scr.content;
+        // Lo ya escaneado: lista con fecha, modo, versión, medidas y qué archivos tiene cada uno
+        Button lib = NavajaUi.secondary(this, "Mis escaneos (lo que ya guardé)", v -> startActivity(new Intent(this, com.josexato.navaja.measure.LibraryActivity.class)));
+        c.addView(NavajaUi.buttonRow(this, lib));
 
         mode(c, "1 · Video alrededor del objeto",
                 "Grabas 10–30 s rodeando el objeto, apoyado en una mesa o colgado en una pared. No hay que imprimir nada.",

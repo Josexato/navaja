@@ -82,6 +82,17 @@ Ninguno de los tres funciona bien con objetos transparentes, espejados o totalme
 
 ---
 
+## Mis escaneos
+
+En el selector del Escáner 3D, **Mis escaneos** lista lo que hay en la carpeta de guardado, sin abrir el explorador de archivos:
+
+- Arriba: la carpeta, cuántos escaneos hay, cuánto ocupan, cuántos tienen su video y cuántos se guardaron con depuración.
+- Por escaneo: fecha y hora, modo, **versión de Navaja** con que se hizo, medidas por puntos y volumen, si el video está guardado (tamaño, duración, de dónde salió y cuándo se grabó), sensores, cuadros ubicados por la hoja, en qué corrió la IA, si tiene depuración y el tamaño del ZIP. Botones **Ver informe** y **Compartir ZIP**.
+- Videos sueltos: los grabados que no tienen un escaneo guardado con su nombre.
+- Los escaneos del modo 3 (base giratoria), con fecha, tamaño y si tienen modelo y log.
+
+Desde esta versión, junto a cada ZIP se guarda una ficha `medida_….json` (versión, modo, depuración, origen y fecha del video, y el informe completo): con ella la lista no necesita abrir el ZIP. Los escaneos anteriores se listan leyendo el informe que está al principio de su ZIP; de ellos no se sabe si tienen depuración ni de dónde salió el video.
+
 ## Archivos del ZIP (modos 1 y 2)
 
 | Archivo | Qué es |

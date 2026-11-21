@@ -22,7 +22,7 @@ public final class BuildFacts {
      * atrás, comprobado en Wikipedia (la fecha tiene que constar en el texto del
      * artículo). Así el texto del inicio distingue una versión de otra de un vistazo.
      */
-    static final String FACT = "el 19 de noviembre de 1926 abrió en Times Square, Nueva York, el Paramount Theatre, un cine de 3664 butacas";
+    static final String FACT = "el 19 de noviembre de 1926 nació Jeane Kirkpatrick, la primera mujer embajadora de Estados Unidos ante las Naciones Unidas";
 
     /** El texto completo para la versión {@code version}, con el código terminado en {@code codeTime} (ms) y {@code buildsToday} compilaciones ese día. */
     public static String line(String version, long codeTime, int buildsToday) {
