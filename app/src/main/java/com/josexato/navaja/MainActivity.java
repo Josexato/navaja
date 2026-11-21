@@ -72,6 +72,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void openDiag() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, com.josexato.navaja.diag.DiagActivity.class)));
+        }
+
+        @JavascriptInterface
         public void openTuner() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, TunerActivity.class)));
         }
