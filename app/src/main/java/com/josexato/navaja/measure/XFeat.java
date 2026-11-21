@@ -3,10 +3,13 @@ package com.josexato.navaja.measure;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.AssetFileDescriptor;
+import android.os.Build;
 import android.util.Log;
 
 import com.josexato.navaja.BuildConfig;
+import com.josexato.navaja.diag.core.Advisor;
 import com.josexato.navaja.measure.core.XFeatTracks;
+import com.qualcomm.qti.QnnDelegate;
 
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.gpu.CompatibilityList;
@@ -30,8 +33,9 @@ import java.util.Map;
  * XFeat (puntos y descriptores) y LighterGlue (emparejador) en el teléfono,
  * con TFLite: Apache-2.0, vienen dentro del APK (ver
  * modelos/LICENCIA-xfeat.txt), sin internet. Al cargar prueba en el
- * teléfono la CPU (XNNPACK), la GPU y la NPU (NNAPI) y se queda con la más
- * rápida que dé lo mismo que la CPU (ver {@link Engine}). Anota cuál usó,
+ * teléfono la CPU (XNNPACK), la GPU, NNAPI y, en chips Qualcomm, la NPU con
+ * el delegado QNN, y se queda con la más rápida que dé lo mismo que la CPU
+ * (ver {@link Engine}). Anota cuál usó,
  * cuánto tarda y cómo le fue a cada una, para el diagnóstico.
  */
 final class XFeat implements Closeable {
@@ -39,10 +43,13 @@ final class XFeat implements Closeable {
     private static final String TAG = "XFeat";
     private static final String BACKBONE = "modelos/xfeat.tflite", GLUE = "modelos/lighterglue.tflite";
     private static final int N = XFeatTracks.N;
+    /** La NPU de Qualcomm con su delegado QNN (AI Engine Direct). */
+    private static final String QNN = "NPU Qualcomm";
+    private static final int MAX_ERROR = 900;
 
     private final Interpreter net, glue;
     private final AutoCloseable accNet, accGlue;
-    /** Dónde corre cada modelo: "GPU", "NPU (NNAPI)" o "CPU (n hilos)". */
+    /** Dónde corre cada modelo: "GPU", "NNAPI", "NPU Qualcomm (QNN)" o "CPU (n hilos)". */
     final String netDelegate, glueDelegate;
     /** Cómo se eligió: el tiempo de cada opción probada en este teléfono (para el diagnóstico). */
     final String choiceNote;
@@ -128,9 +135,14 @@ final class XFeat implements Closeable {
 
     /**
      * Un modelo cargado en un acelerador. {@link #pick} prueba en este
-     * teléfono la CPU, la GPU y la NPU (NNAPI), mide cuánto tarda cada una
-     * con una entrada de prueba, descarta la que falla o no da lo mismo que
-     * la CPU, y se queda con la más rápida.
+     * teléfono la CPU (con 4 hilos y con todos los núcleos), la GPU, NNAPI y,
+     * en chips Qualcomm, la NPU con el delegado QNN (sus librerías vienen en
+     * el APK); mide cuánto tarda cada una con una entrada de prueba, descarta
+     * la que falla o no da lo mismo que la CPU, y se queda con la más rápida.
+     *
+     * <p>NNAPI no es "la NPU": es la interfaz genérica de Android (obsoleta
+     * desde Android 15) y en muchos teléfonos termina corriendo en la CPU;
+     * si tarda lo mismo que la CPU, se avisa.
      *
      * <p>La GPU se prueba aunque el teléfono no figure en la lista de
      * compatibles de TFLite (la lista es vieja). Como un controlador malo
@@ -161,7 +173,24 @@ final class XFeat implements Closeable {
             cpu.ms = time(cpu.it, run);
             note.append(label).append(": CPU ").append(Math.round(cpu.ms)).append(" ms");
             Engine best = cpu;
-            for (String kind : new String[]{"GPU", "NPU"}) {
+            // Con todos los núcleos: en chips donde todos son rápidos puede ganarle a 4 hilos
+            int cores = Runtime.getRuntime().availableProcessors();
+            if (cores > threads) {
+                Engine all = new Engine();
+                Interpreter.Options oa = new Interpreter.Options();
+                oa.setNumThreads(cores);
+                all.it = new Interpreter(model, oa);
+                all.name = "CPU (" + cores + " hilos)";
+                run.run(all.it);
+                all.ms = time(all.it, run);
+                note.append(" (").append(Math.round(all.ms)).append(" ms con ").append(cores).append(" hilos)");
+                if (all.ms < 0.85 * best.ms) best = all;
+                else all.close();
+            }
+            boolean qualcomm = Advisor.vendor(Build.VERSION.SDK_INT >= 31 ? Build.SOC_MANUFACTURER : "", Build.VERSION.SDK_INT >= 31 ? Build.SOC_MODEL : "",
+                    Build.HARDWARE, Build.BOARD) == Advisor.Vendor.QUALCOMM;
+            for (String kind : new String[]{"GPU", "NNAPI", QNN}) {
+                if (kind.equals(QNN) && !qualcomm) continue; // el delegado QNN sólo existe para chips Qualcomm
                 String key = ver + kind, state = sp.getString(key, "");
                 if (state.equals("probando")) {
                     sp.edit().putString(key, "colgó").apply();
@@ -183,6 +212,20 @@ final class XFeat implements Closeable {
                         e.delegate = g;
                         op.addDelegate(g);
                         e.name = "GPU";
+                    } else if (kind.equals(QNN)) {
+                        if (!QnnDelegate.checkCapability(QnnDelegate.Capability.HTP_RUNTIME_FP16))
+                            throw new UnsupportedOperationException("este chip no corre modelos de punto flotante en la NPU (HTP FP16)");
+                        QnnDelegate.Options qo = new QnnDelegate.Options();
+                        qo.setBackendType(QnnDelegate.Options.BackendType.HTP_BACKEND);
+                        qo.setHtpPrecision(QnnDelegate.Options.HtpPrecision.HTP_PRECISION_FP16); // los modelos son de punto flotante, sin cuantizar
+                        qo.setHtpPerformanceMode(QnnDelegate.Options.HtpPerformanceMode.HTP_PERFORMANCE_BURST);
+                        // La parte que corre dentro del chip (libQnnHtpV..Skel.so) se carga desde la carpeta de librerías de la app
+                        qo.setSkelLibraryDir(c.getApplicationInfo().nativeLibraryDir);
+                        qo.setLogLevel(QnnDelegate.Options.LogLevel.LOG_LEVEL_WARN);
+                        QnnDelegate q = new QnnDelegate(qo);
+                        e.delegate = q;
+                        op.addDelegate(q);
+                        e.name = "NPU Qualcomm (QNN)";
                     } else {
                         NnApiDelegate.Options no = new NnApiDelegate.Options();
                         no.setAllowFp16(true);
@@ -191,7 +234,7 @@ final class XFeat implements Closeable {
                         NnApiDelegate n = new NnApiDelegate(no);
                         e.delegate = n;
                         op.addDelegate(n);
-                        e.name = "NPU (NNAPI)";
+                        e.name = "NNAPI";
                     }
                     e.it = new Interpreter(model, op);
                     float[] got = run.run(e.it);
@@ -202,7 +245,8 @@ final class XFeat implements Closeable {
                 } catch (RuntimeException | LinkageError ex) {
                     Log.w(TAG, kind + " no disponible para " + asset, ex);
                     String m = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
-                    fail = m.length() > 80 ? m.substring(0, 80) + "…" : m;
+                    // Entero (hasta un tope): el mensaje trae la lista de operaciones que el acelerador no acepta
+                    fail = m.length() > MAX_ERROR ? m.substring(0, MAX_ERROR) + "…" : m;
                 }
                 if (fail != null) {
                     e.close();
@@ -212,6 +256,8 @@ final class XFeat implements Closeable {
                 }
                 sp.edit().putString(key, "ok").apply();
                 note.append(", ").append(kind).append(' ').append(Math.round(e.ms)).append(" ms");
+                // Mismo tiempo que la CPU: lo más probable es que no esté usando el acelerador
+                if (!kind.equals("GPU") && Math.abs(e.ms - cpu.ms) < 0.1 * cpu.ms) note.append(" (igual que la CPU: probablemente no acelera nada)");
                 // Se cambia sólo si gana con claridad (15 %)
                 if (e.ms < 0.85 * best.ms) {
                     if (best != cpu) best.close();

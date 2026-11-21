@@ -140,7 +140,7 @@ public class DiagActivity extends Activity {
         List<String> rec = section("Qué librería conviene para IA");
         rec.add("Fabricante del chip: " + v + ".");
         rec.addAll(Advisor.advice(v, found, Build.VERSION.SDK_INT, openCl));
-        rec.add("Navaja usa hoy TFLite 2.16 con CPU (XNNPACK), GPU y NNAPI; abajo se puede medir cuál rinde más en este teléfono.");
+        rec.add("Navaja usa hoy TFLite 2.16 con CPU (XNNPACK), GPU, NNAPI y, en chips Qualcomm, la NPU con el delegado QNN; abajo se puede medir cuál rinde más en este teléfono.");
 
         display(section("Pantalla"));
         cameras(section("Cámaras"));
@@ -351,7 +351,7 @@ public class DiagActivity extends Activity {
 
     private void bench() {
         benchButton.setEnabled(false);
-        benchText.setText("Probando CPU, tarjeta gráfica y chip de IA…");
+        benchText.setText("Probando CPU, tarjeta gráfica y chip de IA… (la NPU puede tardar bastante en preparar los modelos)");
         work.execute(() -> {
             String out;
             try {
@@ -380,7 +380,7 @@ public class DiagActivity extends Activity {
         s.append("Contexto para quien lea esto: es el informe de hardware de un teléfono Android, generado por la app Navaja con lo que ")
                 .append("el sistema deja leer a una app sin permisos (\"no se ve\" no siempre significa que no exista). Navaja corre dos ")
                 .append("modelos TFLite en el teléfono (XFeat, una red convolucional de 512×960, y LighterGlue, un transformer con 1024 puntos ")
-                .append("por imagen) con TFLite 2.16 y los delegados XNNPACK (CPU), GPU y NNAPI. La pregunta es qué librería o delegado de ")
+                .append("por imagen) con TFLite 2.16 y los delegados XNNPACK (CPU), GPU, NNAPI y, en chips Qualcomm, QNN 2.52 (NPU, en FP16). El delegado de GPU es el clásico de TFLite, limitado a tensores de 4 dimensiones.  La pregunta es qué librería o delegado de ")
                 .append("aceleración conviene para este chip y qué habría que cambiar para usarlo. Si está la sección \"Prueba real de ")
                 .append("aceleradores\", son tiempos medidos en este teléfono con esos dos modelos.\n");
         for (Map.Entry<String, List<String>> e : report.entrySet()) {

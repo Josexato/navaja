@@ -22,7 +22,7 @@ public final class BuildFacts {
      * atrás, comprobado en Wikipedia (la fecha tiene que constar en el texto del
      * artículo). Así el texto del inicio distingue una versión de otra de un vistazo.
      */
-    static final String FACT = "el 18 de noviembre de 1926 Sakichi Toyoda fundó Toyoda Automatic Loom Works, la fábrica de telares de la que en 1937 salió Toyota";
+    static final String FACT = "el 24 de noviembre de 1926 nació en Shanghái Tsung-Dao Lee, que a los 30 años ganó el Nobel de Física de 1957";
 
     /** El texto completo para la versión {@code version}, con el código terminado en {@code codeTime} (ms) y {@code buildsToday} compilaciones ese día. */
     public static String line(String version, long codeTime, int buildsToday) {
