@@ -136,6 +136,14 @@
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Mis escaneos: la lista de lo guardado (carpeta de guardado y escaneos del modo 3). -->
+        <activity
+            android:name=".measure.LibraryActivity"
+            android:exported="false"
+            android:label="Navaja · Mis escaneos"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- Escáner con hoja impresa (experimental): las marcas de la hoja dan la pose de la cámara. -->
         <activity
             android:name=".measure.SheetActivity"

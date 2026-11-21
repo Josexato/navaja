@@ -181,6 +181,11 @@ final class MeasureReport {
 
     // ------------------------------------------------------------ informe
 
+    /** El texto del informe (el mismo informe.md del ZIP), para la ficha del escaneo. */
+    static String reportText(Data d) {
+        return report(d, Measure.landmarks(d.choice.result, d.choice.box, d.hull));
+    }
+
     private static String report(Data d, int[] lm) {
         Sfm.Result r = d.choice.result;
         Measure.Box b = d.choice.box;

@@ -269,7 +269,33 @@ public class MeasureActivity extends Activity {
 
     private TextView progress;
 
+    /** De dónde salió el video que se está midiendo y su fecha (para la ficha del escaneo). */
+    private String videoOrigin = "", videoDate = "";
+
+    /** Fecha de grabación del video según sus metadatos ("2026-11-19 23:46"), o "" si no la trae. */
+    private String videoDateOf(Uri uri) {
+        android.media.MediaMetadataRetriever mr = new android.media.MediaMetadataRetriever();
+        try {
+            mr.setDataSource(this, uri);
+            String d = mr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DATE); // 20261119T234612.000Z (UTC)
+            if (d == null || d.length() < 15) return "";
+            SimpleDateFormat in = new SimpleDateFormat("yyyyMMdd'T'HHmmss", Locale.ROOT);
+            in.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            Date when = in.parse(d.substring(0, 15));
+            // Algunos teléfonos dejan 1904 o 1970 cuando no saben la fecha
+            if (when == null || when.getTime() < 946684800000L) return "";
+            return new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(when);
+        } catch (Exception e) {
+            return "";
+        } finally {
+            try { mr.release(); } catch (Exception ignored) { /* nada que hacer */ }
+        }
+    }
+
     private void process(Uri uri) {
+        videoOrigin = recorded != null && Uri.fromFile(recorded).equals(uri) ? (sensorsFile != null ? "grabado en Navaja (con sensores)" : "grabado con la cámara del sistema")
+                : "elegido de la galería";
+        videoDate = videoDateOf(uri);
         cancel.set(false);
         NavajaUi.Screen scr = NavajaUi.screen(this, "Midiendo…", "Esto toma uno o dos minutos", null, true);
         progress = NavajaUi.text(this, "Leyendo el video…", NavajaUi.Style.BODY);
@@ -1026,6 +1052,25 @@ public class MeasureActivity extends Activity {
                 }
                 boolean video = rec != null && copyRecording(tree, rec, base + ".mp4", "video/mp4");
                 if (video && sen != null) copyRecording(tree, sen, base + ".sensores.csv", "text/csv");
+                // Ficha del escaneo junto al ZIP: lo que muestra «Mis escaneos» sin abrir el ZIP
+                try {
+                    org.json.JSONObject j = new org.json.JSONObject();
+                    j.put("formato", "navaja-escaneo-1");
+                    j.put("guardado", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new Date()));
+                    j.put("version", MeasureReport.version());
+                    j.put("modo", sheetMode ? "Video sobre la hoja con marcas" : "Video alrededor del objeto");
+                    j.put("depuracion", withDebug);
+                    j.put("video_origen", videoOrigin);
+                    j.put("video_fecha", videoDate);
+                    j.put("video_guardado", video ? base + ".mp4" : "");
+                    j.put("informe", MeasureReport.reportText(d));
+                    Uri jd = DocumentsContract.createDocument(getContentResolver(), parent, "application/json", base + ".json");
+                    if (jd != null) try (OutputStream os = getContentResolver().openOutputStream(jd)) {
+                        if (os != null) os.write(j.toString(1).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                } catch (org.json.JSONException | IOException | RuntimeException e) {
+                    Log.w(TAG, "ficha", e); // sin ficha el escaneo igual se lista (leyendo el informe del ZIP)
+                }
                 String where = folderName(tree) + "/" + name + (video ? " (y el video " + base + ".mp4)" : "");
                 ui.post(() -> toast("Guardado en " + where));
             } catch (IOException | RuntimeException e) {
