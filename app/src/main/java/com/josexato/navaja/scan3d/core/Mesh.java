@@ -155,6 +155,13 @@ public final class Mesh {
         }
     }
 
+    /** GLB (glTF binario): la malla con su color por vértice, en metros y con Y hacia arriba (la malla está en mm y con Z hacia arriba). */
+    public void writeGlb(File f) throws IOException {
+        try (OutputStream os = new BufferedOutputStream(new FileOutputStream(f))) {
+            os.write(Glb.write(pos, tri, null, null, col, true, 0.001, "modelo"));
+        }
+    }
+
     /** STL binario (para imprimir en 3D). */
     public void writeStl(File f) throws IOException {
         try (OutputStream os = new BufferedOutputStream(new FileOutputStream(f))) {

@@ -318,6 +318,7 @@ final class ScanSession {
         mesh.writeObj(new File(dir, "modelo.obj"));
         mesh.writePly(new File(dir, "modelo.ply"));
         mesh.writeStl(new File(dir, "modelo.stl"));
+        mesh.writeGlb(new File(dir, "modelo.glb"));
         log("Malla: " + mesh.describe());
         saveLog();
         return mesh;
@@ -422,7 +423,7 @@ final class ScanSession {
     }
 
     File[] outputs() {
-        return new File[]{new File(dir, "modelo.obj"), new File(dir, "modelo.ply"), new File(dir, "modelo.stl"),
+        return new File[]{new File(dir, "modelo.obj"), new File(dir, "modelo.ply"), new File(dir, "modelo.stl"), new File(dir, "modelo.glb"),
                 new File(dir, "log.txt")};
     }
 }

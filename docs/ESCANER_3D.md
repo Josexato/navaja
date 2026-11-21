@@ -72,7 +72,7 @@ Ninguno de los tres funciona bien con objetos transparentes, espejados o totalme
 3. **Foto de fondo**, con el disco puesto y **sin objeto**: fija la exposición y el enfoque y calibra cada cámara.
 4. Objeto al centro → **Iniciar captura**. Gira el disco de a poco: la app toma como máximo 1 foto por segundo, con la escena quieta, y se detiene al completar la vuelta.
 5. Opcional: una **nueva pasada** a otra altura mejora la parte de arriba.
-6. **Generar 3D** abre el modelo en el visor de Navaja, con medidas, volumen y peso PLA. Los archivos quedan en `Android/data/com.josexato.navaja/files/scans/`.
+6. **Generar 3D** abre el modelo en el visor de Navaja, con medidas, volumen y peso PLA. Los archivos (`modelo.obj`, `.ply`, `.stl` y `.glb`) quedan en `Android/data/com.josexato.navaja/files/scans/`.
 
 **Ajustes de la pantalla:**
 - **Modo**: DISCO (el ángulo se lee del anillo) o LIBRE (el ángulo se deduce con momentos de Hu).
@@ -101,6 +101,7 @@ Desde esta versión, junto a cada ZIP se guarda una ficha `medida_….json` (ver
 | `nube_objeto.ply` / `nube_completa.ply` | Puntos del objeto limpios (con normales) / todos los puntos |
 | `volumen.stl` | Volumen tallado con las siluetas, en mm, Z hacia arriba |
 | `modelo_base.obj` / `modelo_lowpoly.obj` (+ `.mtl`, `textura_*.jpg`) | Malla simplificada a ~3000 y ~400 triángulos con textura de las fotos, para Blender |
+| `modelo_base.glb` / `modelo_lowpoly.glb` | Los mismos dos modelos en GLB (glTF binario): un solo archivo con la malla y la textura adentro, en metros |
 | `fotos/` | Los cuadros clave usados |
 | `colmap/`, `poses.json` | La reconstrucción en formato COLMAP y en JSON, más las siluetas, para seguir en un servidor |
 | `sensores.csv`, video | Si se grabó con la pantalla de Navaja |

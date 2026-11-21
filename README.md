@@ -2,7 +2,7 @@
 
 # Navaja ◆
 
-App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PLY · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara (tres modos: video alrededor del objeto, video sobre una hoja con marcas en mm, o fotos con base giratoria). Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
+App **Android** navaja suiza de visualización: abre **GAG · SDJF · SVG · STL · OBJ · PLY · GLB · PDF** en un solo lugar, y además **escanea objetos en 3D** con la cámara (tres modos: video alrededor del objeto, video sobre una hoja con marcas en mm, o fotos con base giratoria). Todo corre en el dispositivo con las librerías empaquetadas en el APK: **funciona sin internet**. También trae un **afinador de guitarra y violín**, un **escáner de red local**, un **modo ingeniería de red móvil**, un **marcador de ubicaciones**, **brújula y nivel**, **pulso por cámara** y una **pantonera** para medir colores y texturas. El visor no pide permisos; la cámara y el micrófono sólo se piden al entrar en el escáner, la pantonera o el afinador.
 
 ## 🏠 Pantalla de inicio
 
@@ -16,6 +16,7 @@ Al abrir la app aparece un panel con las funciones: **Visor de archivos**, **Esc
 | `.svg` | Render fiel con pan y zoom (ideal para los SVG generados por AlmaGag). |
 | `.stl` / `.obj` | Vista 3D con órbita táctil y panel de pieza para impresión 3D: triángulos, dimensiones en mm, volumen, área y peso estimado en PLA. |
 | `.ply` | Nubes de puntos (como `nube_objeto.ply` y `nube_completa.ply` del escáner 3D) con su color, o mallas PLY con caras. Muestra la cantidad de puntos y el tamaño; los PLY de Navaja se enderezan solos (vienen con Z hacia arriba). |
+| `.glb` / `.gltf` | Modelos glTF con su textura o color (como `modelo_base.glb` del escáner 3D), con las mismas medidas que un STL. |
 | `.pdf` | Visor paginado con zoom y carga perezosa de páginas. |
 
 ## 🎻 Afinador (botón «Afinador»)
@@ -251,7 +252,7 @@ Requiere JDK 17 y el SDK de Android (compileSdk 34).
 
 ```
 app/src/main/assets/index.html   ← toda la app (HTML + CSS + JS)
-app/src/main/assets/lib/         ← three.js 0.147 + loaders (STL, OBJ, PLY), pdf.js 3.11 legacy (offline)
+app/src/main/assets/lib/         ← three.js 0.147 + loaders (STL, OBJ, PLY, glTF), pdf.js 3.11 legacy (offline)
 app/src/main/java/.../MainActivity.java  ← WebView + selector de archivos + puente al escáner
 app/src/main/java/.../tuner/             ← afinador (micrófono, aguja, tono); tuner/core = YIN y afinaciones
 app/src/main/java/.../lan/               ← escáner de red local; lan/core = subred, puertos y clasificación

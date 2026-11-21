@@ -130,6 +130,7 @@ final class MeasureReport {
                 for (int k = 0; k < 2; k++) {
                     Texture.Result t = tx == null ? null : tx[k];
                     put(zip, names[k] + ".obj", obj(ms[k + 1], names[k], t));
+                    put(zip, names[k] + ".glb", glb(ms[k + 1], names[k], t));
                     if (t != null) {
                         put(zip, names[k] + ".mtl", mtl(images[k]));
                         put(zip, images[k], jpeg(t));
@@ -415,6 +416,9 @@ final class MeasureReport {
             s.append(String.format(Locale.ROOT, "- `modelo_base.obj`: el mismo volumen simplificado a %d triángulos (las zonas planas en caras grandes, "
                     + "más detalle en las curvas): base para modelar.\n", ms[1].triangleCount()));
             s.append(String.format(Locale.ROOT, "- `modelo_lowpoly.obj`: simplificado a %d triángulos, punto de partida low poly.\n", ms[2].triangleCount()));
+            s.append("- `modelo_base.glb` y `modelo_lowpoly.glb`: los mismos dos modelos en GLB (glTF binario): un solo archivo con la malla y la textura "
+                    + "adentro, en metros y con Y hacia arriba. Lo abren directo Blender (*Archivo → Importar → glTF 2.0*), los visores de 3D de Windows "
+                    + "y Android y los motores de juego.\n");
             Texture.Result[] tx = d.textures();
             if (tx != null)
                 s.append(String.format(Locale.ROOT, "- Texturas (mapeo UV con las fotos): `textura_base.jpg` %d×%d px, %d parches de %d fotos, %d triángulos "
@@ -651,6 +655,18 @@ final class MeasureReport {
      * derecho con sus opciones por defecto), en mm, sin normales: Blender
      * las calcula y se puede elegir sombreado plano para low poly.
      */
+    /** El modelo como GLB (glTF binario, en metros, Y hacia arriba), con la textura adentro si la hay. */
+    static byte[] glb(Mesh m, String name, Texture.Result tex) {
+        return com.josexato.navaja.scan3d.core.Glb.write(m.pos, m.tri, tex == null ? null : tex.uv, tex == null ? null : jpeg(tex), null, false, 0.001, name);
+    }
+
+    /** El modelo base con su textura como GLB, para compartirlo suelto; null si no hay volumen. */
+    static byte[] baseGlb(Data d) {
+        if (d.hull == null) return null;
+        Texture.Result[] tx = d.textures();
+        return glb(d.models()[1], "modelo_base", tx == null ? null : tx[0]);
+    }
+
     static byte[] obj(Mesh m, String name) { return obj(m, name, null); }
 
     /** Igual, y si hay textura ({@code tex}), con coordenadas UV (una por esquina) y su material ({@code name}.mtl). */
