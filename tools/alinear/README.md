@@ -31,7 +31,7 @@ for X in A B; do
   java -cp out com.josexato.navaja.measure.core.XfHarness in  zip$X w$X      # imágenes para XFeat
   python -I tools/alinear/xfpy.py bb   w$X $T zip$X                          # XFeat
   java -cp out com.josexato.navaja.measure.core.XfHarness sel zip$X w$X      # puntos y descriptores
-  python -I tools/alinear/xfpy.py glue w$X $T                                # LighterGlue entre fotos seguidas
+  python -I tools/alinear/xfpy.py glue w$X $T                                # LighterGlue entre fotos seguidas (ATRAS=n: con las n anteriores)
   SIL=1 java -Xmx3g -cp out com.josexato.navaja.measure.core.XfHarness fin zip$X w$X 2   # reconstrucción → wX/obj3d.txt
 done
 python -I tools/alinear/alinear.py wA wB $T 12 1
@@ -47,5 +47,16 @@ python -I tools/alinear/alinear.py wA wB $T 12 1
 - XFeat + LighterGlue reconoce los mismos puntos con el objeto girado en la imagen hasta ~45° (79 % de pares correctos); a
   60° baja a 53 % y a 90° o 180° no reconoce nada. Para un objeto volteado hay que probar las fotos de B giradas 0°, 90°,
   180° y 270° y quedarse con la que más pares dé. **Eso todavía no está en `alinear.py`.**
+- **Emparejar con más cuadros anteriores no da más puntos.** Probado con tres escaneos reales (83 a 113 fotos) y 2, 4, 6 y 8
+  cuadros hacia atrás (`ATRAS=8` en `xfpy.py glue` y el último argumento de `XfHarness fin`): los puntos de XFeat bajan
+  entre 3 % y 23 % al pasar de 2 a 8, el error de reproyección sube un poco (1,16 → 1,27 px en el peor caso) y las medidas
+  no cambian. Las pistas se funden entre sí y aparecen muchas más uniones contradictorias. `LOOK_BACK` se queda en 2.
+- **Una segunda pasada de XFeat sobre el objeto ampliado sí da más puntos** (es `ZoomPass`, ya en la app). `XfHarness inz` y
+  `selz` recortan cada foto alrededor de la caja del objeto (`caja.txt`, que deja `fin` con `SIL=1`), la amplían y sacan otros
+  1024 puntos ahí. Con `ZOOM=<carpeta> ZOOM_MODO=app`, `fin` suma sus pistas como la app: al final, con las poses ya fijas.
+  Resultado: alcancía de 14 cm, 41 de 87 fotos ampliadas 1,5× → objeto de 640 a 968 puntos; objeto de 20 cm, 40 de 113
+  fotos → de 10 788 a 13 449; un objeto que llenaba la foto, nada que ampliar. Los ZIP traen las fotos a 960 px, así que aquí
+  el recorte se amplía sin detalle nuevo; en la app sale del video original. La caja tiene que ser la de después de las
+  siluetas: con la de los puntos solos (149 × 150 mm para la alcancía) no había nada que ampliar.
 - Variables de `XfHarness fin` usadas en las pruebas: `SIL=1` corrige las siluetas, `CONSENSO=1` las compara entre sí,
   `ROMPER=0.35` estropea una parte a propósito, `PLANO=0` no usa que la hoja es plana, `CASCO=archivo` guarda los vóxeles.
