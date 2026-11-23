@@ -19,6 +19,21 @@ public class JoinHarness {
     static void put(Path p, float[] v) throws IOException { ByteBuffer b = ByteBuffer.allocate(4 * v.length).order(ByteOrder.LITTLE_ENDIAN); b.asFloatBuffer().put(v); Files.write(p, b.array()); }
     static float[] getF(Path p) throws IOException { ByteBuffer b = ByteBuffer.wrap(Files.readAllBytes(p)).order(ByteOrder.LITTLE_ENDIAN); float[] v = new float[b.capacity() / 4]; b.asFloatBuffer().get(v); return v; }
     static int[] getI(Path p) throws IOException { ByteBuffer b = ByteBuffer.wrap(Files.readAllBytes(p)).order(ByteOrder.LITTLE_ENDIAN); int[] v = new int[b.capacity() / 4]; b.asIntBuffer().get(v); return v; }
+    /** Qué parte de cada silueta (sin ensanchar) cubre el volumen visto desde esa foto, y qué parte del volumen proyectado cae fuera de ella: medianas por escaneo. */
+    static String cover(PoseJoin.Hull hu, List<PoseJoin.Cam> cams, List<byte[]> raw) {
+        com.josexato.navaja.scan3d.core.Carver.Grid g = hu.grid; StringBuilder sb = new StringBuilder();
+        for (int sidx = 0; sidx < 2; sidx++) { List<Double> rec = new ArrayList<>(), out = new ArrayList<>();
+            for (int ci = 0; ci < cams.size(); ci++) { PoseJoin.Cam c = cams.get(ci); if (c.scan != sidx) continue; byte[] m = raw.get(ci); boolean[] cov = new boolean[c.w * c.h];
+                for (int k = 0; k < g.nz; k++) for (int j = 0; j < g.ny; j++) for (int i = 0; i < g.nx; i++) { if (g.occ[g.idx(i, j, k)] == 0) continue;
+                    double[] x = c.pose.apply(new double[]{g.x0 + (i + 0.5) * g.step, g.y0 + (j + 0.5) * g.step, g.z0 + (k + 0.5) * g.step}); if (x[2] <= 0) continue;
+                    double u = c.f * x[0] / x[2] + c.cx, v = c.f * x[1] / x[2] + c.cy; int r = (int) Math.ceil(0.75 * g.step * c.f / x[2]);
+                    for (int dv = -r; dv <= r; dv++) for (int du = -r; du <= r; du++) { int uu = (int) u + du, vv = (int) v + dv; if (uu >= 0 && vv >= 0 && uu < c.w && vv < c.h) cov[vv * c.w + uu] = true; } }
+                int mk = 0, both = 0, cv = 0; for (int q = 0; q < cov.length; q++) { if (m[q] != 0) mk++; if (cov[q]) cv++; if (cov[q] && m[q] != 0) both++; }
+                if (mk > 400 && cv > 0) { rec.add(both / (double) mk); out.add((cv - both) / (double) cv); } }
+            Collections.sort(rec); Collections.sort(out);
+            if (!rec.isEmpty()) sb.append(String.format(Locale.ROOT, " · toma %s: cubre %.0f %% de la silueta (peor foto %.0f %%), %.0f %% del volumen cae fuera", sidx == 0 ? "A" : "B", 100 * rec.get(rec.size() / 2), 100 * rec.get(0), 100 * out.get(out.size() / 2))); }
+        return sb.toString();
+    }
     public static void main(String[] a) throws Exception {
         String mode = a[0]; String[] z = {a[1], a[2]}; Path wk = Paths.get(a[3]); Files.createDirectories(wk); int n = a.length > 4 ? Integer.parseInt(a[4]) : 12;
         PoseJoin.Scan[] sc = {scan(z[0]), scan(z[1])};
@@ -64,5 +79,27 @@ public class JoinHarness {
                 f.angleDeg, f.tiltDeg, PoseJoin.cloudGap(ca, cb, f), PoseJoin.cloudGap(ca, cb, null), f.ok() ? "UNIDAS" : "no alcanza");
         System.out.printf("bajo la hoja (más de 5 mm): %.1f %% de los puntos de A ya movidos%n", 100 * PoseJoin.below(ca, f, 5));
         System.out.printf(Locale.ROOT, "R %s%nt %s%n", Arrays.toString(f.r), Arrays.toString(f.t));
+        if (!"1".equals(System.getenv("TALLAR"))) return;
+        // Un solo volumen con las siluetas de las dos tomas (como JoinActivity), más cada toma sola para comparar
+        int grow = System.getenv("CRECER") != null ? Integer.parseInt(System.getenv("CRECER")) : PoseJoin.GROW_A;
+        List<PoseJoin.Cam> cams = new ArrayList<>(); List<byte[]> raw = new ArrayList<>();
+        for (int sidx = 0; sidx < 2; sidx++) { PoseJoin.Scan S = sc[sidx]; int w = S.width, h = S.height;
+            for (int i = 0; i < S.names.size(); i++) { int[] mk = px(z[sidx] + "/colmap/mascaras/" + S.names.get(i) + ".png", w, h); if (mk == null) continue;
+                byte[] mask = new byte[w * h]; for (int k = 0; k < mask.length; k++) mask[k] = (byte) ((mk[k] & 255) > 127 ? 1 : 0);
+                PoseJoin.Cam c = new PoseJoin.Cam(); c.scan = sidx; c.w = w; c.h = h; c.f = S.focal; c.cx = S.cx; c.cy = S.cy;
+                c.pose = sidx == 0 ? PoseJoin.moved(S.poses.get(i), f) : S.poses.get(i); c.mask = sidx == 0 && grow > 0 ? PoseJoin.grow(mask, w, h, grow) : mask; cams.add(c); raw.add(mask); } }
+        double[][] box = PoseJoin.box(ca, cb, f); long t0 = System.nanoTime();
+        PoseJoin.Hull hu = PoseJoin.carve(cams, box, f);
+        if (hu == null) { System.out.println("sin volumen"); return; }
+        System.out.printf("volumen con las dos tomas: %.0f cm3 · %.0f × %.0f × %.0f mm · %d + %d siluetas · %.1f s · %s%n", hu.volume, hu.size[0], hu.size[1], hu.size[2], hu.viewsA, hu.viewsB, (System.nanoTime() - t0) / 1e9, hu.grid);
+        System.out.println("  las dos" + cover(hu, cams, raw));
+        com.josexato.navaja.scan3d.core.Mesh m = com.josexato.navaja.scan3d.core.SurfaceNets.extract(hu.grid); m.taubinSmooth(8); m.writeStl(wk.resolve("union.stl").toFile());
+        System.out.println("malla " + m.triangleCount() + " triángulos → " + wk.resolve("union.stl"));
+        // Cada toma sola, con la misma caja y la misma regla (para ver qué recorta la otra)
+        for (int only = 0; only < 2; only++) { List<PoseJoin.Cam> one = new ArrayList<>();
+            for (PoseJoin.Cam c : cams) { one.add(c); if (c.scan != only) { PoseJoin.Cam d = new PoseJoin.Cam(); d.scan = c.scan; d.w = c.w; d.h = c.h; d.f = c.f; d.cx = c.cx; d.cy = c.cy; d.pose = c.pose; d.mask = new byte[c.w * c.h]; Arrays.fill(d.mask, (byte) 1); one.set(one.size() - 1, d); } }
+            PoseJoin.Hull ho = PoseJoin.carve(one, box, f);
+            if (ho != null) { System.out.printf("sólo la toma %s: %.0f cm3 · %.0f × %.0f × %.0f mm%n", only == 0 ? "A" : "B", ho.volume, ho.size[0], ho.size[1], ho.size[2]); System.out.println("  " + cover(ho, cams, raw));
+                com.josexato.navaja.scan3d.core.Mesh mo = com.josexato.navaja.scan3d.core.SurfaceNets.extract(ho.grid); mo.taubinSmooth(8); mo.writeStl(wk.resolve(only == 0 ? "solo_a.stl" : "solo_b.stl").toFile()); } }
     }
 }

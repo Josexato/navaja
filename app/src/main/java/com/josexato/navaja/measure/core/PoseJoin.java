@@ -1,5 +1,7 @@
 package com.josexato.navaja.measure.core;
 
+import com.josexato.navaja.scan3d.core.Carver;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -41,6 +43,8 @@ public final class PoseJoin {
     /** La reconstrucción guardada de un escaneo (colmap/sparse/0 del ZIP). */
     public static final class Scan {
         public int width, height;
+        /** Focal (px) y centro óptico (px, coordenadas de la app) de la cámara guardada. */
+        public double focal, cx, cy;
         public final List<String> names = new ArrayList<>();
         public final List<Geometry.Pose> poses = new ArrayList<>();
         /** Por foto: observaciones (x, y en px de la foto) y el índice del punto 3D de cada una. */
@@ -61,6 +65,10 @@ public final class PoseJoin {
             String[] t = l.split("\\s+");
             s.width = Integer.parseInt(t[2]);
             s.height = Integer.parseInt(t[3]);
+            s.focal = Double.parseDouble(t[4]);
+            // SIMPLE_PINHOLE: f, cx, cy (Colmap cuenta desde la esquina del píxel: medio píxel más)
+            s.cx = t.length > 6 ? Double.parseDouble(t[5]) - 0.5 : s.width / 2.0;
+            s.cy = t.length > 6 ? Double.parseDouble(t[6]) - 0.5 : s.height / 2.0;
             break;
         }
         Map<Integer, Integer> pid = new HashMap<>();
@@ -339,5 +347,164 @@ public final class PoseJoin {
         int n = 0;
         for (double[] x : a) if (f.apply(x)[2] < -mm) n++;
         return n / (double) a.size();
+    }
+
+    // ------------------------------------------------------------ un solo volumen con las dos tomas
+
+    /** Tolerancia del tallado: vistas en desacuerdo que se perdonan por escaneo (errores de silueta). */
+    public static final int TOL = 2;
+    public static final double TOL_SHARE = 0.1;
+    /** Vóxeles por lado mayor de la caja. */
+    public static final int GRID = 110;
+    /** Margen de la caja alrededor de los puntos del objeto (mm). */
+    public static final double BOX_PAD = 15;
+    /** Las siluetas del primer escaneo se ensanchan estos px: absorbe el error de la unión (unos mm). */
+    public static final int GROW_A = 3;
+
+    /** Una foto con su silueta, lista para tallar: la cámara ya en los ejes del segundo escaneo. */
+    public static final class Cam {
+        public Geometry.Pose pose;
+        public double f, cx, cy;
+        public int w, h;
+        /** Silueta de {@code w}×{@code h}, ≠ 0 = objeto. */
+        public byte[] mask;
+        /** 0 = primer escaneo (A, movido), 1 = segundo (B). */
+        public int scan;
+    }
+
+    /** La cámara {@code p} del primer escaneo, vista desde los ejes del segundo: x_c = R_A·Rᵀ·X_B + (t_A − R_A·Rᵀ·t). */
+    public static Geometry.Pose moved(Geometry.Pose p, Fit f) {
+        Geometry.Pose q = new Geometry.Pose();
+        q.r = Lin.mul(p.r, Lin.tr(f.r));
+        q.t = Lin.sub(p.t, Lin.mulV(q.r, f.t));
+        return q;
+    }
+
+    /** Ensancha una silueta {@code n} px (vecinos de 4, {@code n} pasadas). */
+    public static byte[] grow(byte[] m, int w, int h, int n) {
+        byte[] a = m.clone();
+        for (int it = 0; it < n; it++) {
+            byte[] b = a.clone();
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    if (a[y * w + x] != 0) continue;
+                    if ((x > 0 && a[y * w + x - 1] != 0) || (x < w - 1 && a[y * w + x + 1] != 0) || (y > 0 && a[(y - 1) * w + x] != 0)
+                            || (y < h - 1 && a[(y + 1) * w + x] != 0)) b[y * w + x] = 1;
+                }
+            a = b;
+        }
+        return a;
+    }
+
+    /** Caja {mín, máx} (mm, ejes del segundo escaneo) de los puntos del objeto de las dos tomas, con margen; el piso es la hoja. */
+    public static double[][] box(List<double[]> a, List<double[]> b, Fit f) {
+        List<double[]> all = new ArrayList<>(b);
+        for (double[] x : a) all.add(f.apply(x));
+        if (all.size() < 20) return null;
+        double[][] box = new double[2][3];
+        double[] v = new double[all.size()];
+        for (int c = 0; c < 3; c++) {
+            for (int i = 0; i < v.length; i++) v[i] = all.get(i)[c];
+            Arrays.sort(v);
+            box[0][c] = v[(int) (0.01 * (v.length - 1))] - BOX_PAD;
+            box[1][c] = v[(int) (0.99 * (v.length - 1))] + BOX_PAD;
+        }
+        box[0][2] = 0;
+        return box;
+    }
+
+    /** El volumen tallado con las dos tomas. */
+    public static final class Hull {
+        /** Ocupación en los ejes del segundo escaneo (mm; Z hacia arriba, la hoja en Z = 0). */
+        public Carver.Grid grid;
+        /** cm³. */
+        public double volume;
+        /** Largo en X, Y y Z (mm, percentiles 1–99). */
+        public double[] size;
+        public int viewsA, viewsB;
+    }
+
+    /**
+     * Talla un solo volumen con las siluetas de las dos tomas: un punto del
+     * espacio queda si cae dentro de la silueta en casi todas las fotos de
+     * cada escaneo que lo ven (se perdonan {@link #TOL} o el 10 %), está
+     * sobre la hoja del segundo escaneo y, llevado al primero, también sobre
+     * la suya (el objeto estuvo apoyado en las dos). Así cada toma recorta lo
+     * que la otra no veía: la parte apoyada. null si hay pocas siluetas o no
+     * queda volumen.
+     */
+    public static Hull carve(List<Cam> cams, double[][] box, Fit f) {
+        int[] views = new int[2];
+        for (Cam c : cams) views[c.scan]++;
+        if (views[0] < 6 || views[1] < 6 || box == null) return null;
+        double side = Math.max(box[1][0] - box[0][0], Math.max(box[1][1] - box[0][1], box[1][2] - box[0][2]));
+        double step = side / GRID;
+        Carver.Grid g = new Carver.Grid();
+        g.nx = (int) Math.ceil((box[1][0] - box[0][0]) / step);
+        g.ny = (int) Math.ceil((box[1][1] - box[0][1]) / step);
+        g.nz = (int) Math.ceil((box[1][2] - box[0][2]) / step);
+        g.x0 = box[0][0];
+        g.y0 = box[0][1];
+        g.z0 = box[0][2];
+        g.step = step;
+        int n = g.nx * g.ny * g.nz;
+        short[][] bad = {new short[n], new short[n]}, seen = {new short[n], new short[n]};
+        for (Cam c : cams) {
+            Geometry.Pose p = c.pose;
+            short[] bd = bad[c.scan], sn = seen[c.scan];
+            // x_c = R·X + t, avanzando de a un vóxel en X
+            double[] o = p.apply(new double[]{g.x0 + step / 2, g.y0 + step / 2, g.z0 + step / 2});
+            double[] ri = {p.r[0] * step, p.r[3] * step, p.r[6] * step}, rj = {p.r[1] * step, p.r[4] * step, p.r[7] * step},
+                    rk = {p.r[2] * step, p.r[5] * step, p.r[8] * step};
+            for (int k = 0; k < g.nz; k++)
+                for (int j = 0; j < g.ny; j++) {
+                    double x = o[0] + j * rj[0] + k * rk[0], y = o[1] + j * rj[1] + k * rk[1], z = o[2] + j * rj[2] + k * rk[2];
+                    int row = (k * g.ny + j) * g.nx;
+                    for (int i = 0; i < g.nx; i++, x += ri[0], y += ri[1], z += ri[2]) {
+                        if (z <= 0) continue;
+                        double u = c.f * x / z + c.cx, v = c.f * y / z + c.cy;
+                        if (u < 1 || v < 1 || u >= c.w - 1 || v >= c.h - 1) continue;
+                        sn[row + i]++;
+                        if (c.mask[(int) v * c.w + (int) u] == 0) bd[row + i]++;
+                    }
+                }
+        }
+        int[] minSeen = {Math.max(4, views[0] / 5), Math.max(4, views[1] / 5)};
+        g.occ = new byte[n];
+        // La hoja del primer escaneo, en los ejes del segundo: z_A = (Rᵀ·(X − t))_z
+        double[] na = {f.r[2], f.r[5], f.r[8]};
+        for (int k = 0; k < g.nz; k++)
+            for (int j = 0; j < g.ny; j++)
+                for (int i = 0; i < g.nx; i++) {
+                    int id = g.idx(i, j, k);
+                    boolean ok = true;
+                    for (int s = 0; s < 2 && ok; s++)
+                        ok = seen[s][id] >= minSeen[s] && bad[s][id] <= Math.max(TOL, TOL_SHARE * seen[s][id]);
+                    if (!ok) continue;
+                    double X = g.x0 + (i + 0.5) * step - f.t[0], Y = g.y0 + (j + 0.5) * step - f.t[1], Z = g.z0 + (k + 0.5) * step - f.t[2];
+                    if (na[0] * X + na[1] * Y + na[2] * Z < -step) continue;
+                    g.occ[id] = 1;
+                }
+        Carve.largestComponent(g);
+        int cnt = g.count();
+        if (cnt < 50) return null;
+        Hull h = new Hull();
+        h.grid = g;
+        h.viewsA = views[0];
+        h.viewsB = views[1];
+        h.volume = cnt * step * step * step / 1000;
+        double[][] co = new double[3][cnt];
+        int q = 0;
+        for (int k = 0; k < g.nz; k++)
+            for (int j = 0; j < g.ny; j++)
+                for (int i = 0; i < g.nx; i++)
+                    if (g.occ[g.idx(i, j, k)] != 0) {
+                        co[0][q] = i * step;
+                        co[1][q] = j * step;
+                        co[2][q++] = k * step;
+                    }
+        h.size = new double[3];
+        for (int a = 0; a < 3; a++) h.size[a] = Measure.percentile(co[a], 99) - Measure.percentile(co[a], 1) + step;
+        return h;
     }
 }

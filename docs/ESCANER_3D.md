@@ -110,13 +110,15 @@ Desde esta versión, junto a cada ZIP se guarda una ficha `medida_….json` (ver
 
 ## Agregar otra pose (unir dos escaneos)
 
-Cada toma deja sin ver la parte sobre la que el objeto está apoyado. Si se escanea el mismo objeto dos veces sobre la hoja, en dos posiciones (por ejemplo parado y acostado), **Mis escaneos → «Unir con otra pose…»** halla el giro y el desplazamiento que llevan un escaneo sobre el otro. Por ahora alinea las dos tomas, dice qué tan fiable salió y deja compartir la nube unida (PLY, en mm); tallar un solo volumen con las dos es el paso siguiente.
+Cada toma deja sin ver la parte sobre la que el objeto está apoyado. Si se escanea el mismo objeto dos veces sobre la hoja, en dos posiciones (por ejemplo parado y acostado), **Mis escaneos → «Unir con otra pose…»** halla el giro y el desplazamiento que llevan un escaneo sobre el otro, dice qué tan fiable salió, deja compartir la nube unida (PLY, en mm) y, con **«Tallar el volumen»**, talla un solo volumen con las siluetas de las dos tomas (STL completo y GLB de 3000 triángulos).
 
 - De 12 fotos de cada escaneo se deja sólo el objeto (fondo gris fuera de la silueta, recortado y ampliado): el fondo y la hoja son distintos en cada toma y confunden al emparejador.
 - Las fotos del segundo escaneo se prueban además giradas 90°, 180° y 270°, porque XFeat no reconoce nada con la imagen girada 90° o más.
 - Cada par de puntos emparejados se pasa a un par de puntos 3D y con todos se ajusta un movimiento rígido (RANSAC, pares coherentes a menos de 4 mm). Hacen falta 20 pares coherentes.
 - Dos comprobaciones que no usan los pares: las dos nubes tienen que acercarse (a menos del 60 % de la distancia sin girar) y el objeto movido no puede quedar hundido bajo la hoja.
 - **Objetos simétricos:** si las dos tomas muestran costados opuestos (acostado sobre un lado y luego sobre el otro), un costado se empareja con el otro y sale un giro coherente pero falso. La comprobación de las nubes lo detecta y la unión se rechaza. Conviene que las dos poses compartan partes visibles.
+- **Un solo volumen:** las cámaras del primer escaneo se llevan a los ejes del segundo y se talla con todas las siluetas. Un punto queda si cae dentro de la silueta en casi todas las fotos de cada escaneo que lo ven (se perdonan 2, o el 10 %) y está sobre la hoja en las dos tomas. Las siluetas del primer escaneo se ensanchan 3 px para absorber el error de la unión. El resultado dice también cuánto mide cada toma sola tallada igual, para ver qué recortó la otra.
+- Con el torito: 383 cm³ con las dos tomas contra 467 y 457 cm³ de cada una sola; el volumen unido cubre el 96–97 % de las siluetas de las dos tomas. La toma acostada sola, vista desde arriba, es un bulto sin forma; unida ya se le ve el perfil. Sigue siendo un volumen de contornos: no ve huecos que ningún contorno muestra y las patas salen pegadas.
 - Probado con un torito de cerámica de 12 cm: parado → acostado, 57 pares coherentes de 500, error de 2,0 mm, giro de 89°; las nubes quedan a 4,2 mm (14,1 sin girar). Con un objeto distinto no salen pares (9) y no se une.
 
 ## Versión
