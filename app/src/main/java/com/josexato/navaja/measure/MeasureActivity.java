@@ -491,13 +491,11 @@ public class MeasureActivity extends Activity {
         XFeatTracks.Linker lk = new XFeatTracks.Linker();
         // Los dos cuadros clave anteriores: cada uno se empareja con ambos (pistas más largas, más ángulo entre vistas)
         XFeatTracks.Frame[] prev = new XFeatTracks.Frame[XFeatTracks.LOOK_BACK];
-        int[] idx = {-1}, done = {0};
+        int[] done = {0};
         try {
-            VideoFrames.read(this, uri, FPS, LONG_SIDE, frameTurn, (argb, w, h, t, d) -> {
+            // Sólo se convierten los cuadros clave: los demás se saltan (convertirlos todos era casi todo el tiempo de la lectura)
+            VideoFrames.read(this, uri, FPS, LONG_SIDE, frameTurn, picker(want, last, dims, false), (fr, argb, w, h) -> {
                 if (cancel.get()) return false;
-                if (w != dims[0] || h != dims[1]) return true;
-                int fr = ++idx[0];
-                if (!want.contains(fr)) return fr < last;
                 XFeatTracks.Frame f = xf.detect(fr, argb, w, h);
                 for (int g = 0; g < prev.length; g++)
                     if (prev[g] != null) lk.add(prev[g], f, xf.match(prev[g], f), fx[prev[g].frame].pose, fx[fr].pose, lens, g + 1);
@@ -505,7 +503,7 @@ public class MeasureActivity extends Activity {
                 prev[0] = f;
                 done[0]++;
                 post(String.format(Locale.getDefault(), "2/3 · Más puntos con XFeat (%s): foto %d de %d", xf.netDelegate, done[0], keys.size()));
-                return fr < last;
+                return true;
             });
             List<Sfm.Track> out = lk.tracks(3);
             rep.xfeatTracks = out.size();
@@ -521,6 +519,26 @@ public class MeasureActivity extends Activity {
             closeXfeat();
             xfeat = xf;
         }
+    }
+
+    /**
+     * Qué cuadros leer del video: los de {@code frames} hasta {@code last}. Los índices cuentan los cuadros del
+     * tamaño del análisis ({@code dims}); con {@code scaled}, los de esa misma forma a otra resolución.
+     */
+    private static VideoFrames.Picker picker(java.util.Collection<Integer> frames, int last, int[] dims, boolean scaled) {
+        Set<Integer> want = new HashSet<>(frames);
+        return new VideoFrames.Picker() {
+            @Override
+            public boolean counts(int w, int h) {
+                return scaled ? Math.abs((long) w * dims[1] - (long) h * dims[0]) <= Math.max(w, h) : w == dims[0] && h == dims[1];
+            }
+
+            @Override
+            public boolean want(int index) { return want.contains(index); }
+
+            @Override
+            public int last() { return last; }
+        };
     }
 
     private void closeXfeat() {
@@ -561,15 +579,12 @@ public class MeasureActivity extends Activity {
         int last = lastFrame, total = rects.size();
         XFeatTracks.Linker lk = new XFeatTracks.Linker();
         XFeatTracks.Frame[] prev = new XFeatTracks.Frame[XFeatTracks.LOOK_BACK];
-        int[] idx = {-1}, done = {0};
+        int[] done = {0};
         try {
             // El video al doble de lado que el análisis (su resolución real, si la tiene): el recorte gana detalle de verdad
-            VideoFrames.read(this, uri, FPS, 2 * LONG_SIDE, frameTurn, (argb, w, h, t, d) -> {
+            VideoFrames.read(this, uri, FPS, 2 * LONG_SIDE, frameTurn, picker(rects.keySet(), last, dims, true), (fr, argb, w, h) -> {
                 if (cancel.get()) return false;
-                if (Math.abs((long) w * dims[1] - (long) h * dims[0]) > Math.max(w, h)) return true; // otra forma: tampoco contó en las otras lecturas
-                int fr = ++idx[0];
                 double[] q = rects.get(fr);
-                if (q == null) return fr < last;
                 XFeatTracks.Frame f = xf.detect(fr, ZoomPass.crop(argb, w, h, q, dims[0], dims[1]), dims[0], dims[1]);
                 ZoomPass.toPhoto(f, q, dims[0], dims[1]);
                 for (int g = 0; g < prev.length; g++)
@@ -579,7 +594,7 @@ public class MeasureActivity extends Activity {
                 prev[0] = f;
                 done[0]++;
                 post(String.format(Locale.getDefault(), "3/3 · Más puntos sobre el objeto ampliado: foto %d de %d", done[0], total));
-                return fr < last;
+                return true;
             });
             if (cancel.get()) return 0;
             List<Sfm.Track> zt = lk.tracks(3);
@@ -752,8 +767,14 @@ public class MeasureActivity extends Activity {
         maskH = mh;
         int first = r.points.length;
         int added = Sfm.densify(r, dt.tracks, r.startFrame);
+        int zoomFirst = r.points.length;
         if (sheetMode) added += zoomPass(uri, ch, dims, camOf);
         Measure.include(r, ch.box, first);
+        if (sheetReport != null && r.points.length > zoomFirst) {
+            int n = 0;
+            for (int q : ch.box.objectPoints) if (q >= zoomFirst) n++;
+            sheetReport.zoomObject = n;
+        }
         Log.i(TAG, "denso: " + dt.tracks.size() + " pistas, +" + added + " puntos, objeto " + ch.box.objectPoints.length
                 + (hull == null ? " · sin casco" : String.format(Locale.ROOT, " · casco %d siluetas, diferencia %.1f %%", hull.views,
                 100 * Carve.disagreement(ch.box, hull))));

@@ -27,12 +27,43 @@ final class VideoFrames {
         boolean frame(int[] argb, int w, int h, long timeUs, long durationUs);
     }
 
+    /**
+     * Para leer sólo algunos cuadros: {@link #counts} dice si un cuadro de
+     * ese tamaño entra en la cuenta (los índices son los mismos que lleva
+     * quien lee todo y descarta los de otro tamaño) y {@link #want} si ese
+     * cuadro hace falta. Los que no hacen falta se decodifican (no hay otra
+     * forma de llegar a los siguientes) pero no se convierten a ARGB, que es
+     * lo caro. Después de {@link #last} se deja de leer.
+     */
+    interface Picker {
+        boolean counts(int w, int h);
+
+        boolean want(int index);
+
+        int last();
+    }
+
+    interface IndexedSink {
+        /** @return false para cancelar */
+        boolean frame(int index, int[] argb, int w, int h);
+    }
+
+    /** Lee sólo los cuadros que pide {@code pick} (ver {@link Picker}). */
+    static void read(Context ctx, Uri uri, double fps, int longSide, int turn, Picker pick, IndexedSink sink) throws IOException {
+        read(ctx, uri, fps, longSide, turn, pick, sink, null);
+    }
+
     static void read(Context ctx, Uri uri, double fps, int longSide, Sink sink) throws IOException {
         read(ctx, uri, fps, longSide, 0, sink);
     }
 
     /** Igual, girando además cada cuadro {@code turn} grados en sentido horario (celular apaisado, ver {@code Imu.turn}). */
     static void read(Context ctx, Uri uri, double fps, int longSide, int turn, Sink sink) throws IOException {
+        read(ctx, uri, fps, longSide, turn, null, null, sink);
+    }
+
+    private static void read(Context ctx, Uri uri, double fps, int longSide, int turn, Picker pick, IndexedSink picked, Sink sink) throws IOException {
+        int index = -1;
         MediaExtractor ex = new MediaExtractor();
         MediaCodec codec = null;
         try {
@@ -83,10 +114,27 @@ final class VideoFrames {
                         Image img = codec.getOutputImage(oi);
                         if (img != null) {
                             int[][] dims = new int[1][];
-                            int[] argb = toArgb(img, longSide, rotation, dims);
-                            img.close();
+                            boolean go;
+                            if (pick == null) {
+                                int[] argb = toArgb(img, longSide, rotation, dims);
+                                img.close();
+                                go = sink.frame(argb, dims[0][0], dims[0][1], info.presentationTimeUs, duration);
+                            } else {
+                                int[] wh = size(img, longSide, rotation);
+                                if (!pick.counts(wh[0], wh[1])) {
+                                    img.close();
+                                    go = true;
+                                } else if (!pick.want(++index)) {
+                                    img.close();
+                                    go = index < pick.last();
+                                } else {
+                                    int[] argb = toArgb(img, longSide, rotation, dims);
+                                    img.close();
+                                    go = picked.frame(index, argb, dims[0][0], dims[0][1]) && index < pick.last();
+                                }
+                            }
                             while (next <= info.presentationTimeUs + step / 4) next += step;
-                            if (!sink.frame(argb, dims[0][0], dims[0][1], info.presentationTimeUs, duration)) {
+                            if (!go) {
                                 codec.releaseOutputBuffer(oi, false);
                                 return;
                             }
@@ -107,6 +155,15 @@ final class VideoFrames {
             }
             ex.release();
         }
+    }
+
+    /** El tamaño {ancho, alto} que tendrá el cuadro al salir de {@link #toArgb}, sin convertirlo. */
+    private static int[] size(Image img, int longSide, int rotation) {
+        Rect crop = img.getCropRect();
+        int iw = crop.width(), ih = crop.height();
+        int s = Math.max(1, (int) Math.ceil(Math.max(iw, ih) / (double) longSide));
+        rotation = ((rotation % 360) + 360) % 360;
+        return rotation == 0 || rotation == 180 ? new int[]{iw / s, ih / s} : new int[]{ih / s, iw / s};
     }
 
     /** YUV 4:2:0 → ARGB reducido (salto entero) y rotado. */

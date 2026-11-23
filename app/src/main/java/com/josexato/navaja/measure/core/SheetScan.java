@@ -73,6 +73,8 @@ public final class SheetScan {
         public String xfeatNote = "";
         /** Segunda pasada de XFeat sobre el objeto ampliado: fotos ampliables, aumento medio, pistas, puntos sumados, segundos y aviso si falló. */
         public int zoomFrames, zoomTracks, zoomPoints;
+        /** De los puntos sumados, cuántos quedaron dentro de la caja del objeto (el resto es de la hoja o del fondo que entra en el recorte). */
+        public int zoomObject;
         public double zoomScale, zoomSeconds;
         public String zoomNote = "";
         /**
