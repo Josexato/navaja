@@ -20,7 +20,7 @@ t0 = time.time(); P = []; Q = []; per = []
 for i in sa:
     for j in sb:
         o = run(args_0=L(A, 'gxy', i, (1, N, 2)), args_1=L(B, 'gxy', j, (1, N, 2)), args_2=L(A, 'gd', i, (1, N, 64)), args_3=L(B, 'gd', j, (1, N, 64)))
-        m0, m1, v = o['output_0'][0], o['output_1'][0], o['output_2'][0]
+        sc = o['output_0'][0]; m0, m1, v = sc.argmax(1), sc.argmax(0), sc.max(1)
         idx = np.arange(N); ok = (m1[m0] == idx) & (np.exp(v) > 0.1); n = 0
         for u in idx[ok]:
             x = ofa.get((i, int(u))); y = ofb.get((j, int(m0[u])))

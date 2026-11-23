@@ -32,7 +32,8 @@ public final class XFeatTracks {
     public static final int IN_W = 512, IN_H = 960, N = 1024, DIM = 64;
     static final int GW = IN_W / 8, GH = IN_H / 8;
     /** Mapa de puntos mínimo (el de XFeat) y confianza mínima de un par (la de {@code match_lighterglue}). */
-    static final float THRESHOLD = 0.05f, MIN_CONF = 0.1f;
+    static final float THRESHOLD = 0.05f;
+    public static final float MIN_CONF = 0.1f;
     /** Cuántos cuadros clave anteriores se emparejan con cada uno (1 = sólo el anterior). */
     public static final int LOOK_BACK = 2;
     /** Distancia a la recta epipolar (px, Sampson) por encima de la cual un par se descarta: las poses de la hoja ya se conocen. */

@@ -33,6 +33,7 @@ else:
             ins = {'args_0': np.fromfile(f'{WK}/gxy_{i:03d}.bin', '<f4').reshape(1, N, 2), 'args_1': np.fromfile(f'{WK}/gxy_{j:03d}.bin', '<f4').reshape(1, N, 2),
                    'args_2': np.fromfile(f'{WK}/gd_{i:03d}.bin', '<f4').reshape(1, N, 64), 'args_3': np.fromfile(f'{WK}/gd_{j:03d}.bin', '<f4').reshape(1, N, 64)}
             t0 = time.time(); o = run(it, ins); t += time.time() - t0; n += 1
-            np.concatenate([o['output_0'][0], o['output_1'][0]]).astype('<i4').tofile(f'{WK}/m_{i:03d}_{j:03d}.bin')
-            o['output_2'][0].astype('<f4').tofile(f'{WK}/v_{i:03d}_{j:03d}.bin')
+            sc = o['output_0'][0]  # matriz de log-puntajes: el mejor par de cada punto se elige aquí, como en XFeat.runGlue
+            np.concatenate([sc.argmax(1), sc.argmax(0)]).astype('<i4').tofile(f'{WK}/m_{i:03d}_{j:03d}.bin')
+            sc.max(1).astype('<f4').tofile(f'{WK}/v_{i:03d}_{j:03d}.bin')
     print(f'LighterGlue: {n} pares · {1000*t/n:.0f} ms/par')
