@@ -63,7 +63,21 @@ Resultado con el torito (11 fotos de A × 10 de B × 4 giros, 99 s en el PC):
   12,8 mm; con giros al azar, entre 7 y 18 mm. La caja coincide en 1 mm en ancho y largo, y el costado sobre el que se
   apoya el objeto acostado cae en z ≈ 0 (1 % de los puntos a −2,9 mm, 2 % por debajo de −2 mm).
 
-Falta: llevarlo a la app, y unir las dos tomas para tallar un solo volumen.
+Ya está en la app (`PoseJoin` y `JoinActivity`, «Unir con otra pose…» en Mis escaneos). `JoinHarness` corre esa misma lógica en el
+PC, por pasos, con los ZIP descomprimidos:
+
+```bash
+J="java -cp out com.josexato.navaja.measure.core.JoinHarness"   # compilar también tools/alinear/JoinHarness.java
+$J cut zipA zipB w 12 && python -I tools/alinear/xfpy.py bb w $T zipA && $J sel zipA zipB w 12 \
+  && python -I tools/alinear/unir.py w $T && $J fit zipA zipB w 12
+```
+
+Con el torito: parado → acostado 57 coherentes de 500 (2,0 mm, 89°; nubes 4,2 mm contra 14,1); parado → acostado sobre el otro
+lado 82 de 488 (2,3 mm; nubes 2,6 contra 16,5); con un objeto distinto, 9 pares y sin ajuste. **Cuidado con la simetría:** entre
+las dos tomas acostadas (costados opuestos) salen 143 pares coherentes con un giro falso de 152° (el compuesto por la toma parada
+da 174°): un costado se empareja con el opuesto. La comprobación de las nubes no mejora (7,3 contra 6,8 mm) y por eso se rechaza.
+
+Falta: unir las dos tomas para tallar un solo volumen.
 
 ## Lo que se sabe
 
