@@ -35,6 +35,12 @@
         android:largeHeap="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!-- NPU de Qualcomm (delegado QNN): habla con el chip por esta librería del fabricante. Desde Android 12 una app
+             sólo puede cargar las librerías de /vendor que declara; sin esto el delegado falla al iniciar. -->
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
