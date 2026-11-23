@@ -3,8 +3,8 @@
 Herramienta de escritorio, **no forma parte de la app**. Toma dos ZIP del modo 2 (video sobre la hoja con marcas) del mismo
 objeto en dos poses y calcula el giro y el desplazamiento que llevan el escaneo A sobre el B.
 
-Estado: corre de principio a fin, pero **todavía no se validó con un objeto realmente movido** (los pares de ZIP disponibles
-eran el mismo video). Falta probarlo con dos poses reales.
+Estado: **validado con un objeto realmente volteado** (un torito de cerámica de 12 cm, parado en una toma y acostado en otra),
+con `alinear_objeto.py`. `alinear.py`, que empareja las fotos enteras, sólo sirve si el objeto casi no cambió de posición.
 
 ## Qué hace
 
@@ -38,6 +38,32 @@ python -I tools/alinear/alinear.py wA wB $T 12 1
 ```
 
 `alinear.py` guarda la matriz 3×4 `[R | t]` (x_B = R·x_A + t, en mm) junto a las carpetas de trabajo.
+
+## Objeto volteado: `alinear_objeto.py`
+
+Con el objeto en otra posición, emparejar las fotos enteras no sirve: el fondo y la hoja son distintos en cada toma y confunden al
+emparejador, y el objeto se ve girado en la imagen (XFeat no reconoce nada a 90° o más). Lo que funcionó:
+
+1. `recortar.py <zip> <salida> <giro> [cada n]`: deja de cada foto sólo el objeto (fondo gris fuera de la silueta de
+   `colmap/mascaras/`), recortado, ampliado al tamaño de la foto y girado. Para A con giro 0; para B con 0, 90, 180 y 270.
+2. Sobre cada carpeta de recortes: `XfHarness in`, `xfpy.py bb` y `XfHarness sel` (como arriba), y copiar su `rect.txt` a la
+   carpeta de trabajo.
+3. `alinear_objeto.py <trabajo A> <trabajo B> <recortes A> 0:<rec B 0>,90:<…>,180:<…>,270:<…> <modelos> <ancho,alto> [cada n]`:
+   empareja cada recorte de A con cada uno de B, lleva los puntos a la foto original, les da el punto 3D del punto clave
+   original más cercano (a menos de 3 px) y ajusta el movimiento rígido con RANSAC sobre los cuatro giros juntos.
+4. `comprobar.py <trabajo A> <trabajo B> <matriz>`: comprobación independiente de los pares (distancia entre las dos nubes).
+
+Resultado con el torito (11 fotos de A × 10 de B × 4 giros, 99 s en el PC):
+
+- Fotos enteras (`alinear.py`): 6 pares coherentes de 138. No sirve.
+- Sólo el objeto: hasta 132 pares por par de fotos (antes 16); 34 pares 3D coherentes de 224, error mediano 1,7 mm. Los cuatro
+  giros aportan (19, 8, 5 y 10 coherentes por separado).
+- El movimiento hallado es un giro de 87,5° que inclina el objeto 84° respecto de la vertical: parado → acostado.
+- Comprobación: llevando la nube de A sobre la de B, cada punto queda a 2,9 mm (mediana) del más cercano de B; sin alinear,
+  12,8 mm; con giros al azar, entre 7 y 18 mm. La caja coincide en 1 mm en ancho y largo, y el costado sobre el que se
+  apoya el objeto acostado cae en z ≈ 0 (1 % de los puntos a −2,9 mm, 2 % por debajo de −2 mm).
+
+Falta: llevarlo a la app, y unir las dos tomas para tallar un solo volumen.
 
 ## Lo que se sabe
 
