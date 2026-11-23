@@ -25,7 +25,7 @@ else:
     idx = [int(l) for l in open(f'{WK}/keys.txt').read().split() if l.strip()]
     t = 0; n = 0
     for k in range(len(idx)):
-        for s in (1, 2, 3):
+        for s in range(1, int(os.environ.get("ATRAS", "3")) + 1):  # con cuántos cuadros clave anteriores se empareja cada uno
             if k + s >= len(idx): continue
             i, j = idx[k], idx[k + s]
             if not os.path.exists(f'{WK}/gxy_{i:03d}.bin') or not os.path.exists(f'{WK}/gxy_{j:03d}.bin'): continue
