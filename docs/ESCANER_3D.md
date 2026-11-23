@@ -108,6 +108,17 @@ Desde esta versión, junto a cada ZIP se guarda una ficha `medida_….json` (ver
 | `sensores.csv`, video | Si se grabó con la pantalla de Navaja |
 | `depuracion/` | Con «Depuración» marcada |
 
+## Agregar otra pose (unir dos escaneos)
+
+Cada toma deja sin ver la parte sobre la que el objeto está apoyado. Si se escanea el mismo objeto dos veces sobre la hoja, en dos posiciones (por ejemplo parado y acostado), **Mis escaneos → «Unir con otra pose…»** halla el giro y el desplazamiento que llevan un escaneo sobre el otro. Por ahora alinea las dos tomas, dice qué tan fiable salió y deja compartir la nube unida (PLY, en mm); tallar un solo volumen con las dos es el paso siguiente.
+
+- De 12 fotos de cada escaneo se deja sólo el objeto (fondo gris fuera de la silueta, recortado y ampliado): el fondo y la hoja son distintos en cada toma y confunden al emparejador.
+- Las fotos del segundo escaneo se prueban además giradas 90°, 180° y 270°, porque XFeat no reconoce nada con la imagen girada 90° o más.
+- Cada par de puntos emparejados se pasa a un par de puntos 3D y con todos se ajusta un movimiento rígido (RANSAC, pares coherentes a menos de 4 mm). Hacen falta 20 pares coherentes.
+- Dos comprobaciones que no usan los pares: las dos nubes tienen que acercarse (a menos del 60 % de la distancia sin girar) y el objeto movido no puede quedar hundido bajo la hoja.
+- **Objetos simétricos:** si las dos tomas muestran costados opuestos (acostado sobre un lado y luego sobre el otro), un costado se empareja con el otro y sale un giro coherente pero falso. La comprobación de las nubes lo detecta y la unión se rechaza. Conviene que las dos poses compartan partes visibles.
+- Probado con un torito de cerámica de 12 cm: parado → acostado, 57 pares coherentes de 500, error de 2,0 mm, giro de 89°; las nubes quedan a 4,2 mm (14,1 sin girar). Con un objeto distinto no salen pares (9) y no se une.
+
 ## Versión
 
 Cada informe empieza con la versión que lo generó, por ejemplo «Generado por Navaja 1.0.42 (compilación 42 del CI, commit abc1234)». El número coincide con la Release «Build 42» de GitHub.

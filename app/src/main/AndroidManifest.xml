@@ -150,6 +150,14 @@
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Agregar otra pose: une dos escaneos guardados del mismo objeto -->
+        <activity
+            android:name=".measure.JoinActivity"
+            android:exported="false"
+            android:label="Navaja · Unir dos poses"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- Escáner con hoja impresa (experimental): las marcas de la hoja dan la pose de la cámara. -->
         <activity
             android:name=".measure.SheetActivity"

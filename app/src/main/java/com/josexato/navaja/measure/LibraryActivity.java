@@ -56,6 +56,8 @@ public class LibraryActivity extends Activity {
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private LinearLayout content;
+    /** Los escaneos en pantalla (para elegir con cuál unir otro). */
+    private List<Item> shown = new ArrayList<>();
 
     /** Un escaneo con lo que se sabe de él. */
     private static final class Item {
@@ -237,6 +239,7 @@ public class LibraryActivity extends Activity {
                 withVideo, withDebug, loose.size()), NavajaUi.Style.BODY));
         head.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Cambiar carpeta", v -> chooseFolder())));
         content.addView(head);
+        shown = items;
         for (Item it : items) content.addView(card(it));
         if (!loose.isEmpty()) {
             LinearLayout lc = NavajaUi.card(this);
@@ -269,7 +272,33 @@ public class LibraryActivity extends Activity {
         c.addView(NavajaUi.text(this, sb.toString().trim(), NavajaUi.Style.BODY));
         c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Ver informe", v -> showReport(it)),
                 NavajaUi.secondary(this, "Compartir ZIP", v -> share(it.zip, "application/zip"))));
+        // Agregar otra pose: el mismo objeto en otra posición (los dos escaneos del modo hoja)
+        if (it.zip != null && sheet(it))
+            c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Unir con otra pose…", v -> chooseOther(it))));
         return c;
+    }
+
+    private static boolean sheet(Item it) { return it.s != null && it.s.mode != null && it.s.mode.toLowerCase(Locale.ROOT).contains("hoja"); }
+
+    /** Elegir el otro escaneo del mismo objeto y abrir la unión ({@link JoinActivity}). */
+    private void chooseOther(Item first) {
+        List<Item> others = new ArrayList<>();
+        for (Item o : shown) if (o != first && o.zip != null && sheet(o)) others.add(o);
+        if (others.isEmpty()) {
+            toast("No hay otro escaneo del modo hoja en esta carpeta");
+            return;
+        }
+        String[] names = new String[others.size()];
+        for (int i = 0; i < names.length; i++) {
+            Item o = others.get(i);
+            names[i] = (o.e.saved.isEmpty() ? o.e.base : o.e.saved) + (o.s.bySilhouettes.isEmpty() ? "" : "\n" + o.s.bySilhouettes);
+        }
+        new android.app.AlertDialog.Builder(this).setTitle("¿Con cuál escaneo del mismo objeto?")
+                .setItems(names, (d, k) -> startActivity(new Intent(this, JoinActivity.class)
+                        .putExtra(JoinActivity.EXTRA_A, first.zip).putExtra(JoinActivity.EXTRA_B, others.get(k).zip)
+                        .putExtra(JoinActivity.EXTRA_NAME_A, first.e.base).putExtra(JoinActivity.EXTRA_NAME_B, others.get(k).e.base)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)))
+                .setNegativeButton("Cancelar", null).show();
     }
 
     private static void line(StringBuilder sb, String label, String value) {
