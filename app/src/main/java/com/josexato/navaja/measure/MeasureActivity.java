@@ -39,6 +39,7 @@ import com.josexato.navaja.measure.core.Motion;
 import com.josexato.navaja.measure.core.Regions;
 import com.josexato.navaja.measure.core.Sfm;
 import com.josexato.navaja.measure.core.XFeatTracks;
+import com.josexato.navaja.measure.core.ZoomPass;
 import com.josexato.navaja.scan3d.core.Mesh;
 import com.josexato.navaja.scan3d.core.SurfaceNets;
 import com.josexato.navaja.ui.NavajaUi;
@@ -114,6 +115,10 @@ public class MeasureActivity extends Activity {
     private byte[][] masksUsed;
     /** Modo hoja: las siluetas tal como las dio la IA, antes de corregirlas (para la depuración). */
     private byte[][] rawMasks;
+    /** XFeat cargado entre la pasada normal y la del objeto ampliado. */
+    private XFeat xfeat;
+    /** Fotos ampliables mínimas para hacer la segunda pasada de XFeat. */
+    private static final int ZOOM_MIN_FRAMES = 6;
     private int maskW, maskH, trackCount;
     private final List<double[]> segInfo = new ArrayList<>();
     /** Por cuadro analizado: puntos activos, perdidos y nuevos (para ver dónde el movimiento fue brusco). */
@@ -458,6 +463,8 @@ public class MeasureActivity extends Activity {
             } catch (IOException | RuntimeException e) {
                 Log.w(TAG, "medir", e);
                 if (!cancel.get()) ui.post(() -> error(e.getMessage()));
+            } finally {
+                closeXfeat();
             }
         });
     }
@@ -510,7 +517,81 @@ public class MeasureActivity extends Activity {
             rep.xfeatNote = "⚠ XFeat falló (" + e + "): sólo puntos KLT · " + xf.summary();
             return none;
         } finally {
-            xf.close();
+            // Queda cargado para la segunda pasada sobre el objeto ampliado (densify); se cierra al terminar la medida
+            closeXfeat();
+            xfeat = xf;
+        }
+    }
+
+    private void closeXfeat() {
+        XFeat x = xfeat;
+        xfeat = null;
+        if (x != null) x.close();
+    }
+
+    /**
+     * Modo hoja: segunda pasada de XFeat sobre el objeto ampliado (ver
+     * {@link ZoomPass}). Con las siluetas ya se sabe dónde está el objeto: en
+     * las fotos donde se ve chico se recorta del video a toda su resolución,
+     * se amplía y se sacan otros 1024 puntos ahí; los que se confirman en 3
+     * fotos o más se suman a la nube. Si algo falla, la medida sigue igual.
+     */
+    private int zoomPass(Uri uri, Measure.Choice ch, int[] dims, Map<Integer, Integer> camOf) {
+        SheetScan.Report rep = sheetReport;
+        Sfm.Result r = ch.result;
+        XFeat xf = xfeat;
+        if (rep == null || rep.lens == null || xf == null) return 0;
+        Lens lens = rep.lens;
+        double[][] box = ZoomPass.box(r.points, ch.box.objectPoints);
+        if (box == null) return 0;
+        Map<Integer, double[]> rects = new HashMap<>();
+        double zoom = 0;
+        int lastFrame = -1;
+        for (int c = 0; c < r.camFrames.size(); c++) {
+            double[] q = ZoomPass.rect(box, r.poses.get(c), lens, dims[0], dims[1]);
+            if (q == null) continue;
+            rects.put(r.camFrames.get(c), q);
+            zoom += dims[0] / q[2];
+            lastFrame = Math.max(lastFrame, r.camFrames.get(c));
+        }
+        rep.zoomFrames = rects.size();
+        rep.zoomScale = rects.isEmpty() ? 0 : zoom / rects.size();
+        if (rects.size() < ZOOM_MIN_FRAMES) return 0; // el objeto ya llena casi todas las fotos: no vale otra lectura del video
+        long t0 = System.nanoTime();
+        int last = lastFrame, total = rects.size();
+        XFeatTracks.Linker lk = new XFeatTracks.Linker();
+        XFeatTracks.Frame[] prev = new XFeatTracks.Frame[XFeatTracks.LOOK_BACK];
+        int[] idx = {-1}, done = {0};
+        try {
+            // El video al doble de lado que el análisis (su resolución real, si la tiene): el recorte gana detalle de verdad
+            VideoFrames.read(this, uri, FPS, 2 * LONG_SIDE, frameTurn, (argb, w, h, t, d) -> {
+                if (cancel.get()) return false;
+                if (Math.abs((long) w * dims[1] - (long) h * dims[0]) > Math.max(w, h)) return true; // otra forma: tampoco contó en las otras lecturas
+                int fr = ++idx[0];
+                double[] q = rects.get(fr);
+                if (q == null) return fr < last;
+                XFeatTracks.Frame f = xf.detect(fr, ZoomPass.crop(argb, w, h, q, dims[0], dims[1]), dims[0], dims[1]);
+                ZoomPass.toPhoto(f, q, dims[0], dims[1]);
+                for (int g = 0; g < prev.length; g++)
+                    if (prev[g] != null)
+                        lk.add(prev[g], f, xf.match(prev[g], f), r.poses.get(camOf.get(prev[g].frame)), r.poses.get(camOf.get(fr)), lens, g + 1);
+                System.arraycopy(prev, 0, prev, 1, prev.length - 1);
+                prev[0] = f;
+                done[0]++;
+                post(String.format(Locale.getDefault(), "3/3 · Más puntos sobre el objeto ampliado: foto %d de %d", done[0], total));
+                return fr < last;
+            });
+            if (cancel.get()) return 0;
+            List<Sfm.Track> zt = lk.tracks(3);
+            int added = ZoomPass.add(r, zt, lens);
+            rep.zoomTracks = zt.size();
+            rep.zoomPoints = added;
+            rep.zoomSeconds = (System.nanoTime() - t0) / 1e9;
+            return added;
+        } catch (IOException | RuntimeException | OutOfMemoryError e) {
+            Log.w(TAG, "zoom", e);
+            rep.zoomNote = "⚠ falló (" + e + ")";
+            return 0;
         }
     }
 
@@ -671,6 +752,7 @@ public class MeasureActivity extends Activity {
         maskH = mh;
         int first = r.points.length;
         int added = Sfm.densify(r, dt.tracks, r.startFrame);
+        if (sheetMode) added += zoomPass(uri, ch, dims, camOf);
         Measure.include(r, ch.box, first);
         Log.i(TAG, "denso: " + dt.tracks.size() + " pistas, +" + added + " puntos, objeto " + ch.box.objectPoints.length
                 + (hull == null ? " · sin casco" : String.format(Locale.ROOT, " · casco %d siluetas, diferencia %.1f %%", hull.views,

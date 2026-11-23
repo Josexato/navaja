@@ -246,6 +246,14 @@ final class MeasureReport {
                 s.append(String.format(Locale.ROOT, "- Observaciones malas quitadas de pistas (un par equivocado en una pista larga se quita sin perder el punto): %d.%n", h.droppedObs));
             s.append("- XFeat + LighterGlue (puntos aprendidos; cada foto clave con las 2 anteriores): ")
                     .append(h.xfeatNote.isEmpty() ? "no corrió" : h.xfeatNote).append(".\n");
+            s.append("- Segunda pasada de XFeat sobre el objeto ampliado (en las fotos donde se ve chico se recorta del video a toda su resolución): ");
+            if (!h.zoomNote.isEmpty()) s.append(h.zoomNote);
+            else if (h.zoomFrames == 0) s.append("no hizo falta, el objeto ya llena las fotos");
+            else if (h.zoomTracks == 0 && h.zoomPoints == 0 && h.zoomSeconds == 0)
+                s.append(String.format(Locale.ROOT, "no se hizo, sólo %d fotos se podían ampliar (%.1f× en promedio)", h.zoomFrames, h.zoomScale));
+            else s.append(String.format(Locale.ROOT, "%d fotos ampliadas %.1f× en promedio · pistas de 3 fotos o más: %d · puntos sumados: %d · %.1f s",
+                        h.zoomFrames, h.zoomScale, h.zoomTracks, h.zoomPoints, h.zoomSeconds));
+            s.append(".\n");
             s.append("- Qué mirar: muchos cuadros ubicados y error de esquinas bajo (≈1–2 px) = poses buenas; pocos puntos triangulados = el objeto "
                     + "tiene poca textura o el seguimiento se cortó.\n");
         }

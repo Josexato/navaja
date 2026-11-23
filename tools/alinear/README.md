@@ -51,12 +51,12 @@ python -I tools/alinear/alinear.py wA wB $T 12 1
   cuadros hacia atrás (`ATRAS=8` en `xfpy.py glue` y el último argumento de `XfHarness fin`): los puntos de XFeat bajan
   entre 3 % y 23 % al pasar de 2 a 8, el error de reproyección sube un poco (1,16 → 1,27 px en el peor caso) y las medidas
   no cambian. Las pistas se funden entre sí y aparecen muchas más uniones contradictorias. `LOOK_BACK` se queda en 2.
-- **Una segunda pasada de XFeat sobre el objeto ampliado sí da más puntos.** `XfHarness inz` y `selz` recortan cada foto
-  alrededor de la caja del objeto (la de `obj3d.txt` de una pasada normal), la amplían y sacan otros 1024 puntos ahí; con
-  `ZOOM=<carpeta>` `fin` suma sus pistas. Con una alcancía de 14 cm (36 de 87 fotos ampliadas, 1,5× en promedio) los puntos
-  elevados sobre la hoja pasaron de 1781 a 2594 (+46 %) y las celdas de 2 mm ocupadas de 1689 a 2424, o sea que son puntos
-  en lugares nuevos y no repetidos; la reproyección no cambió (1,41 px). Con un objeto que ya llenaba la foto (13 de 113
-  fotos ampliadas) el objeto ganó 9 %, y con otro que la llenaba del todo no hubo nada que ampliar. Los ZIP traen las fotos
-  a 960 px, así que aquí el recorte se amplía sin detalle nuevo; en la app saldría del video original, con más resolución.
+- **Una segunda pasada de XFeat sobre el objeto ampliado sí da más puntos** (es `ZoomPass`, ya en la app). `XfHarness inz` y
+  `selz` recortan cada foto alrededor de la caja del objeto (`caja.txt`, que deja `fin` con `SIL=1`), la amplían y sacan otros
+  1024 puntos ahí. Con `ZOOM=<carpeta> ZOOM_MODO=app`, `fin` suma sus pistas como la app: al final, con las poses ya fijas.
+  Resultado: alcancía de 14 cm, 41 de 87 fotos ampliadas 1,5× → objeto de 640 a 968 puntos; objeto de 20 cm, 40 de 113
+  fotos → de 10 788 a 13 449; un objeto que llenaba la foto, nada que ampliar. Los ZIP traen las fotos a 960 px, así que aquí
+  el recorte se amplía sin detalle nuevo; en la app sale del video original. La caja tiene que ser la de después de las
+  siluetas: con la de los puntos solos (149 × 150 mm para la alcancía) no había nada que ampliar.
 - Variables de `XfHarness fin` usadas en las pruebas: `SIL=1` corrige las siluetas, `CONSENSO=1` las compara entre sí,
   `ROMPER=0.35` estropea una parte a propósito, `PLANO=0` no usa que la hoja es plana, `CASCO=archivo` guarda los vóxeles.

@@ -71,6 +71,10 @@ public final class SheetScan {
         /** XFeat: pistas que entraron (0 si no corrió) y cómo le fue (delegado, tiempos, pares; vacío si no corrió). */
         public int xfeatTracks;
         public String xfeatNote = "";
+        /** Segunda pasada de XFeat sobre el objeto ampliado: fotos ampliables, aumento medio, pistas, puntos sumados, segundos y aviso si falló. */
+        public int zoomFrames, zoomTracks, zoomPoints;
+        public double zoomScale, zoomSeconds;
+        public String zoomNote = "";
         /**
          * Hoja plana: puntos que quedaron en el plano Z = 0, cuántos anclaron el
          * reajuste de las cámaras, su ruido de altura triangulados libres (mm,
