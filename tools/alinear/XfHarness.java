@@ -14,6 +14,71 @@ public class XfHarness {
     static int[] getI(Path p) throws IOException { ByteBuffer b = ByteBuffer.wrap(Files.readAllBytes(p)).order(ByteOrder.LITTLE_ENDIAN); int[] v = new int[b.capacity() / 4]; b.asIntBuffer().get(v); return v; }
     static int[] px(File f, int[] wh) throws IOException { BufferedImage im = ImageIO.read(f); wh[0] = im.getWidth(); wh[1] = im.getHeight(); return im.getRGB(0, 0, wh[0], wh[1], null, 0, wh[0]); }
     static List<Integer> todos(SheetPose.Fix[] fx) { List<Integer> o = new ArrayList<>(); for (int i = 0; i < fx.length; i++) if (fx[i] != null) o.add(i); return o; }
+    /** Une en pistas los pares de LighterGlue guardados en {@code dir} (kp_, m_ y v_ de cada foto y par). */
+    static List<Sfm.Track> link(XFeatTracks.Linker lk, Path dir, File[] fs, List<Integer> keys, SheetPose.Fix[] fx, Lens lens, int skip, int minObs, int w) throws IOException {
+        int[] wh = new int[2];
+        if (Files.exists(dir.resolve("keys.txt"))) { // las fotos de esta pasada (en la de zoom pueden faltar algunas)
+            List<Integer> own = new ArrayList<>(); for (String l : Files.readAllLines(dir.resolve("keys.txt"))) if (!l.trim().isEmpty() && fx[Integer.parseInt(l.trim())] != null) own.add(Integer.parseInt(l.trim()));
+            keys = own; }
+        Map<Integer, XFeatTracks.Frame> fr = new HashMap<>();
+        for (int k = 0; k < keys.size(); k++) {
+            int i = keys.get(k); XFeatTracks.Frame f = new XFeatTracks.Frame(i);
+            float[] kp = getF(dir.resolve(String.format("kp_%03d.bin", i))); f.n = kp.length / 2;
+            int[] p = px(fs[i], wh);
+            for (int q = 0; q < f.n; q++) { f.x[q] = kp[2 * q]; f.y[q] = kp[2 * q + 1]; f.color[q] = p[Math.max(0, Math.min(p.length - 1, Math.round(f.y[q]) * w + Math.round(f.x[q])))]; }
+            fr.put(i, f);
+        }
+        for (int k = 0; k < keys.size(); k++) for (int s = 1; s <= skip && k + s < keys.size(); s++) {
+            int i = keys.get(k), j = keys.get(k + s); Path m = dir.resolve(String.format("m_%03d_%03d.bin", i, j)); if (!Files.exists(m)) continue;
+            int[] mm = getI(m); int[] m0 = Arrays.copyOfRange(mm, 0, 1024), m1 = Arrays.copyOfRange(mm, 1024, 2048);
+            float[] v0 = getF(dir.resolve(String.format("v_%03d_%03d.bin", i, j)));
+            int[][] pr = XFeatTracks.pairs(fr.get(i), fr.get(j), m0, m1, v0);
+            lk.add(fr.get(i), fr.get(j), pr, fx[i].pose, fx[j].pose, lens, s);
+        }
+        return lk.tracks(minObs);
+    }
+    /** Rectángulo {x, y, ancho, alto} del objeto en la foto: la caja 3D de sus puntos (obj3d.txt de una pasada anterior) proyectada, con margen y la proporción de la foto. null si no conviene ampliar. */
+    static double[] rect(double[][] box, SheetPose.Fix f, Lens lens, int w, int h) {
+        double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+        for (int k = 0; k < 8; k++) {
+            double[] X = {box[k & 1][0], box[(k >> 1) & 1][1], box[(k >> 2) & 1][2]}, xc = new double[3];
+            for (int i = 0; i < 3; i++) xc[i] = f.pose.r[3 * i] * X[0] + f.pose.r[3 * i + 1] * X[1] + f.pose.r[3 * i + 2] * X[2] + f.pose.t[i];
+            if (xc[2] <= 0) return null;
+            double[] p = lens.project(xc);
+            x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+        }
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rw = (x1 - x0) * 1.15, rh = (y1 - y0) * 1.15;
+        double zoom = Math.min(w / rw, h / rh);
+        double maxZoom = System.getenv("ZOOM_MAX") != null ? Double.parseDouble(System.getenv("ZOOM_MAX")) : 3;
+        zoom = Math.min(zoom, maxZoom);
+        if (zoom < 1.3) return null; // el objeto ya llena la foto
+        rw = w / zoom; rh = h / zoom;
+        double rx = Math.max(0, Math.min(w - rw, cx - rw / 2)), ry = Math.max(0, Math.min(h - rh, cy - rh / 2));
+        return new double[]{rx, ry, rw, rh};
+    }
+    /** El recorte ampliado al tamaño de la foto (bilineal). */
+    static int[] crop(int[] p, int w, int h, double[] r) {
+        int[] o = new int[w * h];
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+            double sx = r[0] + (x + 0.5) * r[2] / w - 0.5, sy = r[1] + (y + 0.5) * r[3] / h - 0.5;
+            int ix = (int) Math.max(0, Math.min(w - 2, Math.floor(sx))), iy = (int) Math.max(0, Math.min(h - 2, Math.floor(sy)));
+            double fx = Math.max(0, Math.min(1, sx - ix)), fy = Math.max(0, Math.min(1, sy - iy)); int v = 0;
+            for (int c = 0; c < 24; c += 8) {
+                double a = (p[iy * w + ix] >> c) & 255, b = (p[iy * w + ix + 1] >> c) & 255, cc = (p[(iy + 1) * w + ix] >> c) & 255, d = (p[(iy + 1) * w + ix + 1] >> c) & 255;
+                v |= (int) Math.round((a * (1 - fx) + b * fx) * (1 - fy) + (cc * (1 - fx) + d * fx) * fy) << c; }
+            o[y * w + x] = 0xff000000 | v; }
+        return o;
+    }
+    /** Caja 3D (percentiles 2–98 más 10 mm) de los puntos del objeto de obj3d.txt. */
+    static double[][] objBox(Path wk) throws IOException {
+        List<double[]> pts = new ArrayList<>();
+        for (String l : Files.readAllLines(wk.resolve("obj3d.txt"))) { String[] t = l.trim().split(" "); if (t.length > 3 && t[3].equals("1")) pts.add(new double[]{Double.parseDouble(t[0]), Double.parseDouble(t[1]), Double.parseDouble(t[2])}); }
+        double[][] box = new double[2][3];
+        for (int c = 0; c < 3; c++) { double[] v = new double[pts.size()]; for (int i = 0; i < v.length; i++) v[i] = pts.get(i)[c]; Arrays.sort(v);
+            box[0][c] = v[(int) (0.02 * (v.length - 1))] - 10; box[1][c] = v[(int) (0.98 * (v.length - 1))] + 10; }
+        box[0][2] = Math.max(box[0][2], 0);
+        return box;
+    }
     public static void main(String[] a) throws Exception {
         if ("0".equals(System.getenv("PLANO"))) SheetScan.PLANE = false;
         String mode = a[0], z = a[1]; Path wk = Paths.get(a[2]); File[] fs = fotos(z); int[] wh = new int[2];
@@ -42,6 +107,29 @@ public class XfHarness {
               System.out.printf("lente f=%.1f k1=%.3f · %s · fotos ubicadas %d de %d%n", ln.f, ln.k1, rp.lensNote, ks.size(), fs.length); }
             System.out.printf("elegir puntos %.1f ms/foto · fotos con menos de %d puntos: %d%n", t / 1e6 / fs.length, XFeatTracks.N, few); return;
         }
+        if (mode.equals("inz") || mode.equals("selz")) { // <zip> <trabajo de la pasada normal> <trabajo del zoom>
+            Path wz = Paths.get(a[3]); Files.createDirectories(wz);
+            List<List<Markers.Marker>> mk = new ArrayList<>(); int ww = 0, hh = 0;
+            for (File f : fs) { int[] p = px(f, wh); ww = wh[0]; hh = wh[1]; mk.add(Markers.detect(p, ww, hh)); }
+            SheetScan.Report rp = new SheetScan.Report(); Lens ln = SheetScan.chooseLens(mk, 0, ww, hh, rp);
+            SheetPose.Fix[] fxx = SheetScan.poses(mk, ln, rp); double[][] box = objBox(wk);
+            float[] in = new float[XFeatTracks.IN_W * XFeatTracks.IN_H]; int n = 0; double zsum = 0; StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < fs.length; i++) {
+                if (fxx[i] == null) continue;
+                double[] r = rect(box, fxx[i], ln, ww, hh); if (r == null) continue;
+                int[] c = crop(px(fs[i], wh), ww, hh, r); n++; zsum += ww / r[2];
+                if (mode.equals("inz")) { XFeatTracks.input(c, ww, hh, in); put(wz.resolve(String.format("in_%03d.bin", i)), in); continue; }
+                Path d = wz.resolve(String.format("d_%03d.bin", i)); if (!Files.exists(d)) continue;
+                XFeatTracks.Frame f = XFeatTracks.select(i, getF(d), getF(wz.resolve(String.format("h_%03d.bin", i))), getF(wz.resolve(String.format("r_%03d.bin", i))), c, ww, hh);
+                put(wz.resolve(String.format("gxy_%03d.bin", i)), f.glueXY); put(wz.resolve(String.format("gd_%03d.bin", i)), f.desc);
+                // Los puntos, de vuelta a las coordenadas de la foto entera
+                float[] kp = new float[2 * f.n]; for (int k = 0; k < f.n; k++) { kp[2 * k] = (float) (r[0] + (f.x[k] + 0.5) * r[2] / ww - 0.5); kp[2 * k + 1] = (float) (r[1] + (f.y[k] + 0.5) * r[3] / hh - 0.5); }
+                put(wz.resolve(String.format("kp_%03d.bin", i)), kp); sb.append(i).append('\n');
+            }
+            if (mode.equals("selz")) Files.write(wz.resolve("keys.txt"), sb.toString().getBytes());
+            System.out.printf("zoom: caja del objeto %.0f×%.0f×%.0f mm · %d fotos ampliadas de %d · aumento medio %.2f×%n", box[1][0] - box[0][0], box[1][1] - box[0][1], box[1][2] - box[0][2], n, fs.length, n == 0 ? 0 : zsum / n);
+            return;
+        }
         // fin: poses de la hoja, pistas KLT del ZIP (colmap) + pistas XFeat, triangulación, medida, siluetas
         List<List<Markers.Marker>> mk = new ArrayList<>(); int w = 0, h = 0;
         for (File f : fs) { int[] p = px(f, wh); w = wh[0]; h = wh[1]; mk.add(Markers.detect(p, w, h)); }
@@ -51,23 +139,16 @@ public class XfHarness {
         List<Sfm.Track> klt = HojaTracks.fromColmap(z, fs);
         List<Integer> keys = todos(fx);
         int skip = a.length > 3 ? Integer.parseInt(a[3]) : 1;
+        int minObs = a.length > 4 ? Integer.parseInt(a[4]) : 3;
         XFeatTracks.Linker lk = new XFeatTracks.Linker();
-        Map<Integer, XFeatTracks.Frame> fr = new HashMap<>();
-        for (int k = 0; k < keys.size(); k++) {
-            int i = keys.get(k); XFeatTracks.Frame f = new XFeatTracks.Frame(i);
-            float[] kp = getF(wk.resolve(String.format("kp_%03d.bin", i))); f.n = kp.length / 2;
-            int[] p = px(fs[i], wh);
-            for (int q = 0; q < f.n; q++) { f.x[q] = kp[2 * q]; f.y[q] = kp[2 * q + 1]; f.color[q] = p[Math.round(f.y[q]) * w + Math.round(f.x[q])]; }
-            fr.put(i, f);
+        List<Sfm.Track> xt = link(lk, wk, fs, keys, fx, lens, skip, minObs, w);
+        if (System.getenv("ZOOM") != null) { // segunda pasada: XFeat sobre el recorte ampliado del objeto (modos inz y selz)
+            XFeatTracks.Linker lz = new XFeatTracks.Linker();
+            List<Sfm.Track> zt = link(lz, Paths.get(System.getenv("ZOOM")), fs, keys, fx, lens, skip, minObs, w);
+            System.out.printf("ZOOM: %d pares de fotos · pares de puntos %d → %d con la geometría (%.0f %%) · pistas de %d+ fotos %d (uniones contradictorias %d)%n",
+                    lz.framePairs, lz.raw, lz.kept, 100.0 * lz.kept / Math.max(1, lz.raw), minObs, zt.size(), lz.conflicts);
+            if ("solo".equals(System.getenv("ZOOM_MODO"))) xt = zt; else xt.addAll(zt);
         }
-        for (int k = 0; k < keys.size(); k++) for (int s = 1; s <= skip && k + s < keys.size(); s++) {
-            int i = keys.get(k), j = keys.get(k + s); Path m = wk.resolve(String.format("m_%03d_%03d.bin", i, j)); if (!Files.exists(m)) continue;
-            int[] mm = getI(m); int[] m0 = Arrays.copyOfRange(mm, 0, 1024), m1 = Arrays.copyOfRange(mm, 1024, 2048);
-            float[] v0 = getF(wk.resolve(String.format("v_%03d_%03d.bin", i, j)));
-            int[][] pr = XFeatTracks.pairs(fr.get(i), fr.get(j), m0, m1, v0);
-            lk.add(fr.get(i), fr.get(j), pr, fx[i].pose, fx[j].pose, lens, s);
-        }
-        List<Sfm.Track> xt = lk.tracks(a.length > 4 ? Integer.parseInt(a[4]) : 3);
         System.out.printf("XFeat (uniones contradictorias descartadas %d): %d pares de fotos · pares de puntos %d → %d con la geometría (%.0f %%) · pistas de 3+ fotos %d%n", lk.conflicts, lk.framePairs, lk.raw, lk.kept, 100.0 * lk.kept / Math.max(1, lk.raw), xt.size());
         for (String cual : new String[]{"KLT", "KLT+XFeat", "XFeat"}) {
             List<Sfm.Track> all = new ArrayList<>();
