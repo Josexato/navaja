@@ -11,10 +11,12 @@ tools/xfeat/exportar.py (litert-torch 0.10.0) sin reentrenar ni modificar sus va
   - xfeat.tflite: entrada fija de 512×960 en grises; a la salida se agregaron la normalización de los
     descriptores, el mapa de puntos a resolución completa con supresión de no máximos 5×5 y la
     trasposición de canales al final. La operación "unfold" se reescribió con reshape/permute equivalentes.
-  - lighterglue.tflite: 1024 puntos fijos, sin parada temprana ni poda de puntos; a la salida se agregó
-    el mejor par de cada punto en cada sentido (en vez de la matriz completa).
+  - lighterglue.tflite: 1024 puntos fijos, sin parada temprana ni poda de puntos. Las capas se reescribieron
+    con operaciones equivalentes de hasta 4 dimensiones (una cabeza de atención) para que entre en la GPU y
+    la NPU del teléfono; sale la matriz de log-puntajes de cada par, sin la fila y la columna de "sin par",
+    y el logaritmo del softmax lleva un mínimo de 1e-4. El mejor par de cada punto lo elige la app.
 SHA-256: xfeat.tflite ff7f6b77b6c0d7e9b1813c92fd00ca260b8a4ad018da59e44da8cbddeb763e1b
-         lighterglue.tflite 6083a51936e58842dfa7f79c4f175eee0ce202afefba65405c9591c25a339e23
+         lighterglue.tflite 972f3b35d490bba2dc154b9fa35ce59cca472374ab80fad53baefc548479ca6a
 Se distribuyen bajo la licencia Apache 2.0, cuyo texto completo sigue.
 
 

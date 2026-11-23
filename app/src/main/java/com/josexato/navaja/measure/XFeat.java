@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
-import java.nio.IntBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.HashMap;
@@ -55,9 +54,8 @@ final class XFeat implements Closeable {
     final String choiceNote;
 
     private final float[] image = new float[XFeatTracks.IN_W * XFeatTracks.IN_H];
-    private final FloatBuffer in, outDesc, outHeat, outRel, gk0, gk1, gd0, gd1, outV;
-    private final IntBuffer outM0, outM1;
-    private final float[] desc, heat, rel, v0;
+    private final FloatBuffer in, outDesc, outHeat, outRel, gk0, gk1, gd0, gd1, outScores;
+    private final float[] desc, heat, rel, v0, scores, best1;
     private final int[] m0, m1;
     /** Tiempos acumulados (ms) y cantidades, para el diagnóstico. */
     double detectMs, matchMs;
@@ -77,9 +75,9 @@ final class XFeat implements Closeable {
         gk1 = floats(2 * N);
         gd0 = floats(XFeatTracks.DIM * N);
         gd1 = floats(XFeatTracks.DIM * N);
-        outV = floats(N);
-        outM0 = ByteBuffer.allocateDirect(4 * N).order(ByteOrder.nativeOrder()).asIntBuffer();
-        outM1 = ByteBuffer.allocateDirect(4 * N).order(ByteOrder.nativeOrder()).asIntBuffer();
+        outScores = floats(N * N);
+        scores = new float[N * N];
+        best1 = new float[N];
         v0 = new float[N];
         m0 = new int[N];
         m1 = new int[N];
@@ -112,10 +110,28 @@ final class XFeat implements Closeable {
         StringBuilder note = new StringBuilder();
         // XFeat: se compara el mapa de puntos; LighterGlue: los pares que elige
         Engine a = Engine.pick(c, BACKBONE, "XFeat", threads, it -> { runNet(it); return heat.clone(); },
-                (ref, got) -> { double s = 0; for (int i = 0; i < ref.length; i++) s += Math.abs(ref[i] - got[i]); return s / ref.length < 0.02; }, note);
+                (ref, got) -> {
+                    double s = 0;
+                    for (int i = 0; i < ref.length; i++) s += Math.abs(ref[i] - got[i]);
+                    return s / ref.length < 0.02 ? null : String.format(Locale.ROOT, "el mapa de puntos difiere %.3f en promedio", s / ref.length);
+                }, note);
         note.append(" · ");
-        Engine b = Engine.pick(c, GLUE, "LighterGlue", threads, it -> { runGlue(it); float[] o = new float[N]; for (int i = 0; i < N; i++) o[i] = m0[i]; return o; },
-                (ref, got) -> { int same = 0; for (int i = 0; i < ref.length; i++) if (ref[i] == got[i]) same++; return same >= 0.9 * ref.length; }, note);
+        // Devuelve el par de cada punto y su log-puntaje; se comparan sólo los pares confiables (los que se usan)
+        Engine b = Engine.pick(c, GLUE, "LighterGlue", threads, it -> {
+                    runGlue(it);
+                    float[] o = new float[2 * N];
+                    for (int i = 0; i < N; i++) { o[i] = m0[i]; o[N + i] = v0[i]; }
+                    return o;
+                },
+                (ref, got) -> {
+                    int sure = 0, same = 0;
+                    for (int i = 0; i < N; i++)
+                        if (Math.exp(ref[N + i]) >= XFeatTracks.MIN_CONF) {
+                            sure++;
+                            if (ref[i] == got[i]) same++;
+                        }
+                    return sure > 0 && same >= 0.95 * sure ? null : "coinciden " + same + " de " + sure + " pares confiables";
+                }, note);
         net = a.it;
         accNet = a.delegate;
         netDelegate = a.name;
@@ -131,7 +147,8 @@ final class XFeat implements Closeable {
 
     private interface Runner { float[] run(Interpreter it); }
 
-    private interface Same { boolean ok(float[] cpu, float[] got); }
+    /** null si el acelerador da lo mismo que la CPU; si no, en qué difiere. */
+    private interface Same { String diff(float[] cpu, float[] got); }
 
     /**
      * Un modelo cargado en un acelerador. {@link #pick} prueba en este
@@ -238,10 +255,12 @@ final class XFeat implements Closeable {
                     }
                     e.it = new Interpreter(model, op);
                     float[] got = run.run(e.it);
-                    boolean finite = true;
-                    for (float v : got) if (Float.isNaN(v) || Float.isInfinite(v)) { finite = false; break; }
-                    if (!finite || !same.ok(ref, got)) fail = "no da lo mismo que la CPU";
-                    else e.ms = time(e.it, run);
+                    int bad = 0;
+                    for (float v : got) if (Float.isNaN(v) || Float.isInfinite(v)) bad++;
+                    String diff = bad > 0 ? bad + " valores no son números" : same.diff(ref, got);
+                    e.ms = time(e.it, run);
+                    // Aunque no sirva, se anota cuánto tardó: dice si valdría la pena arreglarlo
+                    if (diff != null) fail = "no da lo mismo que la CPU: " + diff + "; tardó " + Math.round(e.ms) + " ms";
                 } catch (RuntimeException | LinkageError ex) {
                     Log.w(TAG, kind + " no disponible para " + asset, ex);
                     String m = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
@@ -339,7 +358,7 @@ final class XFeat implements Closeable {
         outRel.get(rel);
     }
 
-    /** Corre LighterGlue sobre lo que hay en gk0, gk1, gd0 y gd1; deja las salidas en m0, m1 y v0. */
+    /** Corre LighterGlue sobre lo que hay en gk0, gk1, gd0 y gd1; deja en m0, m1 y v0 el mejor par de cada punto y su log-puntaje. */
     private void runGlue(Interpreter it) {
         gk0.rewind();
         gk1.rewind();
@@ -351,19 +370,26 @@ final class XFeat implements Closeable {
         ins.put("args_2", gd0);
         ins.put("args_3", gd1);
         Map<String, Object> outs = new HashMap<>();
-        outM0.rewind();
-        outM1.rewind();
-        outV.rewind();
-        outs.put("output_0", outM0);
-        outs.put("output_1", outM1);
-        outs.put("output_2", outV);
+        outScores.rewind();
+        outs.put("output_0", outScores);
         it.runSignature(ins, outs);
-        outM0.rewind();
-        outM0.get(m0);
-        outM1.rewind();
-        outM1.get(m1);
-        outV.rewind();
-        outV.get(v0);
+        outScores.rewind();
+        outScores.get(scores);
+        // El modelo da la matriz de log-puntajes (fila = punto de la primera foto); el mejor par de cada punto en
+        // cada sentido se elige aquí porque los aceleradores no tienen la operación (ARG_MAX)
+        java.util.Arrays.fill(best1, Float.NEGATIVE_INFINITY);
+        java.util.Arrays.fill(m1, 0);
+        for (int i = 0, o = 0; i < N; i++) {
+            float b = Float.NEGATIVE_INFINITY;
+            int bj = 0;
+            for (int j = 0; j < N; j++, o++) {
+                float v = scores[o];
+                if (v > b) { b = v; bj = j; }
+                if (v > best1[j]) { best1[j] = v; m1[j] = i; }
+            }
+            m0[i] = bj;
+            v0[i] = b;
+        }
     }
 
     /** Puntos y descriptores de un cuadro. */
