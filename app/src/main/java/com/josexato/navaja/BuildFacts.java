@@ -22,7 +22,7 @@ public final class BuildFacts {
      * atrás, comprobado en Wikipedia (la fecha tiene que constar en el texto del
      * artículo). Así el texto del inicio distingue una versión de otra de un vistazo.
      */
-    static final String FACT = "el 20 de noviembre de 1926 nació en Landerneau, Francia, Édouard Leclerc, fundador de la cadena de supermercados E.Leclerc";
+    static final String FACT = "el 22 de noviembre de 1926 nació en Nitro, Virginia Occidental, el lanzador de béisbol Lew Burdette, el más valioso de la Serie Mundial de 1957";
 
     /** El texto completo para la versión {@code version}, con el código terminado en {@code codeTime} (ms) y {@code buildsToday} compilaciones ese día. */
     public static String line(String version, long codeTime, int buildsToday) {
