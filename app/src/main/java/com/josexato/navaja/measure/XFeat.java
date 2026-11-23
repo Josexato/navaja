@@ -45,7 +45,7 @@ final class XFeat implements Closeable {
     private static final int N = XFeatTracks.N;
     /** La NPU de Qualcomm con su delegado QNN (AI Engine Direct). */
     private static final String QNN = "NPU Qualcomm";
-    private static final int MAX_ERROR = 900;
+    private static final int MAX_ERROR = 1800;
 
     private final Interpreter net, glue;
     private final AutoCloseable accNet, accGlue;
@@ -247,6 +247,8 @@ final class XFeat implements Closeable {
                     String m = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
                     // Entero (hasta un tope): el mensaje trae la lista de operaciones que el acelerador no acepta
                     fail = m.length() > MAX_ERROR ? m.substring(0, MAX_ERROR) + "…" : m;
+                    // El delegado de Qualcomm da un error genérico: el motivo real lo escribe en el registro del sistema
+                    if (kind.equals(QNN)) fail += logTail();
                 }
                 if (fail != null) {
                     e.close();
@@ -268,6 +270,31 @@ final class XFeat implements Closeable {
             // Lo que haya quedado de la prueba en las salidas no importa: cada uso las vuelve a llenar
             note.append(" → ").append(best.name);
             return best;
+        }
+
+        /**
+         * Las últimas líneas que esta app dejó en el registro del sistema (logcat) sobre la NPU de Qualcomm,
+         * para el diagnóstico. Una app sólo puede leer sus propias líneas. Vacío si no hay o no se puede leer.
+         */
+        private static String logTail() {
+            java.util.ArrayDeque<String> last = new java.util.ArrayDeque<>();
+            try {
+                Process p = new ProcessBuilder("logcat", "-d", "-t", "600", "-v", "brief", "--pid=" + android.os.Process.myPid()).redirectErrorStream(true).start();
+                try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()))) {
+                    String line;
+                    while ((line = r.readLine()) != null) {
+                        String l = line.toLowerCase(Locale.ROOT);
+                        if (!(l.contains("qnn") || l.contains("cdsprpc") || l.contains("fastrpc") || l.contains("htp") || l.contains("dlopen"))) continue;
+                        if (!(l.startsWith("e/") || l.startsWith("w/") || l.contains("error") || l.contains("fail"))) continue;
+                        last.add(line.length() > 220 ? line.substring(0, 220) + "…" : line);
+                        if (last.size() > 8) last.removeFirst();
+                    }
+                }
+                p.destroy();
+            } catch (IOException | RuntimeException ex) {
+                Log.w(TAG, "logcat", ex);
+            }
+            return last.isEmpty() ? "" : " | Registro: " + String.join(" | ", last);
         }
 
         /** Tiempo (ms) de una corrida: la menor de dos, después de la primera (que incluye preparar el acelerador). */
