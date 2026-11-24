@@ -125,7 +125,17 @@
     backdrop-filter: blur(4px);
   }
   #statsPanel { top: 14px; left: 14px; min-width: 200px; max-width: 300px; }
-  #statsPanel h2 {
+  /* Cabecera de cada panel: al tocarla se pliega, para que el panel no tape el modelo (en un teléfono ocupaban media pantalla) */
+  .phead {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+    margin: 0 0 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left;
+  }
+  .phead .chev { color: var(--muted); font-size: .8rem; }
+  .panel.min { padding: 7px 12px; }
+  .panel.min > :not(.phead) { display: none !important; }
+  .panel.min .phead { margin: 0; }
+  .panel.min .phead .chev { transform: rotate(-90deg); }
+  .panel h2 {
     margin: 0 0 8px;
     font-size: .68rem;
     font-weight: 600;
@@ -133,6 +143,7 @@
     letter-spacing: .09em;
     color: var(--muted);
   }
+  .panel .phead h2 { margin: 0; }
   .stat { display: flex; justify-content: space-between; gap: 16px; font-size: .8rem; padding: 2px 0; }
   .stat b { font-family: ui-monospace, monospace; font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
   .stat .lbl { color: var(--muted); white-space: nowrap; }
@@ -174,6 +185,7 @@
   @media (max-width: 640px) {
     #fileLabel { display: none; }
     #statsPanel { top: auto; bottom: 10px; left: 10px; right: 10px; max-width: none; min-width: 0; }
+    #statsPanel.min { right: auto; }
     .stat { font-size: .74rem; }
     #controls { padding: 10px; }
   }
@@ -370,11 +382,12 @@
   <div id="viewpdf" class="view" hidden><div id="pdfPages"></div></div>
 
   <div class="panel" id="statsPanel">
-    <h2 id="statsTitle">Pieza</h2>
+    <button class="phead" type="button" data-panel="statsPanel" aria-expanded="true"><h2 id="statsTitle">Pieza</h2><span class="chev" aria-hidden="true">▾</span></button>
     <div id="statsBody"></div>
   </div>
 
   <div class="panel" id="controls">
+    <button class="phead" type="button" data-panel="controls" aria-expanded="true"><h2>Opciones</h2><span class="chev" aria-hidden="true">▾</span></button>
     <div class="grp" id="grp3d">
       <label>Material
         <select id="matSelect">
@@ -1143,6 +1156,40 @@
       showError('Formato no soportado. Abre .gag, .sdjf, .svg, .stl, .obj, .ply, .glb o .pdf.');
     }
   }
+
+  // Paneles plegables: en pantallas chicas o apaisadas arrancan plegados; lo que el usuario elija queda guardado
+  (function () {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('navaja_paneles') || '{}'); } catch (e) { saved = {}; }
+    const small = () => window.innerHeight < 560 || window.innerWidth < 640;
+    const set = (id, min) => {
+      const p = $(id), h = p.querySelector('.phead');
+      p.classList.toggle('min', min);
+      h.setAttribute('aria-expanded', String(!min));
+    };
+    for (const h of document.querySelectorAll('.phead')) {
+      const id = h.dataset.panel;
+      // En un teléfono las opciones arrancan plegadas siempre; los datos de la pieza, sólo con el teléfono apaisado
+      set(id, id in saved ? saved[id] : (id === 'controls' ? small() : window.innerHeight < 560));
+      h.addEventListener('click', () => {
+        const min = !$(id).classList.contains('min');
+        set(id, min);
+        saved[id] = min;
+        try { localStorage.setItem('navaja_paneles', JSON.stringify(saved)); } catch (e) { /* sin almacenamiento: no se recuerda */ }
+      });
+    }
+  })();
+
+  // Abrir un modelo que entrega la app (por ejemplo el volumen de dos poses unidas): se baja de una URL interna y entra por
+  // el mismo camino que «Abrir archivo»
+  window.navajaLoadUrl = function (url, name) {
+    showHome(false);
+    busy(true);
+    fetch(url)
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); })
+      .then((b) => { busy(false); loadFile(new File([b], name)); })
+      .catch((e) => { busy(false); showError('No se pudo abrir el modelo: ' + e.message); });
+  };
 
   $('openBtn').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); });

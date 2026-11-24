@@ -317,9 +317,23 @@ public class LibraryActivity extends Activity {
             row.setClickable(true);
             row.setOnClickListener(v -> {
                 dlg.dismiss();
+                // Los demás escaneos del modo hoja van también, para poder agregar una tercera toma desde la pantalla de unión
+                ArrayList<Uri> zips = new ArrayList<>();
+                List<String> names = new ArrayList<>(), labels = new ArrayList<>(), keys = new ArrayList<>();
+                for (Item x : shown) {
+                    if (x.zip == null || !sheet(x)) continue;
+                    zips.add(x.zip);
+                    names.add(x.e.base);
+                    labels.add((x.e.saved.isEmpty() ? x.e.base : x.e.saved) + (x.s.bySilhouettes.isEmpty() ? "" : "\n" + x.s.bySilhouettes));
+                    keys.add(x.e.base + "_" + x.e.zip);
+                }
                 startActivity(new Intent(this, JoinActivity.class)
                         .putExtra(JoinActivity.EXTRA_A, first.zip).putExtra(JoinActivity.EXTRA_B, o.zip)
                         .putExtra(JoinActivity.EXTRA_NAME_A, first.e.base).putExtra(JoinActivity.EXTRA_NAME_B, o.e.base)
+                        .putParcelableArrayListExtra(JoinActivity.EXTRA_OTHERS, zips)
+                        .putExtra(JoinActivity.EXTRA_OTHER_NAMES, names.toArray(new String[0]))
+                        .putExtra(JoinActivity.EXTRA_OTHER_LABELS, labels.toArray(new String[0]))
+                        .putExtra(JoinActivity.EXTRA_OTHER_THUMBS, keys.toArray(new String[0]))
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
             });
             list.addView(row);

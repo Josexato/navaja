@@ -45,6 +45,36 @@ public class MainActivity extends Activity {
      * ¿Es una petición del modelo escaneado? Se compara host y ruta, no la URL
      * entera: el visor agrega "?t=<hora>" para saltarse la caché.
      */
+    /** Ruta de un modelo (STL, OBJ, PLY, GLB) dentro del almacenamiento de la app, para abrir esta pantalla mostrándolo. */
+    public static final String EXTRA_OPEN_MODEL = "com.josexato.navaja.ABRIR_MODELO";
+    private static final String MODEL_URL = "https://navaja.local/modelo/archivo";
+    private File openModel;
+    private boolean openModelShown;
+
+    static boolean isModelUrl(String url) {
+        try {
+            java.net.URI u = new java.net.URI(url);
+            return "navaja.local".equals(u.getHost()) && "/modelo/archivo".equals(u.getPath());
+        } catch (java.net.URISyntaxException e) {
+            return false;
+        }
+    }
+
+    /** Sólo se abren archivos de la propia app (carpeta temporal o de archivos), no rutas arbitrarias. */
+    private File ownFile(String path) {
+        if (path == null) return null;
+        try {
+            File f = new File(path).getCanonicalFile();
+            String p = f.getPath();
+            File ext = getExternalFilesDir(null);
+            boolean mine = p.startsWith(getCacheDir().getCanonicalPath() + File.separator) || p.startsWith(getFilesDir().getCanonicalPath() + File.separator)
+                    || (ext != null && p.startsWith(ext.getCanonicalPath() + File.separator));
+            return mine && f.isFile() ? f : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     static boolean isScanUrl(String url) {
         try {
             java.net.URI u = new java.net.URI(url);
@@ -125,6 +155,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        openModel = ownFile(getIntent().getStringExtra(EXTRA_OPEN_MODEL));
         webView = new WebView(this);
         setContentView(webView);
 
@@ -136,7 +167,29 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new NativeBridge(), "NavajaNative");
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageFinished(WebView view, String url) {
+                // Abierta para mostrar un modelo (p. ej. desde «Unir dos poses»): se carga apenas la página está lista
+                if (openModel != null && !openModelShown) {
+                    openModelShown = true;
+                    view.evaluateJavascript("window.navajaLoadUrl && window.navajaLoadUrl('" + MODEL_URL + "?t=" + System.currentTimeMillis() + "', "
+                            + org.json.JSONObject.quote(openModel.getName()) + ")", null);
+                }
+            }
+
+            @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
+                if (req.getUrl() != null && isModelUrl(req.getUrl().toString())) {
+                    // Un modelo que entrega otra pantalla de la app (EXTRA_OPEN_MODEL): se sirve tal cual
+                    try {
+                        if (openModel == null) throw new IOException("sin modelo");
+                        WebResourceResponse r = new WebResourceResponse("application/octet-stream", null, new FileInputStream(openModel));
+                        r.setResponseHeaders(Collections.singletonMap("Access-Control-Allow-Origin", "*"));
+                        return r;
+                    } catch (IOException e) {
+                        return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
+                                Collections.singletonMap("Access-Control-Allow-Origin", "*"), null);
+                    }
+                }
                 if (req.getUrl() == null || !isScanUrl(req.getUrl().toString())) return null;
                 try {
                     if (scanModel == null) throw new IOException("sin modelo");
