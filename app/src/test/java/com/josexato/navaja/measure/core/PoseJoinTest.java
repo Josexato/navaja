@@ -181,4 +181,132 @@ public class PoseJoinTest {
         assertNotNull(up);
         assertEquals(0, PoseJoin.below(a, up, 5), 1e-9);
     }
+
+    // ------------------------------------------------------------ un solo volumen con las dos tomas
+
+    private static final int CW = 160, CH = 120;
+    private static final double CF = 200;
+
+    /** Cámara a {@code dist} mm del punto {@code at}, a {@code elev}° sobre la mesa y {@code az}° alrededor, mirándolo. */
+    private static Geometry.Pose look(double az, double elev, double dist, double[] at) {
+        double a = Math.toRadians(az), e = Math.toRadians(elev);
+        double[] c = {at[0] + dist * Math.cos(e) * Math.cos(a), at[1] + dist * Math.cos(e) * Math.sin(a), at[2] + dist * Math.sin(e)};
+        double[] fwd = Lin.unit(Lin.sub(at, c)), right = Lin.unit(Lin.cross(fwd, new double[]{0, 0, 1})), down = Lin.cross(fwd, right);
+        Geometry.Pose p = new Geometry.Pose();
+        p.r = new double[]{right[0], right[1], right[2], down[0], down[1], down[2], fwd[0], fwd[1], fwd[2]};
+        p.t = Lin.neg(Lin.mulV(p.r, c));
+        return p;
+    }
+
+    /** Silueta de la caja {lo, hi} (en los ejes en que está dada la cámara): un píxel es objeto si su rayo la cruza. */
+    private static byte[] silhouette(Geometry.Pose p, double[] lo, double[] hi) {
+        byte[] m = new byte[CW * CH];
+        double[] c = Lin.neg(Lin.mulV(Lin.tr(p.r), p.t));
+        for (int v = 0; v < CH; v++)
+            for (int u = 0; u < CW; u++) {
+                double[] d = Lin.mulV(Lin.tr(p.r), new double[]{(u + 0.5 - CW / 2.0) / CF, (v + 0.5 - CH / 2.0) / CF, 1});
+                double t0 = 0, t1 = 1e9;
+                for (int k = 0; k < 3; k++) {
+                    double a = (lo[k] - c[k]) / d[k], b = (hi[k] - c[k]) / d[k];
+                    t0 = Math.max(t0, Math.min(a, b));
+                    t1 = Math.min(t1, Math.max(a, b));
+                }
+                if (t0 <= t1) m[v * CW + u] = 1;
+            }
+        return m;
+    }
+
+    @Test
+    public void movedCameraSeesTheSamePixelForTheMovedPoint() {
+        PoseJoin.Fit f = new PoseJoin.Fit();
+        f.r = Lin.rodrigues(new double[]{1.2, -0.4, 0.3});
+        f.t = new double[]{10, -20, 30};
+        Geometry.Pose p = look(40, 25, 300, new double[]{0, 0, 20}), q = PoseJoin.moved(p, f);
+        double[] x = {12, -7, 33}, a = p.apply(x), b = q.apply(f.apply(x));
+        for (int k = 0; k < 3; k++) assertEquals(a[k], b[k], 1e-9);
+    }
+
+    @Test
+    public void growWidensTheSilhouette() {
+        byte[] m = new byte[W * H];
+        m[20 * W + 40] = 1;
+        byte[] g = PoseJoin.grow(m, W, H, 2);
+        int n = 0;
+        for (byte b : g) if (b != 0) n++;
+        assertEquals("rombo de radio 2", 13, n);
+        assertTrue(g[20 * W + 42] != 0 && g[22 * W + 40] != 0 && g[21 * W + 42] == 0);
+    }
+
+    @Test
+    public void twoPosesCarveWhatEachOneCannotSee() {
+        // Un ladrillo de 80 × 40 × 20 mm. En B está acostado (20 de alto); en A, parado sobre su cara chica (80 de alto).
+        // Las cámaras rodean cada toma a baja altura: ninguna ve bien el contorno desde arriba, así que cada toma sola
+        // deja material de más en lo alto. La otra toma, que lo ve de costado, lo recorta.
+        double[] loB = {-40, -20, 0}, hiB = {40, 20, 20};
+        PoseJoin.Fit f = new PoseJoin.Fit(); // x_B = R·x_A + t: en A el largo (X de B) está en Z
+        f.r = new double[]{0, 0, 1, 0, 1, 0, -1, 0, 0};
+        f.t = new double[]{-40, 0, 20};
+        double[] loA = {0, -20, 0}, hiA = {20, 20, 80};
+        double[] chk = f.apply(new double[]{0, -20, 0}), chk2 = f.apply(new double[]{20, 20, 80});
+        for (int k = 0; k < 3; k++) {
+            assertEquals(Math.min(chk[k], chk2[k]), loB[k], 1e-9);
+            assertEquals(Math.max(chk[k], chk2[k]), hiB[k], 1e-9);
+        }
+        List<PoseJoin.Cam> cams = new ArrayList<>();
+        for (int s = 0; s < 2; s++)
+            for (int i = 0; i < 16; i++) {
+                Geometry.Pose p = look(22.5 * i, 15, 320, s == 0 ? new double[]{10, 0, 40} : new double[]{0, 0, 10});
+                PoseJoin.Cam c = new PoseJoin.Cam();
+                c.scan = s;
+                c.w = CW;
+                c.h = CH;
+                c.f = CF;
+                c.cx = CW / 2.0 - 0.5;
+                c.cy = CH / 2.0 - 0.5;
+                c.mask = s == 0 ? silhouette(p, loA, hiA) : silhouette(p, loB, hiB);
+                c.pose = s == 0 ? PoseJoin.moved(p, f) : p;
+                cams.add(c);
+            }
+        double[][] box = {{-55, -35, 0}, {55, 35, 45}};
+        PoseJoin.Hull both = PoseJoin.carve(cams, box, f);
+        assertNotNull(both);
+        double truth = 80 * 40 * 20 / 1000.0;
+        assertTrue("volumen " + both.volume + " cm³ contra " + truth, both.volume > 0.85 * truth && both.volume < 1.35 * truth);
+        assertEquals(16, both.viewsA);
+        assertEquals(16, both.viewsB);
+        // Cada toma sola (las siluetas de la otra no recortan nada) deja más material
+        for (int blind = 0; blind < 2; blind++) {
+            List<PoseJoin.Cam> one = new ArrayList<>();
+            byte[] full = new byte[CW * CH];
+            java.util.Arrays.fill(full, (byte) 1);
+            for (PoseJoin.Cam c : cams) {
+                PoseJoin.Cam d = new PoseJoin.Cam();
+                d.scan = c.scan; d.w = c.w; d.h = c.h; d.f = c.f; d.cx = c.cx; d.cy = c.cy; d.pose = c.pose;
+                d.mask = c.scan == blind ? full : c.mask;
+                one.add(d);
+            }
+            PoseJoin.Hull alone = PoseJoin.carve(one, box, f);
+            assertNotNull(alone);
+            assertTrue("sola " + alone.volume + " contra las dos " + both.volume, alone.volume > 1.05 * both.volume);
+        }
+        assertNull("pocas siluetas", PoseJoin.carve(cams.subList(0, 20), box, f));
+    }
+
+    @Test
+    public void boxCoversBothCloudsAndStartsAtTheSheet() {
+        PoseJoin.Fit f = new PoseJoin.Fit();
+        f.r = new double[]{1, 0, 0, 0, 1, 0, 0, 0, 1};
+        f.t = new double[]{100, 0, 0};
+        List<double[]> a = new ArrayList<>(), b = new ArrayList<>();
+        Random rnd = new Random(8);
+        for (int i = 0; i < 200; i++) {
+            a.add(new double[]{20 * rnd.nextDouble(), 20 * rnd.nextDouble(), 50 * rnd.nextDouble()});
+            b.add(new double[]{20 * rnd.nextDouble(), 20 * rnd.nextDouble(), 30 * rnd.nextDouble()});
+        }
+        double[][] box = PoseJoin.box(a, b, f);
+        assertNotNull(box);
+        assertEquals(0, box[0][2], 1e-9);
+        assertTrue(box[0][0] < 0 && box[1][0] > 120 && box[1][2] > 50);
+        assertNull(PoseJoin.box(a.subList(0, 5), b.subList(0, 5), f));
+    }
 }

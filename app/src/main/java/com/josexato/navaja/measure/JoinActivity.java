@@ -16,6 +16,10 @@ import androidx.core.content.FileProvider;
 
 import com.josexato.navaja.measure.core.PoseJoin;
 import com.josexato.navaja.measure.core.XFeatTracks;
+import com.josexato.navaja.scan3d.core.Decimate;
+import com.josexato.navaja.scan3d.core.Glb;
+import com.josexato.navaja.scan3d.core.Mesh;
+import com.josexato.navaja.scan3d.core.SurfaceNets;
 import com.josexato.navaja.ui.NavajaUi;
 
 import java.io.ByteArrayOutputStream;
@@ -43,8 +47,8 @@ import java.util.zip.ZipInputStream;
  * Agregar otra pose: une dos escaneos guardados del mismo objeto en dos
  * posiciones (los dos del modo hoja). Halla el giro y el desplazamiento que
  * llevan el primero sobre el segundo (ver {@link PoseJoin}), dice qué tan
- * fiable salió y deja compartir la nube unida. Todavía no talla un volumen
- * con las dos tomas: es el primer paso.
+ * fiable salió, deja compartir la nube unida y talla un solo volumen con
+ * las siluetas de las dos tomas (STL y GLB).
  */
 public class JoinActivity extends Activity {
 
@@ -57,6 +61,8 @@ public class JoinActivity extends Activity {
     private static final double GAP_SHARE = 0.6;
     /** …y menos de esta parte de los puntos queda a más de UNDER_MM por debajo de la hoja. */
     private static final double UNDER_SHARE = 0.1, UNDER_MM = 5;
+    /** Triángulos del modelo simplificado (GLB). */
+    private static final int MODEL_TRIS = 3000;
 
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -290,12 +296,138 @@ public class JoinActivity extends Activity {
         if (!ok) c.addView(NavajaUi.text(this, "Para que calcen: los dos escaneos tienen que ser del mismo objeto, con textura, y con partes que se vean en las dos "
                 + "tomas (por ejemplo parado y acostado; no acostado sobre un lado y luego sobre el otro). Un objeto liso o brillante no da puntos que emparejar.",
                 NavajaUi.Style.SECONDARY));
-        if (ok)
-            c.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "Compartir la nube unida (PLY)", v -> sharePly(a.scan, b.scan, objA, objB, f))));
-        c.addView(NavajaUi.text(this, "Por ahora sólo se alinean las dos tomas y se puede ver la nube unida. Tallar un solo volumen con las siluetas de las dos es el "
-                + "paso siguiente.", NavajaUi.Style.MUTED));
         scr.content.addView(c);
+        if (ok) {
+            c.addView(NavajaUi.buttonRow(this, NavajaUi.secondary(this, "Compartir la nube unida (PLY)", v -> sharePly(a.scan, b.scan, objA, objB, f))));
+            LinearLayout k = NavajaUi.card(this);
+            k.addView(NavajaUi.text(this, "Un solo volumen con las dos tomas", NavajaUi.Style.SUBTITLE));
+            TextView note = NavajaUi.text(this, "Cada toma no ve la parte sobre la que el objeto está apoyado. Con las siluetas de las dos, cada una recorta lo que la "
+                    + "otra no veía.", NavajaUi.Style.BODY);
+            note.setTextIsSelectable(true);
+            k.addView(note);
+            LinearLayout row = NavajaUi.buttonRow(this, NavajaUi.primary(this, "Tallar el volumen", v -> {
+                v.setEnabled(false);
+                note.setText("Tallando con las siluetas de las dos tomas…");
+                work.execute(() -> {
+                    try {
+                        carve(a, b, objA, objB, f, k, note);
+                    } catch (IOException | RuntimeException | OutOfMemoryError e) {
+                        Log.w(TAG, "tallar", e);
+                        ui.post(() -> note.setText("No se pudo tallar: " + e.getMessage()));
+                    }
+                });
+            }));
+            k.addView(row);
+            scr.content.addView(k);
+        }
         setContentView(scr.root);
+    }
+
+    /** Todas las siluetas de un escaneo como cámaras para tallar (las del primero, ya en los ejes del segundo y ensanchadas). */
+    private void cams(Loaded l, int scan, PoseJoin.Fit f, List<PoseJoin.Cam> out) {
+        PoseJoin.Scan s = l.scan;
+        for (int i = 0; i < s.names.size(); i++) {
+            if (cancel.get()) return;
+            int[] mk = pixels(l.masks.get(s.names.get(i)), s.width, s.height);
+            if (mk == null) continue;
+            byte[] mask = new byte[mk.length];
+            for (int k = 0; k < mask.length; k++) mask[k] = (byte) ((mk[k] & 255) > 127 ? 1 : 0);
+            PoseJoin.Cam c = new PoseJoin.Cam();
+            c.scan = scan;
+            c.w = s.width;
+            c.h = s.height;
+            c.f = s.focal;
+            c.cx = s.cx;
+            c.cy = s.cy;
+            c.pose = scan == 0 ? PoseJoin.moved(s.poses.get(i), f) : s.poses.get(i);
+            c.mask = scan == 0 ? PoseJoin.grow(mask, c.w, c.h, PoseJoin.GROW_A) : mask;
+            out.add(c);
+        }
+    }
+
+    /** Lo mismo que {@code cams}, pero las siluetas del escaneo {@code blind} no recortan nada: el volumen de la otra toma sola. */
+    private static List<PoseJoin.Cam> alone(List<PoseJoin.Cam> cams, int blind) {
+        List<PoseJoin.Cam> out = new ArrayList<>();
+        byte[] full = null;
+        for (PoseJoin.Cam c : cams) {
+            if (c.scan != blind) { out.add(c); continue; }
+            if (full == null || full.length != c.w * c.h) { full = new byte[c.w * c.h]; java.util.Arrays.fill(full, (byte) 1); }
+            PoseJoin.Cam d = new PoseJoin.Cam();
+            d.scan = c.scan;
+            d.w = c.w;
+            d.h = c.h;
+            d.f = c.f;
+            d.cx = c.cx;
+            d.cy = c.cy;
+            d.pose = c.pose;
+            d.mask = full;
+            out.add(d);
+        }
+        return out;
+    }
+
+    private static List<double[]> points(PoseJoin.Scan s, Set<Integer> ids) {
+        List<double[]> c = new ArrayList<>();
+        for (int id : ids) c.add(s.points[id]);
+        return c;
+    }
+
+    /** Talla un solo volumen con las siluetas de las dos tomas y deja compartirlo como STL y GLB. */
+    private void carve(Loaded a, Loaded b, Set<Integer> objA, Set<Integer> objB, PoseJoin.Fit f, LinearLayout card, TextView note) throws IOException {
+        long t0 = System.nanoTime();
+        List<PoseJoin.Cam> cams = new ArrayList<>();
+        cams(a, 0, f, cams);
+        cams(b, 1, f, cams);
+        if (cancel.get()) return;
+        double[][] box = PoseJoin.box(points(a.scan, objA), points(b.scan, objB), f);
+        PoseJoin.Hull h = PoseJoin.carve(cams, box, f);
+        if (h == null) throw new IOException("no quedó volumen (pocas siluetas, o no coinciden)");
+        PoseJoin.Hull ha = PoseJoin.carve(alone(cams, 1), box, f), hb = PoseJoin.carve(alone(cams, 0), box, f);
+        // Malla en mm, Z hacia arriba, apoyada en Z = 0 y centrada
+        Mesh m = SurfaceNets.extract(h.grid);
+        m.taubinSmooth(8);
+        float[] bd = m.bounds();
+        float cx = (bd[0] + bd[1]) / 2, cy = (bd[2] + bd[3]) / 2;
+        for (int i = 0; i < m.pos.length; i += 3) {
+            m.pos[i] -= cx;
+            m.pos[i + 1] -= cy;
+            m.pos[i + 2] -= bd[4];
+        }
+        File dir = new File(getCacheDir(), "union");
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        String base = "union_" + nameA + "_" + nameB;
+        File stl = new File(dir, base + ".stl"), glb = new File(dir, base + ".glb");
+        m.writeStl(stl);
+        Mesh low = Decimate.simplify(m, MODEL_TRIS);
+        try (FileOutputStream o = new FileOutputStream(glb)) {
+            o.write(Glb.write(low.pos, low.tri, null, null, null, true, 0.001, base));
+        }
+        double secs = (System.nanoTime() - t0) / 1e9;
+        String text = String.format(Locale.ROOT, "Volumen con las dos tomas: %.0f cm³ · %.0f × %.0f × %.0f mm (en los ejes de la segunda toma; el último es el alto).%n"
+                        + "Cada toma sola, tallada igual: la primera %s, la segunda %s. La diferencia es lo que cada una recorta de la otra.%n"
+                        + "Siluetas usadas: %d + %d · malla de %d triángulos · %.1f s.%n"
+                        + "Sigue siendo un volumen tallado con contornos: no ve huecos que ningún contorno muestra, y las partes finas pueden salir pegadas.",
+                h.volume, h.size[0], h.size[1], h.size[2], ha == null ? "sin volumen" : Math.round(ha.volume) + " cm³", hb == null ? "sin volumen" : Math.round(hb.volume) + " cm³",
+                h.viewsA, h.viewsB, m.triangleCount(), secs);
+        ui.post(() -> {
+            note.setText(text);
+            card.addView(NavajaUi.buttonRow(this, NavajaUi.primary(this, "Compartir volumen (STL)", v -> shareFile(stl)),
+                    NavajaUi.secondary(this, "Compartir modelo (GLB)", v -> shareFile(glb))));
+            card.addView(NavajaUi.text(this, "STL: el volumen completo, en mm, Z hacia arriba. GLB: el mismo simplificado a " + MODEL_TRIS
+                    + " triángulos, en metros, sin textura (base para modelar).", NavajaUi.Style.MUTED));
+        });
+    }
+
+    private void shareFile(File f) {
+        try {
+            Uri u = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+            startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("application/octet-stream").putExtra(Intent.EXTRA_STREAM, u)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Compartir"));
+        } catch (RuntimeException e) {
+            Log.w(TAG, "compartir", e);
+            android.widget.Toast.makeText(this, "No se pudo compartir: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+        }
     }
 
     /** La nube unida, en mm y en los ejes de la segunda toma (Z hacia arriba, la hoja en Z = 0). */

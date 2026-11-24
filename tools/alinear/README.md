@@ -77,7 +77,13 @@ lado 82 de 488 (2,3 mm; nubes 2,6 contra 16,5); con un objeto distinto, 9 pares 
 las dos tomas acostadas (costados opuestos) salen 143 pares coherentes con un giro falso de 152° (el compuesto por la toma parada
 da 174°): un costado se empareja con el opuesto. La comprobación de las nubes no mejora (7,3 contra 6,8 mm) y por eso se rechaza.
 
-Falta: unir las dos tomas para tallar un solo volumen.
+**Un solo volumen** (`PoseJoin.carve`, botón «Tallar el volumen»): con `TALLAR=1`, `JoinHarness fit` talla con las siluetas de las dos
+tomas, escribe `union.stl`, `solo_a.stl` y `solo_b.stl` en la carpeta de trabajo y dice qué parte de cada silueta cubre el volumen.
+`CRECER=n` cambia cuántos px se ensanchan las siluetas de A. Con el torito (parado → acostado): 383 cm³ con las dos contra 467 y
+457 cm³ de cada toma sola; cubre el 96–97 % de las siluetas (peor foto 88 %) y el volumen que cae fuera de ellas baja de 21–23 % a
+7–10 %. Sin ensanchar, 356 cm³; con 6 px, 403.
+
+Falta: afinar la unión con las propias siluetas (hoy sólo con los pares de puntos) y darle textura al volumen unido.
 
 ## Lo que se sabe
 
