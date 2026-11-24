@@ -54,8 +54,13 @@ public final class Texture {
      * @param maxSide lado máximo de la textura (px)
      */
     public static Result build(Sfm.Result r, double[][] verts, int[] tri, boolean[] usable, Photos photos, int maxSide) {
+        return build(r, verts, tri, usable, photos, maxSide, null);
+    }
+
+    /** Igual, con la focal de cada cámara en {@code focal} (fotos de dos escaneos unidos, cada uno con su focal); null = la de {@code r}. */
+    public static Result build(Sfm.Result r, double[][] verts, int[] tri, boolean[] usable, Photos photos, int maxSide, double[] focal) {
         int nt = tri.length / 3, nc = r.poses.size();
-        double f = r.focal, cx = r.width / 2.0, cy = r.height / 2.0;
+        double cx = r.width / 2.0, cy = r.height / 2.0;
         // Hacia afuera: si el volumen con signo es negativo, los triángulos giran al revés
         double vol = 0;
         for (int t = 0; t < nt; t++)
@@ -65,6 +70,7 @@ public final class Texture {
         float[][] score = new float[nt][nc];
         for (int c = 0; c < nc; c++) {
             if (usable != null && !usable[c]) continue;
+            double f = focal == null ? r.focal : focal[c];
             Geometry.Pose p = r.poses.get(c);
             double[][] cam = new double[verts.length][];
             for (int v = 0; v < verts.length; v++) cam[v] = p.apply(verts[v]);
@@ -121,6 +127,7 @@ public final class Texture {
         for (int s = 0; s < nt; s++) {
             if (chart[s] >= 0 || label[s] < 0) continue;
             int id = rects.size(), c = label[s];
+            double f = focal == null ? r.focal : focal[c];
             Geometry.Pose p = r.poses.get(c);
             double x0 = 1e18, y0 = 1e18, x1 = -1e18, y1 = -1e18;
             List<Integer> mem = new ArrayList<>();

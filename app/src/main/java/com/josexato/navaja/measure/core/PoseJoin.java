@@ -400,6 +400,11 @@ public final class PoseJoin {
     public static double[][] box(List<double[]> a, List<double[]> b, Fit f) {
         List<double[]> all = new ArrayList<>(b);
         for (double[] x : a) all.add(f.apply(x));
+        return box(all);
+    }
+
+    /** Igual, con los puntos del objeto de todas las tomas ya en los ejes de la de referencia. */
+    public static double[][] box(List<double[]> all) {
         if (all.size() < 20) return null;
         double[][] box = new double[2][3];
         double[] v = new double[all.size()];
@@ -422,6 +427,8 @@ public final class PoseJoin {
         /** Largo en X, Y y Z (mm, percentiles 1–99). */
         public double[] size;
         public int viewsA, viewsB;
+        /** Siluetas usadas de cada toma. */
+        public int[] views;
     }
 
     /**
@@ -434,9 +441,21 @@ public final class PoseJoin {
      * queda volumen.
      */
     public static Hull carve(List<Cam> cams, double[][] box, Fit f) {
-        int[] views = new int[2];
+        return carve(cams, box, java.util.Collections.singletonList(f));
+    }
+
+    /**
+     * Igual, con cualquier cantidad de tomas: {@link Cam#scan} numera los
+     * escaneos desde 0 y {@code sheets} trae el movimiento de cada toma
+     * agregada hacia la de referencia (su hoja también limita el volumen).
+     */
+    public static Hull carve(List<Cam> cams, double[][] box, List<Fit> sheets) {
+        int ns = 0;
+        for (Cam c : cams) ns = Math.max(ns, c.scan + 1);
+        int[] views = new int[ns];
         for (Cam c : cams) views[c.scan]++;
-        if (views[0] < 6 || views[1] < 6 || box == null) return null;
+        for (int v : views) if (v < 6) return null;
+        if (ns < 2 || box == null) return null;
         double side = Math.max(box[1][0] - box[0][0], Math.max(box[1][1] - box[0][1], box[1][2] - box[0][2]));
         double step = side / GRID;
         Carver.Grid g = new Carver.Grid();
@@ -448,7 +467,7 @@ public final class PoseJoin {
         g.z0 = box[0][2];
         g.step = step;
         int n = g.nx * g.ny * g.nz;
-        short[][] bad = {new short[n], new short[n]}, seen = {new short[n], new short[n]};
+        short[][] bad = new short[ns][n], seen = new short[ns][n];
         for (Cam c : cams) {
             Geometry.Pose p = c.pose;
             short[] bd = bad[c.scan], sn = seen[c.scan];
@@ -469,20 +488,23 @@ public final class PoseJoin {
                     }
                 }
         }
-        int[] minSeen = {Math.max(4, views[0] / 5), Math.max(4, views[1] / 5)};
+        int[] minSeen = new int[ns];
+        for (int s = 0; s < ns; s++) minSeen[s] = Math.max(4, views[s] / 5);
         g.occ = new byte[n];
-        // La hoja del primer escaneo, en los ejes del segundo: z_A = (Rᵀ·(X − t))_z
-        double[] na = {f.r[2], f.r[5], f.r[8]};
         for (int k = 0; k < g.nz; k++)
             for (int j = 0; j < g.ny; j++)
                 for (int i = 0; i < g.nx; i++) {
                     int id = g.idx(i, j, k);
                     boolean ok = true;
-                    for (int s = 0; s < 2 && ok; s++)
+                    for (int s = 0; s < ns && ok; s++)
                         ok = seen[s][id] >= minSeen[s] && bad[s][id] <= Math.max(TOL, TOL_SHARE * seen[s][id]);
+                    // La hoja de cada toma agregada, en los ejes de la de referencia: z = (Rᵀ·(X − t))_z ≥ 0
+                    for (int s = 0; s < sheets.size() && ok; s++) {
+                        Fit f = sheets.get(s);
+                        double X = g.x0 + (i + 0.5) * step - f.t[0], Y = g.y0 + (j + 0.5) * step - f.t[1], Z = g.z0 + (k + 0.5) * step - f.t[2];
+                        ok = f.r[2] * X + f.r[5] * Y + f.r[8] * Z >= -step;
+                    }
                     if (!ok) continue;
-                    double X = g.x0 + (i + 0.5) * step - f.t[0], Y = g.y0 + (j + 0.5) * step - f.t[1], Z = g.z0 + (k + 0.5) * step - f.t[2];
-                    if (na[0] * X + na[1] * Y + na[2] * Z < -step) continue;
                     g.occ[id] = 1;
                 }
         Carve.largestComponent(g);
@@ -492,6 +514,7 @@ public final class PoseJoin {
         h.grid = g;
         h.viewsA = views[0];
         h.viewsB = views[1];
+        h.views = views;
         h.volume = cnt * step * step * step / 1000;
         double[][] co = new double[3][cnt];
         int q = 0;

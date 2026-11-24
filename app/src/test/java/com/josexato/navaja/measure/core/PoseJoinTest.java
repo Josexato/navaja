@@ -290,6 +290,31 @@ public class PoseJoinTest {
             assertTrue("sola " + alone.volume + " contra las dos " + both.volume, alone.volume > 1.05 * both.volume);
         }
         assertNull("pocas siluetas", PoseJoin.carve(cams.subList(0, 20), box, f));
+        // Una tercera toma: el ladrillo de canto (40 de alto). x_B = R·x_C + t con un giro de 90° alrededor de X.
+        PoseJoin.Fit fc = new PoseJoin.Fit();
+        fc.r = new double[]{1, 0, 0, 0, 0, -1, 0, 1, 0};
+        fc.t = new double[]{0, 20, 10};
+        double[] loC = {-40, -10, 0}, hiC = {40, 10, 40};
+        List<PoseJoin.Cam> three = new ArrayList<>();
+        for (PoseJoin.Cam c : cams) {
+            PoseJoin.Cam d = new PoseJoin.Cam();
+            d.scan = c.scan == 1 ? 2 : 0; // la referencia va última
+            d.w = c.w; d.h = c.h; d.f = c.f; d.cx = c.cx; d.cy = c.cy; d.pose = c.pose; d.mask = c.mask;
+            three.add(d);
+        }
+        for (int i = 0; i < 16; i++) {
+            Geometry.Pose p = look(22.5 * i, 15, 320, new double[]{0, 0, 20});
+            PoseJoin.Cam c = new PoseJoin.Cam();
+            c.scan = 1;
+            c.w = CW; c.h = CH; c.f = CF; c.cx = CW / 2.0 - 0.5; c.cy = CH / 2.0 - 0.5;
+            c.mask = silhouette(p, loC, hiC);
+            c.pose = PoseJoin.moved(p, fc);
+            three.add(c);
+        }
+        PoseJoin.Hull all3 = PoseJoin.carve(three, box, java.util.Arrays.asList(f, fc));
+        assertNotNull(all3);
+        assertEquals(3, all3.views.length);
+        assertTrue("tres tomas " + all3.volume + " contra dos " + both.volume, all3.volume <= both.volume + 0.5 && all3.volume > 0.8 * truth);
     }
 
     @Test

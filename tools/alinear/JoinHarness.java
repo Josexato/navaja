@@ -82,12 +82,12 @@ public class JoinHarness {
         if (!"1".equals(System.getenv("TALLAR"))) return;
         // Un solo volumen con las siluetas de las dos tomas (como JoinActivity), más cada toma sola para comparar
         int grow = System.getenv("CRECER") != null ? Integer.parseInt(System.getenv("CRECER")) : PoseJoin.GROW_A;
-        List<PoseJoin.Cam> cams = new ArrayList<>(); List<byte[]> raw = new ArrayList<>();
+        List<PoseJoin.Cam> cams = new ArrayList<>(); List<byte[]> raw = new ArrayList<>(); List<String> photoPath = new ArrayList<>();
         for (int sidx = 0; sidx < 2; sidx++) { PoseJoin.Scan S = sc[sidx]; int w = S.width, h = S.height;
             for (int i = 0; i < S.names.size(); i++) { int[] mk = px(z[sidx] + "/colmap/mascaras/" + S.names.get(i) + ".png", w, h); if (mk == null) continue;
                 byte[] mask = new byte[w * h]; for (int k = 0; k < mask.length; k++) mask[k] = (byte) ((mk[k] & 255) > 127 ? 1 : 0);
                 PoseJoin.Cam c = new PoseJoin.Cam(); c.scan = sidx; c.w = w; c.h = h; c.f = S.focal; c.cx = S.cx; c.cy = S.cy;
-                c.pose = sidx == 0 ? PoseJoin.moved(S.poses.get(i), f) : S.poses.get(i); c.mask = sidx == 0 && grow > 0 ? PoseJoin.grow(mask, w, h, grow) : mask; cams.add(c); raw.add(mask); } }
+                c.pose = sidx == 0 ? PoseJoin.moved(S.poses.get(i), f) : S.poses.get(i); c.mask = sidx == 0 && grow > 0 ? PoseJoin.grow(mask, w, h, grow) : mask; cams.add(c); raw.add(mask); photoPath.add(z[sidx] + "/fotos/" + S.names.get(i)); } }
         double[][] box = PoseJoin.box(ca, cb, f); long t0 = System.nanoTime();
         PoseJoin.Hull hu = PoseJoin.carve(cams, box, f);
         if (hu == null) { System.out.println("sin volumen"); return; }
@@ -95,6 +95,17 @@ public class JoinHarness {
         System.out.println("  las dos" + cover(hu, cams, raw));
         com.josexato.navaja.scan3d.core.Mesh m = com.josexato.navaja.scan3d.core.SurfaceNets.extract(hu.grid); m.taubinSmooth(8); m.writeStl(wk.resolve("union.stl").toFile());
         System.out.println("malla " + m.triangleCount() + " triángulos → " + wk.resolve("union.stl"));
+        { // Modelo simplificado con textura de las fotos de las dos tomas (como JoinActivity) → union.glb
+            com.josexato.navaja.scan3d.core.Mesh low = com.josexato.navaja.scan3d.core.Decimate.simplify(m, 3000);
+            Sfm.Result r = new Sfm.Result(); r.width = cams.get(0).w; r.height = cams.get(0).h; double[] focal = new double[cams.size()];
+            for (int c = 0; c < cams.size(); c++) { r.poses.add(cams.get(c).pose); r.camFrames.add(c); focal[c] = cams.get(c).f; } r.focal = focal[0];
+            double[][] verts = new double[low.vertexCount()][]; for (int v = 0; v < verts.length; v++) verts[v] = new double[]{low.pos[3 * v], low.pos[3 * v + 1], low.pos[3 * v + 2]};
+            final int W = r.width, H = r.height; final List<String> ph = photoPath;
+            Texture.Result tx = Texture.build(r, verts, low.tri, null, c -> { try { return px(ph.get(c), W, H); } catch (IOException e) { return null; } }, 2048, focal);
+            BufferedImage bi = new BufferedImage(tx.width, tx.height, BufferedImage.TYPE_INT_RGB); bi.setRGB(0, 0, tx.width, tx.height, tx.atlas, 0, tx.width);
+            ByteArrayOutputStream jo = new ByteArrayOutputStream(); ImageIO.write(bi, "jpg", jo);
+            Files.write(wk.resolve("union.glb"), com.josexato.navaja.scan3d.core.Glb.write(low.pos, low.tri, tx.uv, jo.toByteArray(), null, true, 0.001, "union"));
+            System.out.printf("modelo %d triángulos · textura %d × %d con %d fotos, %d sin ver → %s%n", low.triangleCount(), tx.width, tx.height, tx.photosUsed, tx.unseen, wk.resolve("union.glb")); }
         // Cada toma sola, con la misma caja y la misma regla (para ver qué recorta la otra)
         for (int only = 0; only < 2; only++) { List<PoseJoin.Cam> one = new ArrayList<>();
             for (PoseJoin.Cam c : cams) { one.add(c); if (c.scan != only) { PoseJoin.Cam d = new PoseJoin.Cam(); d.scan = c.scan; d.w = c.w; d.h = c.h; d.f = c.f; d.cx = c.cx; d.cy = c.cy; d.pose = c.pose; d.mask = new byte[c.w * c.h]; Arrays.fill(d.mask, (byte) 1); one.set(one.size() - 1, d); } }
