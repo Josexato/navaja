@@ -5,12 +5,16 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.util.Log;
+import android.view.Gravity;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -23,6 +27,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
@@ -58,6 +63,11 @@ public class LibraryActivity extends Activity {
     private LinearLayout content;
     /** Los escaneos en pantalla (para elegir con cuál unir otro). */
     private List<Item> shown = new ArrayList<>();
+    /** Miniaturas ya leídas (por nombre y tamaño del ZIP) y el hilo que las lee, aparte del que arma la lista. */
+    private final Map<String, Bitmap> thumbs = new java.util.concurrent.ConcurrentHashMap<>();
+    private final ExecutorService thumbWork = Executors.newSingleThreadExecutor();
+    /** Lado mayor aproximado de la miniatura (px). */
+    private static final int THUMB_PX = 320;
 
     /** Un escaneo con lo que se sabe de él. */
     private static final class Item {
@@ -81,6 +91,7 @@ public class LibraryActivity extends Activity {
     @Override
     protected void onDestroy() {
         work.shutdownNow();
+        thumbWork.shutdownNow();
         super.onDestroy();
     }
 
@@ -256,7 +267,8 @@ public class LibraryActivity extends Activity {
     private LinearLayout card(Item it) {
         ScanIndex.Summary s = it.s;
         LinearLayout c = NavajaUi.card(this);
-        c.addView(NavajaUi.text(this, (it.e.saved.isEmpty() ? it.e.base : it.e.saved) + (s.mode.isEmpty() ? "" : " · " + s.mode), NavajaUi.Style.SUBTITLE));
+        // La primera foto del escaneo al lado del título: para reconocer el objeto y la posición de un vistazo
+        c.addView(titleRow(it, (it.e.saved.isEmpty() ? it.e.base : it.e.saved) + (s.mode.isEmpty() ? "" : " · " + s.mode), NavajaUi.Style.SUBTITLE, 112));
         StringBuilder sb = new StringBuilder();
         line(sb, "Versión de Navaja", it.version.isEmpty() ? "no se pudo leer" : it.version);
         line(sb, "Medidas por puntos", s.byPoints);
@@ -288,17 +300,107 @@ public class LibraryActivity extends Activity {
             toast("No hay otro escaneo del modo hoja en esta carpeta");
             return;
         }
-        String[] names = new String[others.size()];
-        for (int i = 0; i < names.length; i++) {
-            Item o = others.get(i);
-            names[i] = (o.e.saved.isEmpty() ? o.e.base : o.e.saved) + (o.s.bySilhouettes.isEmpty() ? "" : "\n" + o.s.bySilhouettes);
+        // Lista con la primera foto de cada escaneo: sin verla es difícil saber cuál es la otra posición del mismo objeto
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        int pad = NavajaUi.dp(this, 16);
+        list.setPadding(pad, NavajaUi.dp(this, 8), pad, 0);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(list);
+        android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this).setTitle("¿Con cuál escaneo del mismo objeto?").setView(scroll)
+                .setNegativeButton("Cancelar", null).create();
+        list.addView(titleRow(first, "Vas a unir éste:\n" + (first.e.saved.isEmpty() ? first.e.base : first.e.saved), NavajaUi.Style.SECONDARY, 96));
+        for (Item o : others) {
+            LinearLayout row = titleRow(o, (o.e.saved.isEmpty() ? o.e.base : o.e.saved) + (o.s.bySilhouettes.isEmpty() ? "" : "\n" + o.s.bySilhouettes),
+                    NavajaUi.Style.BODY, 96);
+            row.setPadding(0, NavajaUi.dp(this, 10), 0, NavajaUi.dp(this, 10));
+            row.setClickable(true);
+            row.setOnClickListener(v -> {
+                dlg.dismiss();
+                startActivity(new Intent(this, JoinActivity.class)
+                        .putExtra(JoinActivity.EXTRA_A, first.zip).putExtra(JoinActivity.EXTRA_B, o.zip)
+                        .putExtra(JoinActivity.EXTRA_NAME_A, first.e.base).putExtra(JoinActivity.EXTRA_NAME_B, o.e.base)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+            });
+            list.addView(row);
         }
-        new android.app.AlertDialog.Builder(this).setTitle("¿Con cuál escaneo del mismo objeto?")
-                .setItems(names, (d, k) -> startActivity(new Intent(this, JoinActivity.class)
-                        .putExtra(JoinActivity.EXTRA_A, first.zip).putExtra(JoinActivity.EXTRA_B, others.get(k).zip)
-                        .putExtra(JoinActivity.EXTRA_NAME_A, first.e.base).putExtra(JoinActivity.EXTRA_NAME_B, others.get(k).e.base)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)))
-                .setNegativeButton("Cancelar", null).show();
+        dlg.show();
+    }
+
+    /** Una fila con la miniatura del escaneo (su primera foto) y un texto al lado. */
+    private LinearLayout titleRow(Item it, String text, NavajaUi.Style style, int thumbDp) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView iv = new ImageView(this);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        iv.setBackgroundColor(0x22808080);
+        int side = NavajaUi.dp(this, thumbDp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(side, side * 3 / 4);
+        lp.rightMargin = NavajaUi.dp(this, 12);
+        row.addView(iv, lp);
+        row.addView(NavajaUi.text(this, text, style), new LinearLayout.LayoutParams(0, -2, 1f));
+        thumb(it, iv);
+        return row;
+    }
+
+    /**
+     * Pone en {@code iv} la miniatura del escaneo: la primera foto de su ZIP
+     * ({@code fotos/}), reducida. Leer el ZIP es lento (hay que pasar por todo
+     * lo que viene antes), así que se hace aparte y queda guardada en la
+     * carpeta temporal de la app para la próxima vez.
+     */
+    private void thumb(Item it, ImageView iv) {
+        if (it.zip == null) return;
+        String key = it.e.base + "_" + it.e.zip;
+        iv.setTag(key);
+        Bitmap ready = thumbs.get(key);
+        if (ready != null) {
+            iv.setImageBitmap(ready);
+            return;
+        }
+        thumbWork.execute(() -> {
+            Bitmap b = thumbs.get(key);
+            if (b == null) b = loadThumb(it.zip, key);
+            if (b == null) return;
+            thumbs.put(key, b);
+            Bitmap show = b;
+            ui.post(() -> { if (key.equals(iv.getTag())) iv.setImageBitmap(show); });
+        });
+    }
+
+    private Bitmap loadThumb(Uri zip, String key) {
+        File dir = new File(getCacheDir(), "miniaturas"), f = new File(dir, key.replaceAll("[^A-Za-z0-9_.-]", "_") + ".jpg");
+        if (f.exists()) {
+            Bitmap b = BitmapFactory.decodeFile(f.getPath());
+            if (b != null) return b;
+        }
+        try (InputStream in = getContentResolver().openInputStream(zip)) {
+            if (in == null) return null;
+            ZipInputStream z = new ZipInputStream(in);
+            for (ZipEntry e; (e = z.getNextEntry()) != null; ) {
+                if (!e.getName().startsWith("fotos/") || !e.getName().endsWith(".jpg")) continue;
+                byte[] jpg = all(z, 8 << 20);
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                BitmapFactory.decodeByteArray(jpg, 0, jpg.length, o);
+                o.inSampleSize = Math.max(1, Math.max(o.outWidth, o.outHeight) / THUMB_PX);
+                o.inJustDecodeBounds = false;
+                Bitmap b = BitmapFactory.decodeByteArray(jpg, 0, jpg.length, o);
+                if (b == null) return null;
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                try (FileOutputStream fo = new FileOutputStream(f)) {
+                    b.compress(Bitmap.CompressFormat.JPEG, 82, fo);
+                } catch (IOException ex) {
+                    Log.w(TAG, "guardar miniatura", ex); // se muestra igual; la próxima vez se vuelve a leer
+                }
+                return b;
+            }
+        } catch (IOException | RuntimeException | OutOfMemoryError ex) {
+            Log.w(TAG, "miniatura de " + key, ex);
+        }
+        return null;
     }
 
     private static void line(StringBuilder sb, String label, String value) {

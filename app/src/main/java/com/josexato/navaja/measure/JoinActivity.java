@@ -68,6 +68,8 @@ public class JoinActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final AtomicBoolean cancel = new AtomicBoolean();
     private TextView progress;
+    private LinearLayout pairBox;
+    private Bitmap thumbA, thumbB;
     private String nameA, nameB;
 
     /** Lo que se lee del ZIP de un escaneo. */
@@ -93,6 +95,8 @@ public class JoinActivity extends Activity {
         NavajaUi.Screen scr = NavajaUi.screen(this, "Unir dos poses", "El mismo objeto en dos posiciones", null, true);
         LinearLayout c = NavajaUi.card(this);
         c.addView(NavajaUi.text(this, nameA + "  →  " + nameB, NavajaUi.Style.LABEL));
+        pairBox = new LinearLayout(this);
+        c.addView(pairBox);
         progress = NavajaUi.text(this, "Leyendo los dos escaneos…", NavajaUi.Style.BODY);
         c.addView(progress);
         scr.content.addView(c);
@@ -118,10 +122,44 @@ public class JoinActivity extends Activity {
         super.onDestroy();
     }
 
+    /** La primera foto del ZIP (reducida), o null. */
+    private static Bitmap firstPhoto(Loaded l) {
+        byte[] jpg = null;
+        if (l.scan != null) for (String n : l.scan.names) if ((jpg = l.photos.get(n)) != null) break;
+        if (jpg == null && !l.photos.isEmpty()) jpg = l.photos.get(new java.util.TreeSet<>(l.photos.keySet()).first());
+        if (jpg == null) return null;
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inSampleSize = 2;
+        return BitmapFactory.decodeByteArray(jpg, 0, jpg.length, o);
+    }
+
+    /** Las dos primeras fotos lado a lado: primera toma → segunda toma. */
+    private LinearLayout pair() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        int k = 0;
+        for (Bitmap b : new Bitmap[]{thumbA, thumbB}) {
+            android.widget.ImageView iv = new android.widget.ImageView(this);
+            iv.setAdjustViewBounds(true);
+            iv.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            if (b != null) iv.setImageBitmap(b);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+            if (k++ > 0) lp.leftMargin = NavajaUi.dp(this, 8);
+            lp.topMargin = NavajaUi.dp(this, 6);
+            lp.bottomMargin = NavajaUi.dp(this, 6);
+            row.addView(iv, lp);
+        }
+        return row;
+    }
+
     private void post(String s) { ui.post(() -> { if (progress != null) progress.setText(s); }); }
 
     private void run(Uri ua, Uri ub) throws IOException {
         Loaded a = load(ua), b = load(ub);
+        // La primera foto de cada escaneo, para ver qué se está uniendo
+        thumbA = firstPhoto(a);
+        thumbB = firstPhoto(b);
+        ui.post(() -> { if (pairBox != null) pairBox.addView(pair()); });
         if (a.scan == null || b.scan == null)
             throw new IOException("uno de los ZIP no trae la reconstrucción (colmap/sparse/0). Tiene que ser un escaneo del modo hoja guardado con Navaja 1.0.39 o posterior.");
         List<Integer> pa = pick(a), pb = pick(b);
@@ -267,6 +305,7 @@ public class JoinActivity extends Activity {
                       double gapLoose, double under, double secs, String where) {
         NavajaUi.Screen scr = NavajaUi.screen(this, "Unir dos poses", nameA + "  →  " + nameB, null, true);
         LinearLayout c = NavajaUi.card(this);
+        c.addView(pair());
         // Los pares solos pueden engañar: en un objeto simétrico (un animal, una botella), un costado de una toma se empareja con el
         // costado opuesto de la otra y sale un giro coherente pero falso. Por eso además tienen que acercarse las dos nubes.
         boolean closer = gap < GAP_SHARE * gapLoose, above = under < UNDER_SHARE;

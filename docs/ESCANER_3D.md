@@ -112,6 +112,7 @@ Desde esta versión, junto a cada ZIP se guarda una ficha `medida_….json` (ver
 
 Cada toma deja sin ver la parte sobre la que el objeto está apoyado. Si se escanea el mismo objeto dos veces sobre la hoja, en dos posiciones (por ejemplo parado y acostado), **Mis escaneos → «Unir con otra pose…»** halla el giro y el desplazamiento que llevan un escaneo sobre el otro, dice qué tan fiable salió, deja compartir la nube unida (PLY, en mm) y, con **«Tallar el volumen»**, talla un solo volumen con las siluetas de las dos tomas (STL completo y GLB de 3000 triángulos).
 
+- En **Mis escaneos** cada escaneo muestra su primera foto en miniatura, y también la lista para elegir con cuál unirlo y la pantalla de unión: así se reconoce el objeto y la posición sin abrir nada. La miniatura sale del ZIP la primera vez (tarda un momento) y queda guardada.
 - De 12 fotos de cada escaneo se deja sólo el objeto (fondo gris fuera de la silueta, recortado y ampliado): el fondo y la hoja son distintos en cada toma y confunden al emparejador.
 - Las fotos del segundo escaneo se prueban además giradas 90°, 180° y 270°, porque XFeat no reconoce nada con la imagen girada 90° o más.
 - Cada par de puntos emparejados se pasa a un par de puntos 3D y con todos se ajusta un movimiento rígido (RANSAC, pares coherentes a menos de 4 mm). Hacen falta 20 pares coherentes.
