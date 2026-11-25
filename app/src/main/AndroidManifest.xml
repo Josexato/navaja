@@ -35,6 +35,10 @@
         android:largeHeap="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!-- ARCore es opcional: Navaja se instala igual en teléfonos sin realidad aumentada; sólo el Levantamiento
+             lo necesita y lo comprueba al abrirse. -->
+        <meta-data android:name="com.google.ar.core" android:value="optional" />
+
         <!-- NPU de Qualcomm (delegado QNN): habla con el chip por esta librería del fabricante. Desde Android 12 una app
              sólo puede cargar las librerías de /vendor que declara; sin esto el delegado falla al iniciar. -->
         <uses-native-library
@@ -121,6 +125,15 @@
             android:name=".compass.CompassActivity"
             android:exported="false"
             android:label="Navaja · Brújula y nivel"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- Levantamiento: recorrido en metros (ARCore) con la señal celular en cada punto, y plano de la habitación. -->
+        <activity
+            android:name=".survey.SurveyActivity"
+            android:exported="false"
+            android:label="Navaja · Levantamiento"
             android:screenOrientation="portrait"
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />

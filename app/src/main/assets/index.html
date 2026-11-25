@@ -224,6 +224,7 @@
   .ico.lan { background: linear-gradient(135deg, #6E8BF0, #3F5AD0); }
   .ico.cell { background: linear-gradient(135deg, #F28B4C, #D2552A); }
   .ico.mark { background: linear-gradient(135deg, #4CC38A, #23905C); }
+  .ico.surv { background: linear-gradient(135deg, #8E9BEF, #5A63C8); }
   .ico.comp { background: linear-gradient(135deg, #5AA9E6, #2F6FB3); }
   .ico.puls { background: linear-gradient(135deg, #F06B7E, #C7364D); }
   .ico.pant { background: linear-gradient(135deg, #C86FD8, #8E3FB0); }
@@ -324,6 +325,14 @@
           <p>Modo ingeniería: torre eNB/gNB, banda 4G/5G, RSRP/SINR, vecinas, recorrido con GPS y torres estimadas.</p>
           <div class="chips"><span class="chip">4G/5G</span><span class="chip">eNB</span><span class="chip">dBm</span><span class="chip">KML</span></div>
           <span class="go">Ver señal →</span>
+        </div>
+        <div class="card" id="cardSurv" role="button" tabindex="0">
+          <span class="badge" hidden>Sólo en la app Android</span>
+          <div class="ico surv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M4 4h10v6h6v10H4z"/><path d="M7 17c2-1 2-4 4-5s3 1 5-1" stroke-dasharray="1.5 2.5"/><circle cx="7" cy="17" r="1"/></svg></div>
+          <h3>Levantamiento</h3>
+          <p>Camina con el teléfono: guarda el recorrido en metros con la señal 4G/5G en cada punto, y el plano de la habitación con su área y altura.</p>
+          <div class="chips"><span class="chip">recorrido</span><span class="chip">señal</span><span class="chip">plano</span><span class="chip">DXF</span><span class="chip">CSV</span></div>
+          <span class="go">Levantar →</span>
         </div>
         <div class="card" id="cardMark" role="button" tabindex="0">
           <span class="badge" hidden>Sólo en la app Android</span>
@@ -1247,6 +1256,7 @@
     ['cardTuner', () => window.NavajaNative.openTuner && window.NavajaNative.openTuner()],
     ['cardLan', () => window.NavajaNative.openLan && window.NavajaNative.openLan()],
     ['cardCell', () => window.NavajaNative.openCellular && window.NavajaNative.openCellular()],
+    ['cardSurv', () => window.NavajaNative.openSurvey && window.NavajaNative.openSurvey()],
     ['cardMark', () => window.NavajaNative.openMarker && window.NavajaNative.openMarker()],
     ['cardComp', () => window.NavajaNative.openCompass && window.NavajaNative.openCompass()],
     ['cardPulse', () => window.NavajaNative.openPulse && window.NavajaNative.openPulse()],
