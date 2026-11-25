@@ -28,11 +28,11 @@ import java.util.List;
  * con los resguardos de nivel de API (minSdk 24). Lo que el módem no informa
  * queda como NA: nunca se rellena con valores supuestos.
  */
-final class CellReader {
+public final class CellReader {
 
     private CellReader() { }
 
-    static List<CellReading> read(List<CellInfo> infos) {
+    public static List<CellReading> read(List<CellInfo> infos) {
         List<CellReading> out = new ArrayList<>();
         if (infos == null) return out;
         for (CellInfo ci : infos) {
@@ -43,6 +43,7 @@ final class CellReader {
             else if (ci instanceof CellInfoGsm) r = gsm((CellInfoGsm) ci);
             if (r == null) continue;
             r.registered = ci.isRegistered();
+            r.measuredAtMs = measuredAt(ci);
             out.add(r);
         }
         // Servidoras primero, luego vecinas por señal.
@@ -51,6 +52,13 @@ final class CellReader {
             return Integer.compare(sortSignal(b), sortSignal(a));
         });
         return out;
+    }
+
+    /** Cuándo midió el módem esta celda, en milisegundos del reloj de arranque (elapsedRealtime). */
+    @SuppressWarnings("deprecation") // getTimeStamp(): única opción antes de API 30
+    private static long measuredAt(CellInfo ci) {
+        long ms = Build.VERSION.SDK_INT >= 30 ? ci.getTimestampMillis() : ci.getTimeStamp() / 1_000_000L;
+        return ms > 0 && ms != Long.MAX_VALUE ? ms : CellReading.NA_LONG;
     }
 
     private static int sortSignal(CellReading r) {

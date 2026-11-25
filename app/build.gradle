@@ -96,6 +96,9 @@ dependencies {
     // distribuyen sólo dentro de la app, en binario); las dos versiones tienen que ser la misma.
     implementation 'com.qualcomm.qti:qnn-runtime:2.52.0'
     implementation 'com.qualcomm.qti:qnn-litert-delegate:2.52.0'
+    // Levantamiento: posición en metros al caminar (ARCore, de Google). La librería es cerrada y se apoya en la app
+    // «Servicios de Google Play para RA» del teléfono; el seguimiento ocurre en el aparato, sin internet.
+    implementation 'com.google.ar:core:1.57.0'
     testImplementation 'junit:junit:4.13.2'
     // Sólo en tests: decodifica los QR que genera Navaja para comprobar que son legibles.
     testImplementation 'com.google.zxing:core:3.5.3'

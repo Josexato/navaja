@@ -122,6 +122,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void openSurvey() {
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, com.josexato.navaja.survey.SurveyActivity.class)));
+        }
+
+        @JavascriptInterface
         public void openCompass() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, CompassActivity.class)));
         }

@@ -43,6 +43,8 @@ public final class CellReading {
     public double taMeters = Double.NaN;
     /** Ancho de banda de la portadora en kHz (LTE, API 28+). */
     public int bandwidthKhz = NA;
+    /** Cuándo la midió el módem, en ms del reloj de arranque del teléfono; NA_LONG si no se sabe. */
+    public long measuredAtMs = NA_LONG;
 
     public static boolean has(int v) { return v != NA; }
 
