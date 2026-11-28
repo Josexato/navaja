@@ -99,11 +99,15 @@ public final class OckhamActivity extends Activity {
         server.setText(s.server.replace("https://", ""));
         card.addView(server);
 
-        TextView[] tabs = NavajaUi.tabs(card, new String[]{"Entrar", "Tengo una invitación"}, invite ? 1 : 0, i -> {
+        // Las dos pestañas van en una fila propia: NavajaUi.tabs reparte el ancho de la fila que recibe.
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        NavajaUi.tabs(tabs, new String[]{"Entrar", "Tengo una invitación"}, invite ? 1 : 0, i -> {
             invite = i == 1;
             render();
         });
-        NavajaUi.topMargin((View) tabs[0].getParent(), 12);
+        card.addView(tabs, new LinearLayout.LayoutParams(-1, -2));
+        NavajaUi.topMargin(tabs, 12);
 
         card.addView(label("Correo"));
         EditText email = field("tu@correo.com", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
