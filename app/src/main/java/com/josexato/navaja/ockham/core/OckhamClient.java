@@ -4,7 +4,11 @@ import com.josexato.navaja.pantonera.core.Json;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -48,7 +52,7 @@ public final class OckhamClient {
 
     public static final class Profile {
         public String userId = "", email = "", role = "";
-        public int jobsPerDay;
+        public int jobsPerDay, gpuSecondsPerDay;
         public final List<String> capabilities = new ArrayList<>();
     }
 
@@ -57,11 +61,15 @@ public final class OckhamClient {
         public int minInputs, maxInputs, maxSeconds;
         /** El esquema JSON de sus parámetros, tal como lo manda el servidor. */
         public Map<String, Object> parameters = Collections.emptyMap();
+        /** Los archivos que entrega. */
+        public final List<String> outputs = new ArrayList<>();
     }
 
     public static final class Job {
         public String id = "", recipe = "", state = "", reason = "";
         public boolean done;
+        /** Segundos de GPU que lleva gastados, según la plataforma. */
+        public double gpuSeconds;
         /** El veredicto cuando terminó bien; null si no. */
         public Verdict verdict;
 
@@ -221,7 +229,10 @@ public final class OckhamClient {
         p.userId = text(m.get("usuario"));
         p.email = text(m.get("correo"));
         p.role = text(m.get("rol"));
-        if (m.get("limites") instanceof Map) p.jobsPerDay = number(((Map<?, ?>) m.get("limites")).get("trabajos_por_dia"));
+        if (m.get("limites") instanceof Map) {
+            p.jobsPerDay = number(((Map<?, ?>) m.get("limites")).get("trabajos_por_dia"));
+            p.gpuSecondsPerDay = number(((Map<?, ?>) m.get("limites")).get("segundos_gpu_por_dia"));
+        }
         if (m.get("capacidades") instanceof List) for (Object o : (List<?>) m.get("capacidades")) p.capabilities.add(text(o));
         return p;
     }
@@ -246,6 +257,7 @@ public final class OckhamClient {
                     x.maxInputs = number(((Map<?, ?>) m.get("entradas")).get("maximo"));
                 }
                 if (m.get("parametros") instanceof Map) x.parameters = (Map<String, Object>) m.get("parametros");
+                if (m.get("salidas") instanceof List) for (Object s : (List<?>) m.get("salidas")) x.outputs.add(text(s));
                 out.add(x);
             }
         }
@@ -378,6 +390,45 @@ public final class OckhamClient {
         return job(object(r, "consultar el trabajo"));
     }
 
+    /** Pide cancelar un trabajo. Si corre en una plataforma, puede tardar unos segundos en quedar cancelado. */
+    public Job cancel(String jobId) throws OckhamException, IOException {
+        Http.Reply r = authed("POST", session.server + "/ockham/v1/trabajos/" + jobId + "/cancelar", null, new byte[0]);
+        if (!r.ok()) throw OckhamException.of(r, "cancelar el trabajo");
+        return job(object(r, "cancelar el trabajo"));
+    }
+
+    /**
+     * Baja un archivo de resultado y lo escribe en {@code sink}. Comprueba que lo que llegó sea lo que el servidor
+     * dijo que guardó (su huella SHA-256): si no coincide, avisa en vez de dejar pasar un archivo dañado.
+     */
+    public void download(Verdict.File file, OutputStream sink, Http.Progress progress) throws OckhamException, IOException {
+        if (!session.signedIn()) throw new OckhamException(401, "No hay una sesión abierta. Hay que entrar.");
+        if (!file.path.startsWith(session.userId + "/") || file.path.contains("..") || !file.path.matches("[A-Za-z0-9._/-]+")) {
+            throw new OckhamException(0, "El servidor nombró un archivo que no está en tu carpeta.");
+        }
+        if (clock.now() > session.expiresAtMs - RENEW_BEFORE_MS) renew();
+        String url = session.server + "/storage/v1/object/authenticated/" + session.bucket + "/" + file.path;
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException(e);
+        }
+        OutputStream counted = new DigestOutputStream(sink, digest);
+        Http.Reply r = http.fetch(url, headers(session.access, null), counted, progress);
+        if (r.code == 401) {
+            renew();
+            r = http.fetch(url, headers(session.access, null), counted, progress);
+        }
+        if (!r.ok()) throw OckhamException.of(r, "bajar el archivo");
+        counted.flush();
+        StringBuilder hex = new StringBuilder();
+        for (byte b : digest.digest()) hex.append(String.format(Locale.ROOT, "%02x", b));
+        if (!file.sha256.isEmpty() && !file.sha256.equals(hex.toString())) {
+            throw new OckhamException(0, "El archivo llegó distinto de como lo guardó el servidor. Hay que bajarlo de nuevo.");
+        }
+    }
+
     private static Job job(Map<String, Object> m) {
         Job j = new Job();
         j.id = text(m.get("id"));
@@ -385,6 +436,7 @@ public final class OckhamClient {
         j.state = text(m.get("estado"));
         j.reason = text(m.get("motivo"));
         j.done = Boolean.TRUE.equals(m.get("terminado"));
+        if (m.get("segundos_gpu") instanceof Number) j.gpuSeconds = ((Number) m.get("segundos_gpu")).doubleValue();
         if (m.get("resultado") instanceof Map) j.verdict = Verdict.of((Map<?, ?>) m.get("resultado"));
         return j;
     }

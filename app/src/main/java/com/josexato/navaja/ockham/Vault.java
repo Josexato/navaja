@@ -42,6 +42,15 @@ final class Vault {
         prefs(c).edit().putBoolean("encendido", on).apply();
     }
 
+    /** El trabajo que se pidió y todavía no se vio terminar, para retomarlo al volver a abrir la pantalla. */
+    static String pendingJob(Context c) {
+        return prefs(c).getString("trabajo", "");
+    }
+
+    static void setPendingJob(Context c, String id) {
+        prefs(c).edit().putString("trabajo", id == null ? "" : id).apply();
+    }
+
     /** La sesión guardada, o una vacía si no hay o si no se pudo descifrar. */
     static Session load(Context c) {
         String blob = prefs(c).getString("sesion", "");

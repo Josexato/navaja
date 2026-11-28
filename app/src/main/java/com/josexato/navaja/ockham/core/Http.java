@@ -51,6 +51,18 @@ public interface Http {
     Reply send(String method, String url, Map<String, String> headers, byte[] body, InputStream stream, long length,
                Progress progress) throws IOException;
 
+    /**
+     * Baja una dirección y escribe el contenido en {@code sink} a medida que llega, sin cargarlo en memoria. Si el
+     * servidor no responde 2xx no se escribe nada y la respuesta trae el cuerpo del error.
+     */
+    default Reply fetch(String url, Map<String, String> headers, OutputStream sink, Progress progress) throws IOException {
+        Reply r = send("GET", url, headers, null, null, -1, null);
+        if (!r.ok()) return r;
+        sink.write(r.body);
+        if (progress != null) progress.sent(r.body.length);
+        return new Reply(r.code, r.headers, new byte[0]);
+    }
+
     /** El transporte real, sobre HttpURLConnection. */
     final class Url implements Http {
         private static final int CONNECT_MS = 15_000, READ_MS = 60_000;
@@ -95,6 +107,32 @@ public interface Http {
                 }
                 InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
                 return new Reply(code, hs, in == null ? new byte[0] : readAll(in));
+            } finally {
+                c.disconnect();
+            }
+        }
+
+        @Override
+        public Reply fetch(String url, Map<String, String> headers, OutputStream sink, Progress progress) throws IOException {
+            HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+            try {
+                c.setConnectTimeout(CONNECT_MS);
+                c.setReadTimeout(READ_MS);
+                c.setInstanceFollowRedirects(false);
+                for (Map.Entry<String, String> h : headers.entrySet()) c.setRequestProperty(h.getKey(), h.getValue());
+                int code = c.getResponseCode();
+                if (code < 200 || code >= 300) {
+                    InputStream err = c.getErrorStream();
+                    return new Reply(code, new HashMap<>(), err == null ? new byte[0] : readAll(err));
+                }
+                try (InputStream in = c.getInputStream()) {
+                    byte[] buf = new byte[64 * 1024];
+                    for (int n; (n = in.read(buf)) > 0; ) {
+                        sink.write(buf, 0, n);
+                        if (progress != null) progress.sent(n);
+                    }
+                }
+                return new Reply(code, new HashMap<>(), new byte[0]);
             } finally {
                 c.disconnect();
             }

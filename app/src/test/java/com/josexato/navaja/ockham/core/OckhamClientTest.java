@@ -47,6 +47,17 @@ public class OckhamClientTest {
     private String jobBody = "";
 
     private final String base = "https://ockham.prueba";
+    private static final byte[] MESH = "una malla de mentira".getBytes(StandardCharsets.UTF_8);
+    private static final String MESH_SHA = "60015644cfac619bc30899aa5c3ebdbe03d704aca42d6e245b73be9558f72243";
+
+    private static Verdict.File mesh(String path, String sha) {
+        Verdict.File f = new Verdict.File();
+        f.name = "malla.glb";
+        f.path = path;
+        f.sha256 = sha;
+        f.bytes = MESH.length;
+        return f;
+    }
 
     private OckhamClient client() {
         return new OckhamClient(this::handle, new Session(), s -> saved.add(Session.fromText(s.toText())), () -> now);
@@ -154,6 +165,14 @@ public class OckhamClientTest {
             }
             upload.write(in);
             return reply(204, "", "Upload-Offset", Long.toString(upload.size()));
+        }
+        if (path.equals("/storage/v1/object/authenticated/capturas/u-1/resultados/j1/malla.glb") && m.equals("GET")) {
+            if (!user) return reply(401, "{}");
+            return new Http.Reply(200, new LinkedHashMap<>(), MESH);
+        }
+        if (path.endsWith("/cancelar") && m.equals("POST")) {
+            if (!user) return problem(401, "El credencial venció");
+            return reply(200, jobJson(path.substring(20, path.length() - 9), "cancelling", false));
         }
         if (path.startsWith("/ockham/v1/trabajos/") && m.equals("PUT")) {
             if (!user) return problem(401, "El credencial venció");
@@ -382,5 +401,34 @@ public class OckhamClientTest {
         assertEquals("b2NraGFt", OckhamClient.b64("ockham"));
         assertEquals("YQ==", OckhamClient.b64("a"));
         assertEquals("YcOx", OckhamClient.b64("añ".substring(0, 2)));
+    }
+
+    @Test
+    public void downloadsAResultAndChecksItIsWhatTheServerStored() throws Exception {
+        OckhamClient c = signedIn();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        long[] got = {0};
+        expired = true; // el credencial venció: renueva y baja igual, sin escribir nada de más
+        c.download(mesh("u-1/resultados/j1/malla.glb", MESH_SHA), out, n -> got[0] += n);
+        assertArrayEquals(MESH, out.toByteArray());
+        assertEquals(MESH.length, got[0]);
+        // Si lo que llega no es lo que el servidor dijo que guardó, se avisa.
+        assertTrue(message(() -> c.download(mesh("u-1/resultados/j1/malla.glb", "00ff"), new ByteArrayOutputStream(), null)).contains("distinto"));
+        // Sólo se baja de la carpeta propia.
+        for (String bad : new String[]{"u-2/resultados/j1/malla.glb", "u-1/../u-2/malla.glb", "u-1/a b.glb?x=1"}) {
+            int before = log.size();
+            assertTrue(bad, message(() -> c.download(mesh(bad, ""), new ByteArrayOutputStream(), null)).contains("no está en tu carpeta"));
+            assertEquals(before, log.size()); // ni siquiera se le pregunta al servidor
+        }
+        assertTrue(message(() -> c.download(mesh("u-1/no-existe.glb", ""), new ByteArrayOutputStream(), null)).startsWith("No se pudo bajar el archivo"));
+    }
+
+    @Test
+    public void cancelAsksTheServer() throws Exception {
+        OckhamClient c = signedIn();
+        OckhamClient.Job j = c.cancel("j9");
+        assertEquals("cancelling", j.state);
+        assertFalse(j.done);
+        assertTrue(log.contains("POST /ockham/v1/trabajos/j9/cancelar"));
     }
 }

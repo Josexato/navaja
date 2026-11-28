@@ -22,7 +22,7 @@ public final class BuildFacts {
      * atrás, comprobado en Wikipedia (la fecha tiene que constar en el texto del
      * artículo). Así el texto del inicio distingue una versión de otra de un vistazo.
      */
-    static final String FACT = "el 28 de noviembre de 1926, cerca de Serra Talhada (Pernambuco, Brasil), la banda del cangaceiro Lampião hizo retroceder a un regimiento de 295 policías";
+    static final String FACT = "el 27 de noviembre de 1926, el partido Army–Navy se jugó por única vez en el Soldier Field de Chicago, ante unos 111.000 espectadores, y terminó empatado 21 a 21";
 
     /** El texto completo para la versión {@code version}, con el código terminado en {@code codeTime} (ms) y {@code buildsToday} compilaciones ese día. */
     public static String line(String version, long codeTime, int buildsToday) {
