@@ -5,4 +5,6 @@
 <full-backup-content>
     <exclude domain="file" path="firmas/" />
     <exclude domain="sharedpref" path="ssjf.xml" />
+    <!-- La sesión de Ockham: está cifrada con una llave de este teléfono y no sirve en otro. -->
+    <exclude domain="sharedpref" path="ockham.xml" />
 </full-backup-content>

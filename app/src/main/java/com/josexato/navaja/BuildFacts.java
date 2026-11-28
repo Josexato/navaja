@@ -22,7 +22,7 @@ public final class BuildFacts {
      * atrás, comprobado en Wikipedia (la fecha tiene que constar en el texto del
      * artículo). Así el texto del inicio distingue una versión de otra de un vistazo.
      */
-    static final String FACT = "el 25 de noviembre de 1926 Mussolini creó en Italia el Tribunal Especial para juzgar los delitos políticos y repuso la pena de muerte";
+    static final String FACT = "el 28 de noviembre de 1926 Uruguay eligió presidente a Juan Campisteguy, que le ganó a Luis Alberto de Herrera por menos de 1600 votos";
 
     /** El texto completo para la versión {@code version}, con el código terminado en {@code codeTime} (ms) y {@code buildsToday} compilaciones ese día. */
     public static String line(String version, long codeTime, int buildsToday) {

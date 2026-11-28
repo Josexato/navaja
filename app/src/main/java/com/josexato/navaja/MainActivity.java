@@ -126,6 +126,23 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, com.josexato.navaja.survey.SurveyActivity.class)));
         }
 
+        /** Si Ockham está encendido: apagado, Navaja no se conecta a ningún servidor. */
+        @JavascriptInterface
+        public boolean ockhamOn() {
+            return getSharedPreferences("ockham", MODE_PRIVATE).getBoolean("encendido", false);
+        }
+
+        @JavascriptInterface
+        public void setOckham(boolean on) {
+            getSharedPreferences("ockham", MODE_PRIVATE).edit().putBoolean("encendido", on).apply();
+        }
+
+        @JavascriptInterface
+        public void openOckham() {
+            if (!ockhamOn()) return;
+            runOnUiThread(() -> startActivity(new Intent(MainActivity.this, com.josexato.navaja.ockham.OckhamActivity.class)));
+        }
+
         @JavascriptInterface
         public void openCompass() {
             runOnUiThread(() -> startActivity(new Intent(MainActivity.this, CompassActivity.class)));

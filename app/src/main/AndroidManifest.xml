@@ -138,6 +138,16 @@
             android:theme="@android:style/Theme.Material.NoActionBar"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
+        <!-- Ockham: la parte de Navaja que usa un servidor (entrar, subir un archivo, pedir un trabajo). Sólo se abre
+             con el interruptor del inicio encendido. -->
+        <activity
+            android:name=".ockham.OckhamActivity"
+            android:exported="false"
+            android:label="Navaja · Ockham"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!-- Pulso: magnificación euleriana en vivo y frecuencia cardíaca por cámara. -->
         <activity
             android:name=".pulse.PulseActivity"
