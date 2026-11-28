@@ -219,6 +219,10 @@
   .card .ico svg { width: 28px; height: 28px; }
   .ico.viewer { background: linear-gradient(135deg, #F2B544, #D9902A); }
   .build-info { font-size: 12px; opacity: .7; margin-top: 6px; }
+  .ockham-switch { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: .86rem; color: var(--muted); cursor: pointer; }
+  .ockham-switch input { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
+  .ockham-switch b { color: inherit; font-weight: 600; }
+  .ico.ock { background: linear-gradient(135deg, #E0913F, #B5651D); }
   .ico.scan { background: linear-gradient(135deg, #EE5A4F, #C9322C); }
   .ico.tuner { background: linear-gradient(135deg, #3DD6C6, #1FA597); }
   .ico.lan { background: linear-gradient(135deg, #6E8BF0, #3F5AD0); }
@@ -283,9 +287,20 @@
           <h2>Navaja <span>◆</span></h2>
           <p>Tu navaja suiza en el bolsillo: visor de archivos, escáner 3D, afinador, red local, red móvil, marcador, brújula, nivel, pulso, pantonera y diagnóstico del teléfono. Todo funciona sin internet.</p>
           <p id="buildInfo" class="build-info" hidden></p>
+          <label class="ockham-switch" id="ockhamRow" hidden>
+            <input type="checkbox" id="ockhamToggle">
+            <span><b>Ockham</b>: usar un servidor para lo que el teléfono no puede hacer solo. Apagado, Navaja no se conecta a nada.</span>
+          </label>
         </div>
       </div>
       <div class="cards">
+        <div class="card" id="cardOck" role="button" tabindex="0" hidden>
+          <div class="ico ock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/><path d="M8 7h.01M8 17h.01M12 10v4"/></svg></div>
+          <h3>Ockham</h3>
+          <p>Conecta Navaja a un servidor propio: entra con tu invitación, manda un archivo y recibe el resultado con sus supuestos.</p>
+          <div class="chips"><span class="chip">servidor</span><span class="chip">invitación</span><span class="chip">necesita internet</span></div>
+          <span class="go">Abrir →</span>
+        </div>
         <div class="card" id="cardViewer" role="button" tabindex="0">
           <div class="ico viewer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M12 2.8 20 7.2v9.6L12 21.2 4 16.8V7.2z"/><path d="M4 7.2 12 11.6l8-4.4M12 11.6v9.6"/></svg></div>
           <h3>Visor de archivos</h3>
@@ -1251,6 +1266,19 @@
   }
   onActivate($('cardViewer'), (e) => { if (e.target.id !== 'sampleBtn') fileInput.click(); });
   $('sampleBtn').addEventListener('click', (e) => { e.stopPropagation(); showHome(false); });
+  // Ockham: el interruptor decide si la tarjeta existe. Sólo en la app Android.
+  if (native && window.NavajaNative.ockhamOn) {
+    const row = $('ockhamRow'), toggle = $('ockhamToggle'), ock = $('cardOck');
+    row.hidden = false;
+    toggle.checked = !!window.NavajaNative.ockhamOn();
+    ock.hidden = !toggle.checked;
+    toggle.addEventListener('change', () => {
+      window.NavajaNative.setOckham(toggle.checked);
+      ock.hidden = !toggle.checked;
+    });
+    onActivate(ock, () => window.NavajaNative.openOckham());
+  }
+
   const nativeCards = [
     ['cardScan', () => window.NavajaNative.openScanner()],
     ['cardTuner', () => window.NavajaNative.openTuner && window.NavajaNative.openTuner()],
