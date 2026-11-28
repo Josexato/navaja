@@ -1,3 +1,4 @@
+import com.josexato.navaja.ockham.core.Form;
 import com.josexato.navaja.ockham.core.Http;
 import com.josexato.navaja.ockham.core.OckhamClient;
 import com.josexato.navaja.ockham.core.Session;
@@ -59,6 +60,37 @@ public final class OckhamHarness {
         check("trabajo terminado: " + j.state, j.succeeded());
         check("el servidor leyó el mismo archivo", hash.equals(String.valueOf(j.verdict.chosen.get("sha256"))));
         System.out.println("\n" + j.verdict.text());
+
+        // Bajar el archivo de resultado, comprobando su huella.
+        java.io.ByteArrayOutputStream informe = new java.io.ByteArrayOutputStream();
+        c.download(j.verdict.files.get(0), informe, null);
+        check("resultado bajado y comprobado (" + informe.size() + " bytes)", informe.toString("UTF-8").contains(hash));
+
+        // Si el servidor ofrece la receta de Runpod de prueba: el formulario, un trabajo completo y una cancelación.
+        for (OckhamClient.Recipe r : c.recipes()) {
+            if (!r.name.equals("eco-gpu")) continue;
+            java.util.List<Form.Field> campos = Form.of(r.parameters);
+            Map<String, String> escrito = new LinkedHashMap<>();
+            escrito.put("nota", "con formulario");
+            OckhamClient.Job g = c.submit(OckhamClient.newJobId(), "eco-gpu", Form.values(campos, escrito), Collections.singletonList(path));
+            for (int i = 0; i < 120 && !g.done; i++) {
+                Thread.sleep(1000);
+                g = c.job(g.id);
+            }
+            check("trabajo en Runpod terminado: " + g.state, g.succeeded() && hash.equals(String.valueOf(g.verdict.chosen.get("sha256"))));
+            escrito.put("espera_s", "40");
+            OckhamClient.Job lento = c.submit(OckhamClient.newJobId(), "eco-gpu", Form.values(campos, escrito), Collections.singletonList(path));
+            for (int i = 0; i < 30 && !lento.state.equals("running") && !lento.state.equals("starting"); i++) {
+                Thread.sleep(1000);
+                lento = c.job(lento.id);
+            }
+            c.cancel(lento.id);
+            for (int i = 0; i < 30 && !lento.done; i++) {
+                Thread.sleep(1000);
+                lento = c.job(lento.id);
+            }
+            check("trabajo en Runpod cancelado: " + lento.state, lento.state.equals("cancelled"));
+        }
 
         // La sesión guardada sirve para seguir después de cerrar la app, y se renueva cuando vence.
         OckhamClient later = new OckhamClient(new Http.Url(), Session.fromText(saved[0]), s -> saved[0] = s.toText());
